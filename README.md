@@ -1,29 +1,30 @@
 # xiao-ee02-e-paper-calendar
 
-Calendar, Weather and AI picture on XIAO EE02 E-Paper.
+Battery-powered EE02 five-day calendar and weather dashboard.
 
-For a detailed description see the [E-Paper Wall Calendar with AI-Generated Artwork and Weather Display](https://www.makerguides.com/e-paper-wall-calendar-with-ai-generated-artwork-and-weather-display/) article.
+The [original prototype article](https://www.makerguides.com/e-paper-wall-calendar-with-ai-generated-artwork-and-weather-display/) explains the inherited artwork-based firmware; its artwork feature is **retired in the approved redesign** but remains present in current source until the removal is implemented.
 
-## Overview
+## Approved product direction (not yet implemented)
 
-A battery-powered e-paper dashboard built on the **Seeed Studio XIAO ESP32S3 Plus** with the **EE02 6-color e-paper display** (1600×1200, Spectra 6 palette). It wakes periodically to refresh the screen with:
+- **Display:** 1600×1200 Spectra 6, rolling next five days starting today, fixed waking-hour window (exact hours configurable), timed grid the leading candidate versus a five-day agenda. The week view **replaces the 1024×1024 artwork area**. Display layout is not finally selected.
+- **Other panels:** retain weather, multi-day forecast, today's detailed events, battery indication, and their existing positions initially. Whether the legacy monthly calendar remains is Open.
+- **Calendars:** select multiple source calendars; support Google, iCloud/CalDAV and general ICS by source-independent internal event representation. Entirely on-device fetching/normalization; **no separate backend, hosted processor or update preprocessor**. An ICS-first initial transport is favored but not yet a committed provider-access scope; private iCloud versus public ICS access remains Open.
+- **Memory:** use bounded event/scratch storage, disciplined stack/internal heap/PSRAM allocation, and a staged shared PSRAM scratch-then-render buffer where driver ownership allows. Do not assume PSRAM survives deep sleep or that direct DMA is supported without exact-library and hardware verification.
+- **Storage/time:** NVS stores changed persistent configuration only (Wi-Fi, timezone, calendar URLs/selection, refresh settings). No daily churn, events, weather or routine counters go to NVS. RTC-retained memory may hold validated compact sleep context; reconstruct after invalid RTC/reset. NTP on cold boot when required, then approximately daily; use internal RTC between syncs.
+- **Refresh/recovery:** battery-powered, single user-configurable coordinated data-acquisition/render cycle, independently validated per source. Successful calendars display even if another calendar fails, with a named error bar; a weather failure is shown in its own panel while previously valid forecast data may remain. Three consecutive complete acquisition failures cause a full error screen; cold boot tries Wi-Fi before presenting recovery instructions.
+- **Setup:** device-hosted Wi-Fi webpage (LAN while explicitly awake, or open/no-password AP). AP stops after 10 minutes without meaningful user activity or 30 minutes maximum, then sleeps. Entering a new password may show characters; after save it is masked and the saved value is never echoed. Calendar URL fields remain displayed. An operator-accessible hardware AP trigger is required; simultaneous Setup+Refresh hold for five seconds is a **proposed, unverified** factory-reset gesture, not yet a pin/wake contract.
 
-- **AI-generated artwork** — Weather- and season-aware images in a Japanese anime style, selected from `PIC_THEMES` (including Totoro), generated via OpenAI's API and Floyd-Steinberg dithered for the 6-color display
-- **Current weather** — Temperature, humidity, rainfall, wind speed, and a hand-drawn weather icon fetched from OpenWeatherMap
-- **5-day forecast** — Daily high/low temperatures, weather icons, and descriptions grouped from 3-hourly forecast data
-- **Monthly calendar** — Full month grid with today highlighted and weekend days in red
-- **Calendar events** — Today's events pulled from calendars accessible to Google Apps Script, with up to six displayed by the firmware
-- **Battery indicator** — Battery charge percentage drawn in the corner
+This is the **approved design intent**, not an assertion of deployed features. Exact schema limits, recurrence correctness, framebuffer/DMA behavior, regional display behavior, battery runtime, and recovery button implementation require validation. See [docs/ENGINEERING.md](docs/ENGINEERING.md) for owned contracts, Open decisions, and testing.
 
-The firmware schedules deep sleep between updates and avoids wakes in 00:00–04:59 when local time is available. These are current implementation settings; sleep current and physical wake behavior have not been independently validated.
+## Current prototype implementation (source observed; not the redesign)
 
-This is a working-intent prototype. The advertised capabilities above describe its intended use and current implementation, not a validated production system.
+The currently committed firmware on `main` wakes to show AI artwork, current weather, five-day weather forecast, a monthly calendar, up to six events from a Google Apps Script endpoint, and battery indication. Its existing sleep policy excludes 00:00–04:59 when local time is known. These are implementation observations, not a requirement to preserve the artwork or the legacy calendar interface. This prototype has not been validated as a reproducible firmware build or on target hardware.
 
-## Project direction and repository guidance
+## Repository workflow
 
-Stabilization retains the XIAO ESP32-S3 Plus/EE02 hardware and Arduino framework, preserves calendar, weather, and artwork capabilities, and prioritizes correctness, security, reliability, and testability. Incremental development uses static checks and applicable lightweight host behavior tests. Complete firmware compilation and hardware validation are owner-controlled milestone activities; a firmware build is preferred but is not a prerequisite for initial source repairs. Uncompiled changes are not claimed to be firmware-compatible, and no CI or hosted build infrastructure is required. Power optimization follows foundational fixes. UI redesign, additional calendar providers, and framework/library migration are deferred. Existing defaults do not select future calendar, retention, degraded-operation, or refresh policy.
+Retain the Seeed XIAO ESP32-S3 Plus/EE02 Arduino platform. Carry out the redesign as separately reviewable semantic changes with static and focused host behavior tests. Full firmware compilation and hardware validation remain owner-controlled milestones; compilation is preferred but not a prerequisite for initial repairs. Uncompiled code is not claimed firmware-compatible, and CI or hosted builds are not required.
 
-See [AGENTS.md](AGENTS.md) for development instructions, [docs/ENGINEERING.md](docs/ENGINEERING.md) for architecture, constraints, validation limits and Open decisions, and [CHANGELOG.md](CHANGELOG.md) for canonical project-change history.
+See [AGENTS.md](AGENTS.md) for developer workflow, [docs/ENGINEERING.md](docs/ENGINEERING.md) for technical requirements, current-source boundaries and roadmap, and [CHANGELOG.md](CHANGELOG.md) for merge-facing history.
 
 ## Hardware
 
@@ -33,7 +34,7 @@ See [AGENTS.md](AGENTS.md) for development instructions, [docs/ENGINEERING.md](d
 | **Display** | XIAO EE02 Expansion Board (6-color e-paper, 1600×1200) |
 | **Battery** | Li-Po battery (connected via XIAO battery header) |
 
-## How It Works
+## Current implementation — How It Works
 
 1. **Wake from deep sleep** — Every `DEEP_SLEEP_HOURS` (default: 3 hours), or at 05:00 if the wake time would fall in the dead zone
 2. **Connect to Wi-Fi** and sync time via NTP
@@ -47,7 +48,7 @@ See [AGENTS.md](AGENTS.md) for development instructions, [docs/ENGINEERING.md](d
 6. **Render the display** — Draws all sections (picture, weather, calendar, events, battery) to the e-paper
 7. **Deep sleep** until the next cycle; with `DEEP_SLEEP_HOURS = 0`, setup runs once and the empty loop performs no further updates
 
-## Layout
+## Current implementation — Layout
 
 ```
 ┌───────────────────────────────────────────────┐
@@ -67,9 +68,9 @@ See [AGENTS.md](AGENTS.md) for development instructions, [docs/ENGINEERING.md](d
 └───────────────────────────────────────────────┘
 ```
 
-## Configuration
+## Current implementation — Configuration
 
-Application settings are in [constants.h](constants.h); display selection is declared in [driver.h](driver.h), and credentials are supplied locally:
+Current source uses [constants.h](constants.h) for settings, [driver.h](driver.h) for display selection and local credentials. These compile-time inputs will be superseded by device-hosted configuration for the approved redesign:
 
 | Constant | Description |
 |----------|-------------|
@@ -113,7 +114,7 @@ These are the settings documented by the sketch. A complete successful firmware 
 
 A version number alone does not identify compatible source. The exact Seeed_GFX revision supporting EE02/board-screen 510 and the PNGdec fork/buffer configuration remain unresolved. The inspected Seeed_GFX V2.0.3 tag and upstream PNGdec 1.1.6 cannot be assumed to reproduce the intended display/image path. Alpha ESP32 core package availability, exact board options, memory fit, and a complete build remain unverified. No alternative library version is declared supported; see the [engineering baseline](docs/ENGINEERING.md#known-engineering-limitations).
 
-## Google Calendar Setup
+## Current implementation — Google Calendar Setup
 
 The [google-calendar-api.gs](google-calendar-api.gs) file exposes today's calendar events as a JSON endpoint. For an authorized deployment, create a Google Apps Script project, set its `API_KEY` to a private value matching `CALENDAR_API_KEY`, and deploy as a web app using the identity/access settings described in the script. Set its URL in `GOOGLE_CALENDAR_URL` in local `credentials.h`.
 
@@ -121,7 +122,7 @@ The documented deployment executes as the deploying account and allows access to
 
 ## Operation and recovery limits
 
-There is no committed reproducible build/flash procedure or validated recovery runbook. A focused [host regression](tests/data_acquisition_test.cpp) covers acquisition orchestration; it does not validate Arduino integration or hardware. Keep local credentials private and use Serial output for diagnosis without sharing sensitive event/API content. Calendar retrieval is independent of weather success once acquisition Wi-Fi connects, but event data remains volatile across deep sleep, and SPIFFS can be formatted on mount failure. Do not rely on offline retention or preservation of cached artwork after filesystem failure. TLS certificate verification is currently disabled; security stabilization and owner-controlled hardware validation are still required. Recovery/retention choices remain Open in the engineering anchor.
+There is no committed reproducible build/flash procedure or validated recovery runbook. The intended AP/web/factory-reset recovery described above is not yet implemented. A focused [host regression](tests/data_acquisition_test.cpp) covers acquisition orchestration; it does not validate Arduino integration or hardware. Keep local credentials private and use Serial output for diagnosis without sharing sensitive event/API content. Calendar retrieval is independent of weather success once acquisition Wi-Fi connects, but event data remains volatile across deep sleep, and SPIFFS can be formatted on mount failure. Do not rely on offline retention or preservation of cached artwork after filesystem failure. TLS certificate verification is currently disabled; security stabilization and owner-controlled hardware validation are still required. The redesign's selected recovery and storage policies are in the engineering anchor; implementation and hardware results remain unverified.
 
 ## License
 
