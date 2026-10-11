@@ -44,12 +44,14 @@ and implementation mechanisms do not establish durable product requirements.
 **Current-source observations:** a single Arduino sketch includes headers that mix
 data acquisition, mutable state, application logic, and rendering. These are source
 responsibilities, not isolated layers. Acquisition sequencing is separated into
-one hardware-independent helper; the remaining application is not a testable core.
+one hardware-independent helper, and calendar payload validation/replacement has a
+focused ArduinoJson boundary; the remaining application is not a testable core.
 
 | Component | Responsibility and dependencies |
 | --- | --- |
 | [Sketch](../xiao-ee02-e-paper-calendar.ino) | Global EPaper instance; boot orchestration, SPIFFS mount, drawing/update, display sleep and ESP timer deep sleep. `loop()` is empty. |
-| [calendar.h](../calendar.h) | Wi-Fi/NTP time synchronization, calendar date math/grid rendering, HTTPS Apps Script retrieval, volatile event array, subset sorting and event drawing. |
+| [calendar.h](../calendar.h) | Wi-Fi/NTP time synchronization, calendar date math/grid rendering, HTTPS Apps Script retrieval, volatile event array and event drawing. Uses the response helper after HTTP success. |
+| [calendar_response.h](../calendar_response.h) | Hardware-independent ArduinoJson decoding, complete schema/time validation, bounded event copying, subset sorting and transactional volatile snapshot replacement. |
 | [weather.h](../weather.h) | Current weather, short forecast and grouped daily forecast retrieval; volatile state; icon/forecast rendering; network orchestration that also calls calendar retrieval. |
 | [data_acquisition.h](../data_acquisition.h) | Synchronous, independent fetch sequencing after Wi-Fi connection; reports four individual bool results, disconnects, and returns current-weather success. Uses callbacks without Arduino dependencies or retained state. |
 | [picture.h](../picture.h) | Weather/season/theme prompt construction, OpenAI chat/image calls, base64/PNG decoding, dithering, date-named SPIFFS cache, cleanup and pixel rendering. Depends on weather state. |
@@ -109,16 +111,39 @@ Equal-time selection preserves calendar/event encounter order, including at the
 eight-event cutoff. This is the approved compatibility rule for this correction,
 not a permanent calendar-priority policy. All-day output stays `00:00`/`24:00` and
 participates using the same displayed start-time comparison, without added priority.
-The JSON fields remain `start`, `end`, `title`, and `calendar`. Unchanged firmware
-retains the first six records before `qsort()` by HH:MM (calendar.h lines 181–207;
+The JSON fields remain `start`, `end`, `title`, and `calendar`. Firmware
+retains the first six records before `qsort()` by HH:MM (calendar_response.h;
 `CAL_EVENTS_MAX = 6` in constants.h), so the earliest six globally selected events
 are available for display. Firmware equal-time display order is not guaranteed
 stable. Existing title/calendar buffers, rendering and colors are unchanged.
 Filtering, future tie/overflow policy, all-day priority, timezone and retention
 policies remain Open; live deployment and hardware behavior remain unverified.
-Successful JSON parsing alone does not distinguish
-an unauthorized/error response from a valid empty event collection. Events and
-weather live in ordinary static RAM; no retained calendar snapshot is implemented.
+`fetchCalendarEvents()` preserves its boolean result, HTTP timeout, redirect and
+single non-200 retry behavior. After HTTP success it calls `parseCalendarResponse()`.
+The helper requires a top-level object, rejects any `error` field (including null
+or false), and requires an `events` array. Every record must be an object with
+string `start`, `end`, `title`, and `calendar` fields, including records beyond
+capacity. Times must be exactly HH:MM: hours 00–23, minutes 00–59, with end-only
+24:00 allowed. End-before-start is permitted; no new midnight policy is selected.
+Title/calendar truncation stays at 63/31 bytes with explicit null termination.
+
+Validation uses one zero-initialized six-event temporary array (654 bytes on the
+host, `6 * sizeof(CalendarEvent)` on target) alongside the existing ArduinoJson
+document. It retains only the first six, validates all remaining records, sorts
+the retained subset, then copies the complete array in one publication step.
+This fixed stack storage avoids retaining another event list proportional to
+response size or duplicating the payload. A small reader tracks consumption so
+trailing non-whitespace data is rejected; ArduinoJson remains the JSON decoder.
+There is no new response-count limit or additional heap allocation beyond the
+document; very large payload/document allocation remains an existing resource risk.
+
+A valid empty array returns true and clears every slot. HTTP failure, decoding
+failure, application error and invalid schema return false without modifying the
+current snapshot. A shorter successful response clears unused slots. Diagnostics
+distinguish these outcomes and successful empty/nonempty responses without event
+content. HTTP-200 application errors are not retried. Events and weather live in
+ordinary static RAM; no persistence, reboot/deep-sleep retention, freshness or
+cross-day stale-event policy is selected.
 
 OpenAI chat creates a weather/season-aware prompt with a random `PIC_THEMES` entry;
 image generation requests a 1024x1024 PNG and processes `b64_json`, not a URL
@@ -159,7 +184,7 @@ polarity, sequencing or sleep retention contract is established. Do not infer th
 
 **Current-source observations:** Wi-Fi/API secrets come from intentionally ignored
 local credentials.h. Apps Script contains a placeholder API_KEY that operators
-must privately configure. HTTPS paths call `setInsecure()` in calendar.h:146,
+must privately configure. HTTPS paths call `setInsecure()` in calendar.h,
 weather.h:71/151/552 and picture.h:67/195. Thus certificate-based server
 authentication is disabled; encrypted transport is not authenticated trust.
 
@@ -197,6 +222,14 @@ cutoff ties, all-day formatting, response fields, authentication rejection and
 the first-six firmware input. Ordering uses displayed minutes, not hidden seconds.
 These tests and syntax checks use Node built-ins without real credentials, live
 calendar access or deployment; they do not establish live service compatibility.
+The [C++ response regression](../tests/calendar_response_test.cpp) calls the actual
+production parser with genuine prepared ArduinoJson 7.4.3. It covers valid empty,
+one/six/eight and larger responses; complete schema/string/time validation;
+unauthorized/error objects; invalid JSON; safe truncation; cleared unused slots;
+sorting and byte-for-byte snapshot preservation after rejection, including invalid
+records beyond capacity. Strict C++11 warnings and host sanitizers can check this
+boundary, not HTTPClient, Arduino String, ESP32 RAM headroom, live Apps Script or
+rendering. ESP32 compilation and hardware validation remain owner-controlled.
 No general runner, CI, reproducible firmware compile command or documentation
 checker is committed. A full firmware build is unverified. Select checks by
 actual affected guarantees; ordinary prose work uses semantic/link/ignore/diff/scope
@@ -255,10 +288,14 @@ measurement or successful firmware build is available to support readiness.
 - **No complete build/regression baseline:** documented library versions are not
   compatible revision proof; credentials/configuration, memory and partition fit
   remain prerequisites for a verified complete build. Host coverage is limited
-  to acquisition orchestration and Apps Script selection; no CI is committed.
-- **Data reliability:** insufficient response-state distinctions, unstable
+  to acquisition orchestration, Apps Script selection and calendar payload
+  validation/replacement; no CI is committed.
+- **Data reliability:** unstable
   firmware equal-time display order, volatile events and unresolved timezone
-  alignment limit confidence. Retention behavior is not yet selected.
+  alignment limit confidence. Retention behavior is not yet selected. Rendering's
+  existing lowercase title/calendar scratch buffers may lack null termination at
+  maximum copied length (`drawCalendarEvents()`); parser output is terminated,
+  but that separate rendering defect is not corrected by response validation.
 - **Security/storage:** insecure TLS, existence-only cache hits, unchecked direct
   writes, insufficient decoder dimension guards, and format-on-mount-failure
   require stabilization. None is corrected by governance documentation.
@@ -293,7 +330,8 @@ depends on selected retention policy and safe storage publication.
 
 ## Open decisions and recommendation boundaries
 
-**Open product/technical policy:** calendar scope/filtering, all-day priority and
+**Open product/technical policy:** calendar scope/filtering, display capacity and
+overflow presentation, all-day priority and
 future representation, future tie/overflow policy beyond the current server
 compatibility rule; offline freshness/retention and cross-day
 invalidation; stale-data/fallback artwork and optional-service/degraded behavior;

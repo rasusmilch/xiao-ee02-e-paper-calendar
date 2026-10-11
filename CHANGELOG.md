@@ -6,6 +6,10 @@ is historical evidence, not current architecture or requirements authority.
 
 ## Unreleased
 
+- Validate the complete calendar response before replacing the volatile event
+  snapshot: valid empty arrays clear it, successful responses clear unused slots,
+  and error/malformed responses fail without partial replacement. Preserve event
+  limits and safe bounded string copying without selecting persistent retention.
 - Select the earliest eight daily events globally across all accessible calendars
   in displayed start-time order, preserving source encounter order for ties and
   existing all-day formatting; the unchanged six-event firmware capacity receives

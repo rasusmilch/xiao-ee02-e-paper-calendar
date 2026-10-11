@@ -91,6 +91,15 @@ node --check tests/google_calendar_api_test.js
 ```
 
 No general test runner or CI workflow is committed.
+The calendar response regression uses the production parser and genuine ArduinoJson
+headers. The prepared 7.4.3 include path below is environment-specific; no library
+installation or ESP32 build is needed:
+
+```
+g++ -std=c++11 -Wall -Wextra -Werror -pedantic -I/workspace/tooling/arduino/user/libraries/ArduinoJson/src tests/calendar_response_test.cpp -o /tmp/ee02-calendar-response-test
+/tmp/ee02-calendar-response-test
+```
+
 Documentation: no dedicated lint/link-check command is committed; inspect Markdown
 references and affected claims directly, using available tools.
 Review: no automated review command exists; independent review inspects source/diff.

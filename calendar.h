@@ -5,7 +5,7 @@
 #include "TFT_eSPI.h"
 #include "constants.h"
 #include "credentials.h"
-#include <ArduinoJson.h>
+#include "calendar_response.h"
 #include <HTTPClient.h>
 #include <WiFi.h>
 #include <WiFiClientSecure.h>
@@ -125,20 +125,7 @@ void drawCalendar(EPaper &epaper) {
 // Google Calendar events
 // ============================================================
 
-struct CalendarEvent {
-  bool valid;
-  char start[6];
-  char end[6];
-  char title[64];
-  char calendar[32];
-};
-
 static CalendarEvent calEvents[CAL_EVENTS_MAX] = {};
-
-// Comparison function for sorting events by start time (HH:MM string)
-static int cmpEvents(const void *a, const void *b) {
-  return strcmp(((CalendarEvent *)a)->start, ((CalendarEvent *)b)->start);
-}
 
 // Fetch today's events from the Google Apps Script endpoint
 bool fetchCalendarEvents() {
@@ -165,48 +152,32 @@ bool fetchCalendarEvents() {
   }
   if (code != HTTP_CODE_OK) {
     http.end();
-    Serial.printf("Calendar API retry returned %d\n", code);
+    Serial.printf("Calendar HTTP failure after retry: %d\n", code);
     return false;
   }
   String payload = http.getString();
   http.end();
 
-  JsonDocument doc;
-  DeserializationError err = deserializeJson(doc, payload);
-  if (err) {
-    Serial.printf("Calendar JSON error: %s\n", err.c_str());
-    return false;
+  const CalendarResponseStatus status =
+      parseCalendarResponse(payload.c_str(), payload.length(), calEvents);
+  switch (status) {
+  case CalendarResponseStatus::JsonError:
+    Serial.println("Calendar JSON decoding failure");
+    break;
+  case CalendarResponseStatus::ApplicationError:
+    Serial.println("Calendar unauthorized/error response");
+    break;
+  case CalendarResponseStatus::InvalidSchema:
+    Serial.println("Calendar invalid response schema");
+    break;
+  case CalendarResponseStatus::SuccessEmpty:
+    Serial.println("Calendar success: empty event snapshot");
+    break;
+  case CalendarResponseStatus::SuccessEvents:
+    Serial.println("Calendar success: nonempty event snapshot");
+    break;
   }
-
-  JsonArray events = doc["events"];
-  int count = 0;
-  for (JsonObject ev : events) {
-    if (count >= CAL_EVENTS_MAX)
-      break;
-    const char *s = ev["start"];
-    const char *e = ev["end"];
-    const char *t = ev["title"];
-    const char *c = ev["calendar"];
-    if (s)
-      strncpy(calEvents[count].start, s, sizeof(calEvents[count].start) - 1);
-    if (e)
-      strncpy(calEvents[count].end, e, sizeof(calEvents[count].end) - 1);
-    if (t)
-      strncpy(calEvents[count].title, t, sizeof(calEvents[count].title) - 1);
-    if (c)
-      strncpy(calEvents[count].calendar, c,
-              sizeof(calEvents[count].calendar) - 1);
-    calEvents[count].valid = true;
-    Serial.printf("Event[%d]: %s - %s  %s  [%s]\n", count,
-                  calEvents[count].start, calEvents[count].end,
-                  calEvents[count].title, calEvents[count].calendar);
-    count++;
-  }
-
-  // Sort events by start time so earlier events appear first
-  qsort(calEvents, count, sizeof(CalendarEvent), cmpEvents);
-
-  return true;
+  return calendarResponseSucceeded(status);
 }
 
 // Draw calendar events below the monthly grid
