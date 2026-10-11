@@ -22,9 +22,14 @@ Passing compilation or host tests cannot establish hardware operation.
 ## Approved technical constraints
 
 Retain XIAO ESP32-S3 Plus, EE02, and Arduino C++ for stabilization. Preserve the
-advertised calendar, weather, and artwork capabilities. Establish reproducible
-development validation before substantive repairs; prioritize correctness,
-security, reliability, and testability before power optimization or expansion.
+advertised calendar, weather, and artwork capabilities. Use static checks and
+applicable lightweight host behavior tests during incremental development.
+Complete firmware compilation and hardware validation are owner-controlled
+milestone activities. A successful firmware build remains preferred but is not
+a prerequisite for initial source repairs; uncompiled changes do not establish
+firmware compatibility. No CI or hosted build infrastructure is required.
+Prioritize correctness, security, reliability, and testability before power
+optimization or expansion.
 Use a small separation of hardware-independent application logic from drivers
 when needed for meaningful tests. A large abstraction framework requires a
 demonstrated necessity case against the simpler alternative.
@@ -38,13 +43,15 @@ and implementation mechanisms do not establish durable product requirements.
 
 **Current-source observations:** a single Arduino sketch includes headers that mix
 data acquisition, mutable state, application logic, and rendering. These are source
-responsibilities, not isolated layers or an already implemented testable core.
+responsibilities, not isolated layers. Acquisition sequencing is separated into
+one hardware-independent helper; the remaining application is not a testable core.
 
 | Component | Responsibility and dependencies |
 | --- | --- |
 | [Sketch](../xiao-ee02-e-paper-calendar.ino) | Global EPaper instance; boot orchestration, SPIFFS mount, drawing/update, display sleep and ESP timer deep sleep. `loop()` is empty. |
 | [calendar.h](../calendar.h) | Wi-Fi/NTP time synchronization, calendar date math/grid rendering, HTTPS Apps Script retrieval, volatile event array, subset sorting and event drawing. |
 | [weather.h](../weather.h) | Current weather, short forecast and grouped daily forecast retrieval; volatile state; icon/forecast rendering; network orchestration that also calls calendar retrieval. |
+| [data_acquisition.h](../data_acquisition.h) | Synchronous, independent fetch sequencing after Wi-Fi connection; reports four individual bool results, disconnects, and returns current-weather success. Uses callbacks without Arduino dependencies or retained state. |
 | [picture.h](../picture.h) | Weather/season/theme prompt construction, OpenAI chat/image calls, base64/PNG decoding, dithering, date-named SPIFFS cache, cleanup and pixel rendering. Depends on weather state. |
 | [battery.h](../battery.h) | ADC enable/sample, assumed voltage conversion, discharge-curve interpolation and battery drawing. |
 | [constants.h](../constants.h) | Location/timezone/NTP, themes, layout, event limit and sleep interval. These defaults are implementation observations. |
@@ -59,10 +66,15 @@ responsibilities, not isolated layers or an already implemented testable core.
 2. `syncTime()` opens Wi-Fi, uses `configTzTime(TIMEZONE, NTP_SERVER)`, tries local
    time acquisition, and disconnects/turns Wi-Fi off. It returns no synchronization
    status (calendar.h lines 41–57).
-3. `updateWeather()` opens Wi-Fi again. Only current-weather success triggers both
-   forecast requests and calendar retrieval. Their return values are ignored.
-   Normal completion disconnects/off; connection-failure return bypasses that
-   cleanup (weather.h lines 890–913).
+3. `updateWeather()` opens Wi-Fi again with the existing bounded connection wait.
+   On connection success, `acquireDataSources()` calls current weather, short
+   forecast, daily forecast and calendar fetch functions once each, in that order,
+   regardless of individual bool results. Each fetch owns its own inputs; forecast
+   and calendar requests do not require current-weather success. Four outcomes
+   are reported with source-only failure messages, then Wi-Fi disconnects/off.
+   The return value still reports current-weather success only. Wi-Fi failure
+   returns false without fetching or running disconnect/off cleanup. The calendar
+   fetch's existing internal HTTP retry is unchanged.
 4. Valid weather gates artwork acquisition. Cache existence can skip generation;
    otherwise another connection obtains a chat prompt and a base64 PNG response,
    decodes/dithers it, writes a raw file and removes old images after reported
@@ -80,7 +92,7 @@ responsibilities, not isolated layers or an already implemented testable core.
 NTP uses the configured pool server and POSIX timezone. OpenWeatherMap supplies
 current weather plus overlapping `cnt=5`/`cnt=40` forecast responses. Forecast
 hours/dates are taken from `dt_txt` without explicit timezone normalization
-(weather.h lines 190–204,630–658). Apps Script uses deployment-local date/time
+(weather.h lines 191–205,631–659). Apps Script uses deployment-local date/time
 operations; live deployment/calendar zone alignment is unverified.
 
 Apps Script truncates while enumerating calendars at eight events; firmware
@@ -102,8 +114,9 @@ transactional publication protects the asset (picture.h lines 497,590–627,
 634–647,712–783). PNG header inspection diagnoses dimensions but does not enforce
 the fixed-width callback buffer/expected height (lines 512–627).
 
-Failures cross boundaries: weather failure suppresses unrelated calendar/forecast
-retrieval and new artwork; missing time affects date/render paths; setup proceeds
+Weather failure no longer suppresses calendar or forecast acquisition on a
+connected session. Valid current weather still gates new artwork; missing time
+affects date/render paths; setup proceeds
 without explicit artwork/mount outcomes. These are observed limitations, not
 approved degraded-operation policy.
 
@@ -129,7 +142,7 @@ polarity, sequencing or sleep retention contract is established. Do not infer th
 **Current-source observations:** Wi-Fi/API secrets come from intentionally ignored
 local credentials.h. Apps Script contains a placeholder API_KEY that operators
 must privately configure. HTTPS paths call `setInsecure()` in calendar.h:146,
-weather.h:70/150/551 and picture.h:67/195. Thus certificate-based server
+weather.h:71/151/552 and picture.h:67/195. Thus certificate-based server
 authentication is disabled; encrypted transport is not authenticated trust.
 
 Calendar/API keys travel in query URLs; OpenAI uses a bearer header. Apps Script
@@ -152,15 +165,22 @@ threat assumptions, and recovery/retention policy require evidence or selection.
 ## Testing and validation strategy
 
 The [AGENTS command section](../AGENTS.md#commands-and-validation) owns actual
-command availability. No automated regression suite, runner, CI, reproducible
-compile command, or documentation checker is committed. A full firmware build is
-unverified. Select checks by actual affected guarantees, not file extension or
-habit; ordinary prose governance work uses semantic/link/ignore/diff/scope checks.
+command availability. The [focused host regression](../tests/data_acquisition_test.cpp)
+calls the production acquisition helper with fake fetch/report/disconnect callbacks.
+It covers all 16 success/failure combinations, exactly-once invocation and order,
+individual outcomes, current-weather-only return semantics, and the Wi-Fi-failure
+gate without any network callbacks. Arduino's connection loop and adapters are
+inspected statically; host tests do not exercise their hardware behavior.
+No general runner, CI, reproducible firmware compile command or documentation
+checker is committed. A full firmware build is unverified. Select checks by
+actual affected guarantees; ordinary prose work uses semantic/link/ignore/diff/scope
+checks. Static and host checks support incremental source repairs; complete firmware
+compilation and hardware validation belong to owner-controlled milestones.
 
-**Recommended future baseline:** pin compatible original inputs and verify one
-Arduino CLI build path usable locally and in CI; establish a small host runner
-without live APIs. Test actual extracted application logic rather than a substitute
-implementation. Useful boundaries include date/event selection, explicit source
+**Recommended further validation:** recover and pin compatible original inputs
+and verify an Arduino CLI build path at an owner-selected milestone. CI/hosted
+builds are optional, not required. Extend small host tests of actual extracted
+application logic without live APIs. Useful boundaries include date/event selection, explicit source
 outcomes/snapshot replacement, timezone/forecast grouping, supplied-time sleep
 math, voltage interpolation, PNG/cache acceptance, dither packing and render-model
 comparison. Keep network, filesystem, ADC, panel and ESP sleep calls in narrow
@@ -208,8 +228,9 @@ measurement or successful firmware build is available to support readiness.
   a successful build are unverified. No installed ESP32 core/toolchain was found.
 - **No complete build/regression baseline:** documented library versions are not
   compatible revision proof; credentials/configuration, memory and partition fit
-  remain prerequisites. No automated tests/CI are committed.
-- **Data reliability:** weather/calendar coupling, truncation before global sort,
+  remain prerequisites for a verified complete build. Host coverage is limited
+  to acquisition orchestration; no CI is committed.
+- **Data reliability:** truncation before global sort,
   insufficient response-state distinctions, volatile events and unresolved timezone
   alignment limit confidence. Retention behavior is not yet selected.
 - **Security/storage:** insecure TLS, existence-only cache hits, unchecked direct
@@ -228,8 +249,10 @@ depends on selected retention policy and safe storage publication.
 
 1. **Governance foundation:** coherent repository authority; independent ChatGPT
    review determines governance readiness before progression.
-2. **Reproducible build and test baseline:** recover compatible source provenance,
-   verify exact board/configuration and build, then add initial meaningful host tests.
+2. **Incremental validation and build recovery:** use static checks and focused
+   host behavior tests for authorized source repairs. Recover compatible source
+   provenance and exact board/configuration for owner-controlled firmware build
+   milestones; complete compilation does not gate initial source repairs.
 3. **Calendar correctness and reliability:** separate source outcomes, correct
    global selection, establish time boundaries and explicit snapshot states;
    implement retention only within a selected policy.
@@ -252,7 +275,7 @@ formatting; power/current, battery/timing tolerances and hardware pilot acceptan
 Do not infer selection from existing constants or API behavior.
 
 **Recommendations not yet selected:** Arduino CLI as the reproducible build route,
-immutable compatible library pins, lightweight C++ host testing, explicit source
+immutable compatible library pins, broader focused C++ host coverage, explicit source
 results/time normalization, transactional storage and authenticated TLS mechanisms.
 Routine helper organization/test tooling is an implementation-local choice; an
 upgrade, durable retention guarantee or product-policy change needs supporting
@@ -269,6 +292,15 @@ baseline-before-repair sequencing, small testable separation, and deferral of UI
 provider/framework expansion. The owner authorized only the lean governance unit
 and local durable preservation; later roadmap stages and Open policy were not
 authorized. Codex recording this direction is not its provenance.
+
+On 2026-10-11, the owner explicitly superseded the earlier requirement that a
+reproducible firmware build precede substantive repairs. The revised policy permits
+initial source repairs validated with static and applicable lightweight host checks;
+the owner controls complete firmware compilation/flashing and hardware milestones.
+Compilation remains preferred, uncompiled changes carry no firmware-compatibility
+claim, and CI/hosted build infrastructure is not required. Hardware/Arduino retention
+and the other stabilization constraints continue to apply. This instruction also
+authorized independent weather/forecast/calendar acquisition and its focused tests.
 
 The accepted planning assessment is prior execution evidence, not independent
 product authority. No historical firmware releases or earlier owner-policy decisions

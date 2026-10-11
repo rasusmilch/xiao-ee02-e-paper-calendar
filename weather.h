@@ -1,5 +1,6 @@
 #pragma once
 
+#include "data_acquisition.h"
 #include "TFT_eSPI.h"
 #include "constants.h"
 #include "credentials.h"
@@ -894,21 +895,38 @@ bool updateWeather() {
     delay(100);
     retry++;
   }
-  if (WiFi.status() != WL_CONNECTED) {
+  const bool wifiConnected = WiFi.status() == WL_CONNECTED;
+  if (!wifiConnected) {
     Serial.println("Weather: WiFi connect failed");
-    return false;
+  } else {
+    Serial.println("Weather: WiFi connected, fetching data...");
   }
-  Serial.println("Weather: WiFi connected, fetching data...");
-  bool ok = fetchWeatherData();
-  if (ok) {
-    Serial.println("Fetching forecast data...");
-    fetchForecastData();
-    Serial.println("Fetching daily forecast data...");
-    fetchDailyForecastData();
-    Serial.println("Fetching calendar events...");
-    fetchCalendarEvents();
-  }
-  WiFi.disconnect(true);
-  WiFi.mode(WIFI_OFF);
-  return ok;
+  return acquireDataSources(
+      wifiConnected, fetchWeatherData,
+      []() -> bool {
+        Serial.println("Fetching forecast data...");
+        return fetchForecastData();
+      },
+      []() -> bool {
+        Serial.println("Fetching daily forecast data...");
+        return fetchDailyForecastData();
+      },
+      []() -> bool {
+        Serial.println("Fetching calendar events...");
+        return fetchCalendarEvents();
+      },
+      [](const DataAcquisitionResults &results) {
+        if (!results.weather)
+          Serial.println("Current weather request failed");
+        if (!results.forecast)
+          Serial.println("Forecast request failed");
+        if (!results.dailyForecast)
+          Serial.println("Daily forecast request failed");
+        if (!results.calendar)
+          Serial.println("Calendar request failed");
+      },
+      []() {
+        WiFi.disconnect(true);
+        WiFi.mode(WIFI_OFF);
+      });
 }
