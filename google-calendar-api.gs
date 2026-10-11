@@ -11,8 +11,9 @@
 // Purpose:
 //   Returns today's calendar events as JSON for the ESP32 e-paper display.
 //   Includes events from all calendars (primary + shared by others).
-//   All-day events are included with "--:--" as the time placeholder.
-//   Max 6 events are returned (fits the display area).
+//   Returns the earliest 8 globally by displayed HH:MM start time; the ESP32
+//   displays at most 6. Equal start times retain calendar/event encounter order.
+//   All-day events keep the existing "00:00" through "24:00" representation.
 // ============================================================
 
 const MAX_EVENTS = 8;
@@ -35,16 +36,16 @@ function doGet(e) {
 
   // Fetch events from ALL calendars (own + shared by others)
   const allCals = CalendarApp.getAllCalendars();
-  for (let c = 0; c < allCals.length && result.length < MAX_EVENTS; c++) {
+  for (let c = 0; c < allCals.length; c++) {
     const events = allCals[c].getEvents(today, tomorrow);
 
-    for (let i = 0; i < events.length && result.length < MAX_EVENTS; i++) {
+    for (let i = 0; i < events.length; i++) {
       const ev = events[i];
 
       const calName = allCals[c].getName();
 
       if (ev.isAllDayEvent()) {
-        result.push({
+        retainEarliestEvent(result, {
           start: "00:00",
           end: "24:00",
           title: ev.getTitle(),
@@ -56,7 +57,7 @@ function doGet(e) {
       const startTime = ev.getStartTime();
       const endTime = ev.getEndTime();
 
-      result.push({
+      retainEarliestEvent(result, {
         start: formatTime(startTime),
         end: formatTime(endTime),
         title: ev.getTitle(),
@@ -68,6 +69,23 @@ function doGet(e) {
   return ContentService
     .createTextOutput(JSON.stringify({ events: result }))
     .setMimeType(ContentService.MimeType.JSON);
+}
+
+// Keep only the earliest MAX_EVENTS records seen so far, sorted by the same
+// HH:MM representation consumed by the firmware. Insert after existing ties so
+// later encounters cannot displace an equal-time event at the cutoff. With a
+// fixed limit of 8, insertion avoids retaining/sorting all calendars' records.
+function retainEarliestEvent(result, event) {
+  let position = 0;
+  while (position < result.length && result[position].start <= event.start) {
+    position++;
+  }
+  if (position < MAX_EVENTS) {
+    if (result.length === MAX_EVENTS) {
+      result.pop();
+    }
+    result.splice(position, 0, event);
+  }
 }
 
 function formatTime(date) {

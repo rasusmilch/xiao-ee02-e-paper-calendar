@@ -81,6 +81,15 @@ g++ -std=c++11 -Wall -Wextra -Werror -pedantic tests/data_acquisition_test.cpp -
 /tmp/ee02-data-acquisition-test
 ```
 
+The calendar selection regression runs production `doGet()` with mocked Apps Script
+services and synthetic dates/events; no deployment or live access is needed:
+
+```
+node tests/google_calendar_api_test.js
+node --check < google-calendar-api.gs
+node --check tests/google_calendar_api_test.js
+```
+
 No general test runner or CI workflow is committed.
 Documentation: no dedicated lint/link-check command is committed; inspect Markdown
 references and affected claims directly, using available tools.

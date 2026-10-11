@@ -56,7 +56,7 @@ one hardware-independent helper; the remaining application is not a testable cor
 | [battery.h](../battery.h) | ADC enable/sample, assumed voltage conversion, discharge-curve interpolation and battery drawing. |
 | [constants.h](../constants.h) | Location/timezone/NTP, themes, layout, event limit and sleep interval. These defaults are implementation observations. |
 | [driver.h](../driver.h) | Declares board-screen 510/T133A01 and EE02 selection; propagation through the intended display library/build is unresolved. |
-| [google-calendar-api.gs](../google-calendar-api.gs) | Separate Google Apps Script deployment; query-key authentication and today's events from CalendarApp calendars. |
+| [google-calendar-api.gs](../google-calendar-api.gs) | Separate Google Apps Script deployment; query-key authentication, examination of today's events from all accessible CalendarApp calendars, and bounded global earliest-eight selection. |
 
 ### Boot to sleep flow
 
@@ -95,10 +95,28 @@ hours/dates are taken from `dt_txt` without explicit timezone normalization
 (weather.h lines 191–205,631–659). Apps Script uses deployment-local date/time
 operations; live deployment/calendar zone alignment is unverified.
 
-Apps Script truncates while enumerating calendars at eight events; firmware
-truncates at six before sorting by HH:MM (script lines 18,38–65; calendar.h
-lines 181–207). All-day output is `00:00`/`24:00`. Selection order, filtering and
-all-day priority remain Open. Successful JSON parsing alone does not distinguish
+Apps Script `doGet()` examines every event returned by each accessible calendar's
+`getEvents(today, tomorrow)` call, preserving the existing daily interval and
+deployment-local date/time interpretation. It retains the earliest eight globally
+using displayed `HH:MM` start strings, returned in chronological order. The sorted
+selection holds at most eight records; each candidate is inserted after existing
+equal times and the latest record is removed if needed. This uses O(8N) comparisons
+and constant selection storage beyond CalendarApp's per-calendar event arrays.
+Collecting and sorting all records would also be correct with stable ties but would
+retain every record unnecessarily; a bounded insertion list is small at this limit.
+
+Equal-time selection preserves calendar/event encounter order, including at the
+eight-event cutoff. This is the approved compatibility rule for this correction,
+not a permanent calendar-priority policy. All-day output stays `00:00`/`24:00` and
+participates using the same displayed start-time comparison, without added priority.
+The JSON fields remain `start`, `end`, `title`, and `calendar`. Unchanged firmware
+retains the first six records before `qsort()` by HH:MM (calendar.h lines 181–207;
+`CAL_EVENTS_MAX = 6` in constants.h), so the earliest six globally selected events
+are available for display. Firmware equal-time display order is not guaranteed
+stable. Existing title/calendar buffers, rendering and colors are unchanged.
+Filtering, future tie/overflow policy, all-day priority, timezone and retention
+policies remain Open; live deployment and hardware behavior remain unverified.
+Successful JSON parsing alone does not distinguish
 an unauthorized/error response from a valid empty event collection. Events and
 weather live in ordinary static RAM; no retained calendar snapshot is implemented.
 
@@ -171,6 +189,14 @@ It covers all 16 success/failure combinations, exactly-once invocation and order
 individual outcomes, current-weather-only return semantics, and the Wi-Fi-failure
 gate without any network callbacks. Arduino's connection loop and adapters are
 inspected statically; host tests do not exercise their hardware behavior.
+The [Node.js calendar regression](../tests/google_calendar_api_test.js) executes
+production `doGet()` in a VM with mocked CalendarApp/ContentService and controlled
+UTC dates. Explicit event identities cover empty/under-limit/exact-limit/overflow
+responses, late calendars, interleaved and reversed enumeration, stable ties and
+cutoff ties, all-day formatting, response fields, authentication rejection and
+the first-six firmware input. Ordering uses displayed minutes, not hidden seconds.
+These tests and syntax checks use Node built-ins without real credentials, live
+calendar access or deployment; they do not establish live service compatibility.
 No general runner, CI, reproducible firmware compile command or documentation
 checker is committed. A full firmware build is unverified. Select checks by
 actual affected guarantees; ordinary prose work uses semantic/link/ignore/diff/scope
@@ -229,9 +255,9 @@ measurement or successful firmware build is available to support readiness.
 - **No complete build/regression baseline:** documented library versions are not
   compatible revision proof; credentials/configuration, memory and partition fit
   remain prerequisites for a verified complete build. Host coverage is limited
-  to acquisition orchestration; no CI is committed.
-- **Data reliability:** truncation before global sort,
-  insufficient response-state distinctions, volatile events and unresolved timezone
+  to acquisition orchestration and Apps Script selection; no CI is committed.
+- **Data reliability:** insufficient response-state distinctions, unstable
+  firmware equal-time display order, volatile events and unresolved timezone
   alignment limit confidence. Retention behavior is not yet selected.
 - **Security/storage:** insecure TLS, existence-only cache hits, unchecked direct
   writes, insufficient decoder dimension guards, and format-on-mount-failure
@@ -268,7 +294,8 @@ depends on selected retention policy and safe storage publication.
 ## Open decisions and recommendation boundaries
 
 **Open product/technical policy:** calendar scope/filtering, all-day priority and
-representation, tie/overflow selection; offline freshness/retention and cross-day
+future representation, future tie/overflow policy beyond the current server
+compatibility rule; offline freshness/retention and cross-day
 invalidation; stale-data/fallback artwork and optional-service/degraded behavior;
 refresh interval/dead zone/content-change policy; filesystem-loss recovery and
 formatting; power/current, battery/timing tolerances and hardware pilot acceptance.
@@ -301,6 +328,13 @@ Compilation remains preferred, uncompiled changes carry no firmware-compatibilit
 claim, and CI/hosted build infrastructure is not required. Hardware/Arduino retention
 and the other stabilization constraints continue to apply. This instruction also
 authorized independent weather/forecast/calendar acquisition and its focused tests.
+
+In the subsequent global calendar-selection instruction, the owner authorized
+examining all accessible calendars' daily events before limiting to the globally
+earliest eight by displayed start time. Equal-time source encounter order and
+existing all-day formatting were explicitly retained as compatibility rules;
+permanent calendar priorities, filtering, timezone and retention changes were not
+authorized. Firmware capacity and equal-key `qsort()` behavior remain unchanged.
 
 The accepted planning assessment is prior execution evidence, not independent
 product authority. No historical firmware releases or earlier owner-policy decisions
