@@ -25,6 +25,16 @@ supersession separately. Resolve material conflicts rather than picking the newe
 wording or implementation. No private guide or template is needed to follow this
 contract.
 
+Every future task involving graphics, PSRAM, calendar transport, ICS parsing,
+recurrence, event storage or wake-cycle sequencing must consult the
+[selected GFX2, PSRAM and streaming-calendar architecture](docs/ENGINEERING.md#selected-gfx2-psram-and-streaming-calendar-architecture)
+before planning or implementation. It owns the application-owned workspace,
+independent snapshot, transactional source processing and framebuffer-borrow
+contract. Selected direction is not current implementation or validated memory
+capacity. Contradictory source, test or hardware evidence requires explicit review
+and adjudication before changing the architecture; never silently substitute a
+different ownership, processing or allocation model.
+
 ## Scope and development workflow
 
 Retain the XIAO ESP32-S3 Plus/EE02 Arduino platform and the calendar, weather,

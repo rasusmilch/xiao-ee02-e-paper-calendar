@@ -9,6 +9,8 @@ setup; [AGENTS.md](../AGENTS.md) owns development workflow and command status.
 ## Authority and evidence classes
 
 - **Approved:** explicitly selected by the owner; governs desired behavior/work.
+- **Selected:** an owner-selected architectural direction, not proof of current
+  implementation, dependency compatibility or validated operating limits.
 - **Current-source observation:** established by inspection; describes implementation,
   not approval of its product policy or proof of runtime success.
 - **Recommendation:** a technical proposal not yet selected for execution.
@@ -33,12 +35,15 @@ Use a small separation of hardware-independent application logic from drivers
 when needed for meaningful tests. A large abstraction framework requires a
 demonstrated necessity case against the simpler alternative.
 
-Library upgrades or framework migrations are not assumed prerequisites. Resolve
+Seeed_GFX2 with a local external-framebuffer ownership extension is Selected for
+the target; the current Seeed_GFX/TFT_eSPI integration has not migrated. Other
+library upgrades or framework migrations are not assumed prerequisites. Resolve
 compatibility through evidence. The five-day UI redesign and device-side multi-calendar
 support are approved target scope, not implemented behavior. Artwork retirement is
 implemented; the empty former artwork region is only an intermediate development
 state, not a completed display design or independently releasable product outcome.
-Framework migration remains unselected; legacy defaults establish no target policy.
+Legacy defaults establish no target policy; exact GFX2/core/board integration
+remains unverified and this selection alone does not authorize implementation.
 
 ## Approved target architecture (not yet implemented)
 
@@ -62,8 +67,9 @@ described in the next sections. A roadmap is not implementation authorization.
   bounded on-device ICS recurrence expansion. Handle rules, exceptions, moved and
   deleted occurrences, all-day/multiday intervals, timezones, DST and cross-window
   series. Explicitly report unsupported features and overflow; never silently
-  omit an event and claim a complete schedule. Exact limits, parser strategy and
-  transport support require host tests and engineering validation.
+  omit an event and claim a complete schedule. Sequential streaming ICS with bounded
+  dependency staging is Selected below; exact limits, supported recurrence subset
+  and provider transport support require separate adjudication and validation.
 - Valid zero events are success. A failed calendar must not suppress successfully
   retrieved calendars: show their events and a clearly named error bar saying the
   overall schedule is incomplete. Treat each source independently.
@@ -88,18 +94,143 @@ described in the next sections. A roadmap is not implementation authorization.
   RTC-retained memory may hold versioned, validated compact sleep context; rebuild
   or enter explicit error state on reset/retention loss. PSRAM is not deep-sleep
   retained.
-- Strict measured stack/internal heap/PSRAM limits. The board nominally has
-  8 MB PSRAM. Prefer reusing a large PSRAM workspace for streaming ICS parsing and
-  bounded expansion, then transfer a compact **full five-day** event snapshot out
-  before reusing the workspace for rendering. Do not alias driver-owned active
-  framebuffer data. Direct PSRAM DMA/display transfer is unverified; test exact
-  Seeed_GFX/ESP32 core or stage transfers through a small internal DMA buffer.
-  Measure memory peaks, fragmentation and largest free block across network,
-  parsing and rendering phases.
+- Strict measured stack/internal heap/PSRAM limits. The selected shared workspace
+  and independent **full five-day** snapshot follow the ownership and validation
+  contract below; nominal PSRAM capacity does not establish usable headroom.
 - Artwork-only functions, OpenAI credential requirements and API calls, PNG/base64
   processing, dithering, cache and image-only dependencies have been removed.
   SPIFFS has no remaining application consumer and is no longer initialized.
   Keep artwork retired permanently; protect shared components from broad cleanup.
+
+### Selected GFX2, PSRAM and streaming-calendar architecture
+
+**Selected target, not implemented or validated.** The owner-selected architecture
+uses Seeed_GFX2 with a locally maintained external-framebuffer ownership extension,
+one application-owned PSRAM arena, and a separate fixed-capacity five-day occurrence
+snapshot in PSRAM. Both allocations are volatile across deep sleep. Current firmware
+still uses the global TFT_eSPI/EPaper object and ordinary event/weather storage;
+it implements none of this ownership extension, arena or streaming ICS pipeline.
+Contradictory engineering evidence must trigger explicit review and adjudication,
+not silent architectural substitution. Detailed parser limits remain Open.
+
+#### Ownership and wake-cycle sequence
+
+1. Allocate and verify the application-owned workspace and independent snapshot.
+   Do not silently fall back to internal SRAM for either large PSRAM allocation.
+2. Acquire calendars sequentially, one source at a time, through streaming HTTP/ICS.
+   Never materialize a whole feed as a `String` or complete in-memory ICS document.
+   Correctly handle response framing/completion, redirects, timeouts and truncation.
+3. Use the arena for bounded line unfolding/tokenization, compact components,
+   recurrence rules/exceptions, timezone definitions and expansion state. Input
+   order is not reliable: masters, overrides and timezone definitions may follow
+   their consumers. Resolve dependencies and exceptions before publishing the
+   calendar's five-day occurrences, including moves into or out of the window.
+4. Validate and publish each calendar transactionally, using a checkpoint/rollback
+   or equivalent isolated staging. Complete success, including valid zero events,
+   publishes only independent snapshot records. Unsupported rules, malformed or
+   truncated responses, timeouts, exhausted budgets or other failures roll back
+   only that calendar; name it as incomplete and continue other sources. Never
+   expose a failed source's partial occurrences as a complete result.
+5. Reset source-local arena state between calendars. Snapshot records must retain
+   no pointers, offsets, `String` backing storage, UID pools, recurrence iterators
+   or timezone mappings into the reused arena. Snapshot data remains valid for
+   the entire wake cycle independently of scratch storage.
+6. Close network and parser activity before rendering. Clear the first
+   framebuffer-sized prefix of the arena and lend it exclusively to GFX2 for
+   calendar, weather, forecast, battery and error composition. No parsing writes
+   may overlap this live framebuffer. Complete panel refresh and sleep before
+   ending the borrow or releasing/reassigning the application-owned storage.
+
+This is phase reuse of application-owned memory, not reuse of a driver-owned
+pointer. Do not add a general buffer manager, compatibility layer, persistent cache
+or secondary representation without a demonstrated need against this simpler
+sequence. The selection does not change existing layout or authorize a renderer,
+calendar parser, configuration system or refresh scheduler implementation.
+
+#### GFX2 external-framebuffer contract and evidence
+
+Use an appropriately licensed, pinned, locally maintained GFX2 adaptation with
+the smallest explicit external-framebuffer interface. In borrowed mode, GFX2
+borrows only the validated **960,000-byte framebuffer slice**, never the arena
+tail. It must not free application-owned memory, resize/replace it, retain it past
+the borrow lifetime or allocate an unnecessary second full framebuffer. Borrowed
+mode must never silently allocate a second full framebuffer.
+Reject invalid capacity, alignment, format and lifecycle states cleanly; preserve
+ordinary library-owned behavior for other callers. No unrelated DMA or panel
+controller-protocol changes are selected.
+
+The selected native T133A01 format is 1200 × 1600 at 4 bits/pixel: 600 bytes/row
+and a calculated 960,000 bytes (937.5 KiB). Rotation to 1600 × 1200 keeps the same
+storage size. This is format-based arithmetic, not an observed current allocation.
+Audit mirror paths for temporary full-screen copies and verify orientation;
+selecting external ownership alone does not prove no secondary allocations occur.
+
+The supplied architecture reference reports research at Seeed_GFX2 revision
+`8f74b7aa91c4fcbc5ba2467bab4de4e7ce0eeeeb`, specifically
+`src/panel/Panel_EPaper.cpp` and `src/driver/epaper/Driver_T133A01.cpp`, with
+CPU-mediated indexed-color conversion and SPI sends. This is supplied research
+evidence, not independently inspected driver source in this documentation task
+or a validated dependency pin. Direct PSRAM DMA is neither required by the
+selection nor established as supported. Verify exact source, core/board
+configuration propagation, packaging, transfer/alignment requirements and physical
+EE02 operation before claiming compatibility; do not substitute arbitrary versions.
+
+#### Provisional evaluation budgets
+
+| Item | Initial evaluation allowance; not a validated operating limit |
+| --- | --- |
+| Shared PSRAM arena | **2 MiB (2,097,152 bytes)** for source staging, then the 960,000-byte framebuffer prefix |
+| Independent five-day snapshot | **1,024 occurrences × estimated 320 bytes = 327,680 bytes (320 KiB)** |
+
+The occurrence count, snapshot capacity and arena size are provisional evaluation
+budgets. The 320-byte record allowance is not an implemented `sizeof` or final
+record schema. Illustrative additional allowances in the supplied reference are
+64 KiB source metadata, 16 KiB weather and 16 KiB ordering/layout indices; these
+are estimates, not selected fixed allocations or measurements. Actual TLS/network,
+Arduino/core/task-stack and graphics temporary-buffer costs remain unmeasured.
+Revise budgets through measured workloads and explicit review, not silent overflow
+or fallback. Nominal 8 MiB PSRAM proves neither a sufficiently large contiguous
+block nor adequate internal heap. Measure overlapping lifetimes, minimum internal
+heap, largest free PSRAM block, fragmentation, stack margins, processing time and
+panel-cycle energy before establishing operating limits.
+
+#### Recurrence correctness, limits and transport boundaries
+
+Streaming bounds input buffering, not dependency state for arbitrarily large valid
+feeds. Preserve full UID identities without unsafe truncation. The supported
+contract must correctly resolve `RECURRENCE-ID`, `RRULE`, `RDATE`, `EXDATE`,
+cancellations/moved instances, timezone/DST, all-day/multiday overlap and out-of-order
+definitions. Supported subsets, source-byte/logical-line bounds, component/exception
+limits, recurrence-candidate/CPU budgets and event-capacity overflow behavior need
+separate adjudication. Enforce explicit limits and name incomplete sources; never
+silently omit occurrences while reporting a complete schedule.
+
+Normal processing uses one download with compact staging. A two-pass streaming
+fallback is optional only if measurements demonstrate necessity and a strong
+validator or equivalent confirms identical source content across both passes.
+`304 Not Modified` cannot reconstruct volatile calendar data lost across deep sleep.
+Provider transports remain Open: selecting streaming ICS does not commit all sources
+to ICS-only access. Prefer bounded provider-expanded results where a future authorized
+adapter supports them. No always-on external processor or flash spool/cache is
+selected.
+
+#### Required implementation validation
+
+- **Host:** folded lines across arbitrary network chunks, response completion and
+  truncation, oversized ignored properties, timezone/DST, masters/overrides in
+  either order, window-crossing moves, per-source rollback and allocator exhaustion.
+  Poison/reset the arena before rendering to expose dangling snapshot references;
+  verify bounded parser/recurrence state and no unbounded per-event heap allocation.
+- **Exact firmware/toolchain:** verify GFX2/board/core configuration at first include
+  and throughout library compilation, native format/capacity/alignment, initial
+  allocation/failure paths, no frees of borrowed memory, borrow lifetime through
+  transfer/sleep and absence of unnecessary secondary framebuffer allocations.
+- **Physical EE02:** six colors and rotated coordinates; retained weather/forecast,
+  calendar/details and battery rendering; repeated initialization/refresh/sleep/wake;
+  mirror temporary allocations and failure paths. Measure minimum internal heap,
+  PSRAM peaks/largest free blocks/fragmentation, stack high-water marks, TLS overlap,
+  processing/refresh time and energy on the exact build. Host tests cannot establish
+  DMA support or physical display correctness. No such measurements are claimed here.
 
 ### Setup and failure recovery
 
@@ -281,8 +412,14 @@ boot-to-sleep sequencing against the preceding source revision, and search for d
 artwork symbols, includes, credentials and filesystem consumers. The acquisition
 regression does not exercise Arduino rendering, panel behavior or memory peaks.
 
-**Recommended further validation:** recover and pin compatible original inputs
-and verify an Arduino CLI build path at an owner-selected milestone. CI/hosted
+The selected architecture's [required validation](#required-implementation-validation)
+adds ownership, streaming/recurrence, rollback and measured memory/display checks;
+it does not describe tests already implemented or executed.
+
+**Recommended further validation:** establish reproducible inputs for the selected
+GFX2 integration and verify an Arduino CLI build path at an owner-selected milestone;
+any attempt to reproduce the legacy prototype must separately identify its compatible
+original inputs. CI/hosted
 builds are optional, not required. Extend small host tests of actual extracted
 application logic without live APIs. Useful boundaries include date/event selection, explicit source
 outcomes/snapshot replacement, timezone/forecast grouping, supplied-time sleep
@@ -321,6 +458,11 @@ measurement or successful firmware build is available to support readiness.
   by root application source; calendar.h repeats selection macros after the
   sketch's first TFT_eSPI include. Correct library-wide configuration propagation
   must be established, not assumed or patched by an unapproved upgrade.
+- **Selected GFX2 integration unimplemented/unverified:** the external-framebuffer
+  extension, dependency pin, licensing/packaging, exact core/board configuration,
+  borrowed-memory lifetime and panel transfer behavior need implementation and
+  validation. Supplied upstream research does not establish compatibility or memory
+  reliability on EE02. Graphics-foundation selection is no longer Open.
 - **Alpha core reproducibility unverified:** cached package metadata includes
   4.0.0-alpha1, but availability, complete installation, exact board recipes and
   a successful build are unverified. No installed ESP32 core/toolchain was found.
@@ -330,7 +472,8 @@ measurement or successful firmware build is available to support readiness.
   to acquisition orchestration; no CI is committed.
 - **Data reliability:** truncation before global sort,
   insufficient response-state distinctions, volatile events and unresolved timezone
-  alignment limit confidence. Retention behavior is not yet selected.
+  alignment limit confidence. The target calendar snapshot is wake-cycle-only;
+  weather freshness/RTC-retention details remain Open.
 - **Security:** insecure TLS remains and requires stabilization; removing artwork
   does not establish authenticated trust for weather or calendar traffic.
 - **Intermediate display:** the reserved former artwork region is temporarily empty.
@@ -359,12 +502,20 @@ initial source repairs.
 legacy month grid, waking-hour defaults, recurrence and overflow limits, ICS-only
 transport commitment versus private CalDAV/Google authenticated access, weather
 freshness and retained-buffer fit, failure state transitions, actual button reset
-mapping, driver PSRAM/DMA compatibility, refresh default/battery-life targets,
+mapping, exact GFX2 dependency/core/board integration and verified PSRAM/transfer
+behavior (direct DMA remains unverified, not required), refresh default/battery-life targets,
 and hardware pilot acceptance. Current constants do not decide these.
 
+Seeed_GFX2, application-owned phase reuse, the independent PSRAM snapshot,
+sequential streaming and per-calendar transactional publication are **Selected**,
+not Open alternatives. Numeric evaluation budgets are provisional, not validated
+limits. Contrary engineering evidence requires explicit review and adjudication.
+
 **Recommendations not yet selected:** Arduino CLI as the reproducible build route,
-immutable compatible library pins, broader focused C++ host coverage, explicit source
-results/time normalization, transactional storage and authenticated TLS mechanisms.
+immutable compatible pins for other dependencies, broader focused C++ host coverage, explicit
+source-results/time normalization, durable configuration-save mechanisms and
+authenticated TLS mechanisms. Pinning the selected local GFX2 adaptation is required,
+but its exact compatible revision is not yet established.
 Routine helper organization/test tooling is an implementation-local choice; an
 upgrade, durable retention guarantee or product-policy change needs supporting
 evidence and approval. Unknown wiring/configuration/runtime facts require inspection
@@ -418,6 +569,18 @@ remain separately authorized. Independent ChatGPT review follows publication bef
 authorization of the next dependent implementation unit. The current policy is
 owned by [AGENTS.md](../AGENTS.md#authorized-feature-branch-publication); this record
 is decision provenance, not evidence of review or merge completion.
+
+On 2026-10-11, the owner supplied `ee02_selected_memory_architecture.md` and selected
+Seeed_GFX2 with a locally maintained external-framebuffer ownership extension,
+application-owned PSRAM phase reuse, a separate fixed-capacity five-day PSRAM
+snapshot, sequential streaming ICS and transactional per-calendar publication.
+This supersedes unselected graphics-foundation wording and conditional workspace
+reuse as target direction; earlier decision and validation evidence remains history.
+The 2 MiB arena, 1,024 occurrences and 320 KiB snapshot are provisional evaluation
+budgets. The supplied GFX2 research revision is not a validated dependency pin;
+no migration, parser implementation, firmware build or memory/display measurements
+are implied. Current authority is the [selected architecture](#selected-gfx2-psram-and-streaming-calendar-architecture),
+which requires explicit adjudication of contradictory engineering evidence.
 
 ## Historical validation evidence and hardware status
 

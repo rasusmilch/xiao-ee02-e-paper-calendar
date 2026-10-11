@@ -26,3 +26,9 @@ is historical evidence, not current architecture or requirements authority.
 - Clarify prototype configuration, service/data boundaries, unresolved dependency
   compatibility, and build/hardware evidence limits so developers can distinguish
   approved direction from implementation observations and unselected policies.
+- Record the selected Seeed_GFX2 external-framebuffer ownership extension and
+  application-owned shared PSRAM architecture, with sequential streaming ICS,
+  an independent five-day snapshot and transactional per-calendar publication.
+  Require future related work to consult the canonical contract and adjudicate
+  contradictory evidence; keep sizing budgets provisional and implementation,
+  driver compatibility and hardware behavior unverified.
