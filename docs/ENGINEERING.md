@@ -34,8 +34,10 @@ when needed for meaningful tests. A large abstraction framework requires a
 demonstrated necessity case against the simpler alternative.
 
 Library upgrades or framework migrations are not assumed prerequisites. Resolve
-compatibility through evidence. The five-day UI redesign, device-side multi-calendar
-support and artwork retirement are approved target scope, not implemented behavior.
+compatibility through evidence. The five-day UI redesign and device-side multi-calendar
+support are approved target scope, not implemented behavior. Artwork retirement is
+implemented; the empty former artwork region is only an intermediate development
+state, not a completed display design or independently releasable product outcome.
 Framework migration remains unselected; legacy defaults establish no target policy.
 
 ## Approved target architecture (not yet implemented)
@@ -94,10 +96,10 @@ described in the next sections. A roadmap is not implementation authorization.
   Seeed_GFX/ESP32 core or stage transfers through a small internal DMA buffer.
   Measure memory peaks, fragmentation and largest free block across network,
   parsing and rendering phases.
-- Remove the retired artwork-only functions, credentials, OpenAI image calls,
-  PNG decoding, dithering, cache, image-only dependencies and dead code. Eliminate
-  SPIFFS if no remaining non-artwork feature uses it; do not delete shared
-  components through overly broad cleanup.
+- Artwork-only functions, OpenAI credential requirements and API calls, PNG/base64
+  processing, dithering, cache and image-only dependencies have been removed.
+  SPIFFS has no remaining application consumer and is no longer initialized.
+  Keep artwork retired permanently; protect shared components from broad cleanup.
 
 ### Setup and failure recovery
 
@@ -125,8 +127,8 @@ described in the next sections. A roadmap is not implementation authorization.
 
 ### Staged plan (not execution permission)
 
-1. **Stabilization:** retain valid acquisition/parser integrity repairs; verify build,
-   driver, memory, buttons and panel, and remove artwork as a focused reviewed unit.
+1. **Stabilization:** retain valid acquisition/parser integrity repairs and the focused
+   artwork removal; verify build, driver, memory, buttons and panel.
 2. **MVP:** config/NVS and RTC lifecycle, bounded source adapters and recurrence,
    partial-update states, five-day display, unified battery-conscious refresh.
 3. **Pilot:** validate exact firmware on EE02 hardware, network failures, calendar
@@ -144,21 +146,18 @@ one hardware-independent helper; the remaining application is not a testable cor
 
 | Component | Responsibility and dependencies |
 | --- | --- |
-| [Sketch](../xiao-ee02-e-paper-calendar.ino) | Global EPaper instance; boot orchestration, SPIFFS mount, drawing/update, display sleep and ESP timer deep sleep. `loop()` is empty. |
+| [Sketch](../xiao-ee02-e-paper-calendar.ino) | Global EPaper instance; boot orchestration, dividers and retained panel drawing/update, display sleep and ESP timer deep sleep. No filesystem initialization; `loop()` is empty. |
 | [calendar.h](../calendar.h) | Wi-Fi/NTP time synchronization, calendar date math/grid rendering, HTTPS Apps Script retrieval, volatile event array, subset sorting and event drawing. |
 | [weather.h](../weather.h) | Current weather, short forecast and grouped daily forecast retrieval; volatile state; icon/forecast rendering; network orchestration that also calls calendar retrieval. |
 | [data_acquisition.h](../data_acquisition.h) | Synchronous, independent fetch sequencing after Wi-Fi connection; reports four individual bool results, disconnects, and returns current-weather success. Uses callbacks without Arduino dependencies or retained state. |
-| [picture.h](../picture.h) | Weather/season/theme prompt construction, OpenAI chat/image calls, base64/PNG decoding, dithering, date-named SPIFFS cache, cleanup and pixel rendering. Depends on weather state. |
 | [battery.h](../battery.h) | ADC enable/sample, assumed voltage conversion, discharge-curve interpolation and battery drawing. |
-| [constants.h](../constants.h) | Location/timezone/NTP, themes, layout, event limit and sleep interval. These defaults are implementation observations. |
+| [constants.h](../constants.h) | Location/timezone/NTP, retained panel/divider layout, event limit and sleep interval. These defaults are implementation observations. |
 | [driver.h](../driver.h) | Declares board-screen 510/T133A01 and EE02 selection; propagation through the intended display library/build is unresolved. |
 | [google-calendar-api.gs](../google-calendar-api.gs) | Separate Google Apps Script deployment; query-key authentication and today's events from CalendarApp calendars. |
 
 ### Boot to sleep flow
 
-1. Start Serial; call `SPIFFS.begin(true)`. Mount failure is logged and execution
-   continues; the true argument permits formatting on mount failure
-   (sketch lines 61–66).
+1. Start Serial. No filesystem mount, formatting or artwork initialization occurs.
 2. `syncTime()` opens Wi-Fi, uses `configTzTime(TIMEZONE, NTP_SERVER)`, tries local
    time acquisition, and disconnects/turns Wi-Fi off. It returns no synchronization
    status (calendar.h lines 41–57).
@@ -171,17 +170,21 @@ one hardware-independent helper; the remaining application is not a testable cor
    The return value still reports current-weather success only. Wi-Fi failure
    returns false without fetching or running disconnect/off cleanup. The calendar
    fetch's existing internal HTTP retry is unchanged.
-4. Valid weather gates artwork acquisition. Cache existence can skip generation;
-   otherwise another connection obtains a chat prompt and a base64 PNG response,
-   decodes/dithers it, writes a raw file and removes old images after reported
-   success. Connection failure can also bypass network cleanup
-   (picture.h lines 65–406,590–707).
-5. Begin/rotate/clear the display, draw artwork, daily forecast, monthly calendar,
+4. Begin/rotate/clear the display, draw existing dividers, daily forecast, monthly calendar,
    events, battery and weather, then unconditionally call `update()` and `sleep()`.
-   No displayed-content comparison exists (sketch lines 78–98).
-6. Calculate sleep from local time and `DEEP_SLEEP_HOURS`, avoiding 00:00–04:59;
+   No displayed-content comparison exists. The cleared former artwork region is
+   reserved for the future five-day calendar; no replacement renderer or placeholder
+   is implemented (sketch lines 65–87).
+5. Calculate sleep from local time and `DEEP_SLEEP_HOURS`, avoiding 00:00–04:59;
    failed time acquisition falls back to the interval. Enable timer wake and enter
-   deep sleep if nonzero (sketch lines 27–59,100–110). Actual wake behavior is unverified.
+   deep sleep if nonzero (sketch lines 25–57,89–99). Actual wake behavior is unverified.
+
+Retained panel coordinates and divider endpoints are unchanged. `DAILY_FCST_X=10`
+replaces the forecast's former artwork-named origin. Neutral divider constants keep
+the margin at 10, vertical divider at x=1044 and left horizontal divider at y=1044.
+Its endpoints remain x=10..1034. The right horizontal divider retains x=1054 to
+display width minus 20 and y=display height / 2 - 30. These preserve current geometry,
+not the unselected final week-view layout.
 
 ### Service, data and storage boundaries
 
@@ -198,23 +201,20 @@ all-day priority remain Open. Successful JSON parsing alone does not distinguish
 an unauthorized/error response from a valid empty event collection. Events and
 weather live in ordinary static RAM; no retained calendar snapshot is implemented.
 
-OpenAI chat creates a weather/season-aware prompt with a random `PIC_THEMES` entry;
-image generation requests a 1024x1024 PNG and processes `b64_json`, not a URL
-download. A 4MiB response allocation overlaps the decoded PNG allocation
-(picture.h lines 283–397); actual headroom including display/core overhead is unknown.
-
-Artwork cache files are date-named raw 4bpp, expected at 524,288 bytes. Cache-hit
-logic checks existence only; rendering checks size and row reads. Writes target
-the final filename directly, row write results are unchecked, and no checksum or
-transactional publication protects the asset (picture.h lines 497,590–627,
-634–647,712–783). PNG header inspection diagnoses dimensions but does not enforce
-the fixed-width callback buffer/expected height (lines 512–627).
+No OpenAI requests, artwork processing/rendering, application filesystem operations
+or persistent data cache remain. The removed artwork path owned the overlapping
+4MiB+1 response and variable-size decoded PNG PSRAM allocations, prompt strings,
+decoder/file state, static dither/error storage and row buffers. This establishes
+removed allocation sites, not measured memory savings or verified headroom. No new
+workspace, persistent state or framebuffer ownership mechanism is introduced;
+display-driver/core allocations and actual stack/heap/PSRAM peaks remain unverified.
+Existing flash contents and the documented partition selection are untouched.
 
 Weather failure no longer suppresses calendar or forecast acquisition on a
-connected session. Valid current weather still gates new artwork; missing time
-affects date/render paths; setup proceeds
-without explicit artwork/mount outcomes. These are observed limitations, not
-approved degraded-operation policy.
+connected session. Missing time still affects date/render paths; current-weather
+failure still causes `drawWeather()` to return before its nested short-forecast draw.
+The daily forecast, calendar, events and battery retain their separate sketch calls.
+These are observed limitations, not approved degraded-operation policy.
 
 ## Hardware platform and known configuration
 
@@ -222,6 +222,8 @@ The target is XIAO ESP32-S3 Plus (Xtensa ESP32-S3), Seeed EE02, and a 13.3-inch
 six-color Spectra 6 T133A01 panel with intended 1600x1200 layout. Documented Arduino
 inputs are XIAO_ESP32S3_PLUS, USB CDC enabled, OPI PSRAM, Default with spiffs
 (3MB APP/1.5MB SPIFFS), and ESP32 core 4.0.0-alpha1 (sketch lines 1–6).
+The partition setting is unchanged even though the application no longer uses
+SPIFFS. No erasure, formatting, repartitioning or migration accompanies retirement.
 Exact FQBN/menu keys, physical flash/PSRAM capacity, partition CSV, actual linker
 memory fit and driver compatibility have not been established.
 
@@ -238,15 +240,16 @@ polarity, sequencing or sleep retention contract is established. Do not infer th
 **Current-source observations:** Wi-Fi/API secrets come from intentionally ignored
 local credentials.h. Apps Script contains a placeholder API_KEY that operators
 must privately configure. HTTPS paths call `setInsecure()` in calendar.h:146,
-weather.h:71/151/552 and picture.h:67/195. Thus certificate-based server
-authentication is disabled; encrypted transport is not authenticated trust.
+weather.h:71/151/552. Thus certificate-based server authentication is disabled;
+encrypted transport is not authenticated trust.
 
-Calendar/API keys travel in query URLs; OpenAI uses a bearer header. Apps Script
-deployment instructions execute as the deploying account with access set to
-Anyone, guarded in code by the query key. Private calendar information, prompt/
-response data, endpoint information, and paid API credentials may be exposed
-through service traffic or Serial diagnostics. SPIFFS cache stores artwork;
-physical-access protection/flash encryption is not established.
+Calendar/API keys travel in query URLs. Apps Script deployment instructions
+execute as the deploying account with access set to
+Anyone, guarded in code by the query key. Private calendar information, endpoint
+information and API credentials may be exposed through service traffic or Serial
+diagnostics. No OpenAI credential is required by the application. Private local
+credentials are not rewritten by retirement; existing flash contents are not erased.
+Physical-access protection/flash encryption is not established.
 
 **Development constraints:** keep live secrets and sensitive logs out of Git and
 shared evidence; do not inspect secret inventories or manufacture credentials to
@@ -254,9 +257,9 @@ force validation. Live service calls, deployment, flashing, or destructive recov
 require specific authorization. Operator setup is in README.
 
 **Recommendation, not yet implemented:** authenticated TLS for every endpoint and
-redirect, explicit clock/trust failure handling, bounded input validation, safe cache
-publication, and minimal diagnostic data. Trust-update mechanism, physical-access
-threat assumptions, and recovery/retention policy require evidence or selection.
+redirect, explicit clock/trust failure handling, bounded input validation and
+minimal diagnostic data. Trust-update mechanism, physical-access threat assumptions
+and recovery/retention policy require evidence or selection.
 
 ## Testing and validation strategy
 
@@ -273,12 +276,17 @@ actual affected guarantees; ordinary prose work uses semantic/link/ignore/diff/s
 checks. Static and host checks support incremental source repairs; complete firmware
 compilation and hardware validation belong to owner-controlled milestones.
 
+Artwork-retirement checks compare retained source, panel/divider geometry and
+boot-to-sleep sequencing against the preceding source revision, and search for dead
+artwork symbols, includes, credentials and filesystem consumers. The acquisition
+regression does not exercise Arduino rendering, panel behavior or memory peaks.
+
 **Recommended further validation:** recover and pin compatible original inputs
 and verify an Arduino CLI build path at an owner-selected milestone. CI/hosted
 builds are optional, not required. Extend small host tests of actual extracted
 application logic without live APIs. Useful boundaries include date/event selection, explicit source
 outcomes/snapshot replacement, timezone/forecast grouping, supplied-time sleep
-math, voltage interpolation, render-model comparison and bounded ICS recurrence handling. Keep network, filesystem, ADC, panel and ESP sleep calls in narrow
+math, voltage interpolation, render-model comparison and bounded ICS recurrence handling. Keep network, ADC, panel and ESP sleep calls in narrow
 hardware adapters. This is intended direction, not the current structure or an
 authorization to introduce infrastructure now.
 
@@ -294,12 +302,11 @@ checks. Hardware verification remains required for:
   documented power/USB conditions; acceptance limits remain Open.
 - Display: verify colors, layout, busy/timeouts, initialization refresh, repeated
   refresh and panel sleep/wake with the selected driver.
-- SPIFFS: power cycles/timer wakes, interrupted writes, full storage, corruption,
-  and recovery/data-loss behavior.
 - Wake/Wi-Fi: timestamped interval/DST/missing-time tests; unavailable AP, drop,
   DNS/NTP/TLS failure and recovery across repeated cycles.
-- PSRAM/runtime: observe allocation headroom, decoder behavior, resets/watchdog
-  and shared parser/framebuffer phase lifetimes on the exact build/hardware.
+- PSRAM/runtime: observe allocation headroom, stack peaks, fragmentation,
+  largest free blocks and resets/watchdog on the exact build/hardware. Future
+  shared parser/framebuffer phase lifetimes need separate validation.
 
 Record actual revision/configuration, covered scope, command/method, outcome and
 limitations in historical evidence. Distinguish current execution from earlier
@@ -314,10 +321,6 @@ measurement or successful firmware build is available to support readiness.
   by root application source; calendar.h repeats selection macros after the
   sketch's first TFT_eSPI include. Correct library-wide configuration propagation
   must be established, not assumed or patched by an unapproved upgrade.
-- **PNGdec fork/buffer compatibility unresolved:** sketch and decoder diagnostics
-  name maet3608/PNGdec 1.1.6. Prepared upstream bitbank2/PNGdec 1.1.6 is different
-  provenance and defaults to a 2562-byte buffered-row limit, insufficient for a
-  1024-pixel RGB/RGBA row. Compatible fork revision/build settings remain unknown.
 - **Alpha core reproducibility unverified:** cached package metadata includes
   4.0.0-alpha1, but availability, complete installation, exact board recipes and
   a successful build are unverified. No installed ESP32 core/toolchain was found.
@@ -328,9 +331,11 @@ measurement or successful firmware build is available to support readiness.
 - **Data reliability:** truncation before global sort,
   insufficient response-state distinctions, volatile events and unresolved timezone
   alignment limit confidence. Retention behavior is not yet selected.
-- **Security/storage:** insecure TLS, existence-only cache hits, unchecked direct
-  writes, insufficient decoder dimension guards, and format-on-mount-failure
-  require stabilization. None is corrected by governance documentation.
+- **Security:** insecure TLS remains and requires stabilization; removing artwork
+  does not establish authenticated trust for weather or calendar traffic.
+- **Intermediate display:** the reserved former artwork region is temporarily empty.
+  Artwork removal is not a complete or independently releasable display design;
+  the future week view and measured memory/display behavior remain unverified.
 - **Power/hardware:** repeated network operations, unconditional display update,
   unmeasured sleep current/power sequencing, and unverified battery/display behavior
   remain. Static review cannot determine physical refresh mode or electrical accuracy.
@@ -341,9 +346,10 @@ The approved stages and exact scope are owned by the [target architecture
 section](#staged-plan-not-execution-permission). This roadmap does not authorize
 implementation, merge, dependency upgrades or hardware flashing. Finish
 unmerged correctness work under its own validated scope, then review independently
-the hardware/memory baseline, artwork removal, calendar transport and week-view
-display before implementation. Each semantic unit requires separate approval,
-applicable tests and documentation reconciliation. Full firmware compile and
+the hardware/memory baseline, calendar transport and week-view display before
+implementation. Review the completed artwork removal independently. Each semantic
+unit requires separate approval, applicable tests and documentation reconciliation.
+Full firmware compile and
 hardware validation are owner-controlled milestones, not a prerequisite for
 initial source repairs.
 

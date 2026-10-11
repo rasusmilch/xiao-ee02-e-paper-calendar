@@ -6,6 +6,11 @@ is historical evidence, not current architecture or requirements authority.
 
 ## Unreleased
 
+- Permanently remove AI artwork generation, processing, caching and rendering,
+  including OpenAI credential requirements, PNGdec and application SPIFFS use.
+  Preserve retained panels, divider geometry, independent acquisition and sleep
+  behavior; reserve the former artwork region for the future five-day calendar.
+  Its temporarily empty state is not an independently releasable display design.
 - Attempt current weather, both forecasts, and calendar acquisition independently
   on a successful data-acquisition Wi-Fi connection, so one source's failure does
   not suppress the others; preserve the current-weather-only return result.

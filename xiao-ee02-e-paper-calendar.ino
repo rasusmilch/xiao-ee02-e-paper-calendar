@@ -6,7 +6,6 @@
 // esp32 core: 4.0.0-alpha1
 // libraries:
 // - https://github.com/Seeed-Studio/Seeed_GFX/tree/master : 2.0.3
-// - https://github.com/maet3608/PNGdec : 1.1.6
 // - ArduinoJson: 7.4.3
 
 #include "TFT_eSPI.h"
@@ -14,7 +13,6 @@
 #include "credentials.h"
 #include "battery.h"
 #include "calendar.h"
-#include "picture.h"
 #include "weather.h"
 
 EPaper epaper;
@@ -61,31 +59,22 @@ uint64_t getDeepSleepDuration() {
 void setup() {
   Serial.begin(115200);
 
-  if (!SPIFFS.begin(true)) {
-    Serial.println("SPIFFS mount failed");
-  }
-
   syncTime();
   updateWeather();
-
-  if (weatherData.valid) {
-    Serial.println("Checking/creating daily image...");
-    fetchAndStoreDailyImage();
-  } else {
-    Serial.println("Weather data not available!");
-  }
 
   epaper.begin();
   epaper.setRotation(1);
   epaper.fillScreen(TFT_WHITE);
 
-  drawPicture(epaper);
-  epaper.drawLine(PIC_RIGHT_X, PIC_GAP, PIC_RIGHT_X,
-                  epaper.height() - 2 * PIC_GAP, TFT_BLACK);
-  epaper.drawLine(PIC_GAP, PIC_H + 2 * PIC_GAP, PIC_RIGHT_X - PIC_GAP,
-                  PIC_H + 2 * PIC_GAP, TFT_BLACK);
+  // The cleared upper-left region is reserved for the future five-day view.
+  epaper.drawLine(PANEL_DIVIDER_X, LAYOUT_MARGIN, PANEL_DIVIDER_X,
+                  epaper.height() - 2 * LAYOUT_MARGIN, TFT_BLACK);
+  epaper.drawLine(LAYOUT_MARGIN, LEFT_PANEL_DIVIDER_Y,
+                  PANEL_DIVIDER_X - LAYOUT_MARGIN, LEFT_PANEL_DIVIDER_Y,
+                  TFT_BLACK);
   int y = epaper.height() / 2 - 30;
-  epaper.drawLine(PIC_RIGHT_X + PIC_GAP, y, epaper.width() - 2 * PIC_GAP, y,
+  epaper.drawLine(PANEL_DIVIDER_X + LAYOUT_MARGIN, y,
+                  epaper.width() - 2 * LAYOUT_MARGIN, y,
                   TFT_BLACK);
 
   drawDailyForecastSection(epaper);

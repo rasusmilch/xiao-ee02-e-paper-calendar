@@ -735,7 +735,7 @@ bool fetchDailyForecastData() {
 }
 
 // ============================================================
-// Daily forecast section (below picture, left side)
+// Daily forecast section (lower left)
 // ============================================================
 void drawDailyForecastSection(EPaper &epaperRef) {
   int cellW = DAILY_FCST_CELL_W;
@@ -757,7 +757,7 @@ void drawDailyForecastSection(EPaper &epaperRef) {
   int sepTop = DAILY_FCST_Y;
   int sepBot = DAILY_FCST_Y + DAILY_FCST_H;
   for (int s = 1; s < DAILY_FCST_COUNT; s++) {
-    int sx = PIC_X + s * cellW;
+    int sx = DAILY_FCST_X + s * cellW;
     epaperRef.drawLine(sx, sepTop, sx, sepBot, TFT_BLACK);
   }
 
@@ -765,7 +765,7 @@ void drawDailyForecastSection(EPaper &epaperRef) {
     if (!dailyForecastData[i].valid)
       continue;
 
-    int cellX = PIC_X + i * cellW;
+    int cellX = DAILY_FCST_X + i * cellW;
     int cx = cellX + cellCenter;
 
     // Day name

@@ -2,7 +2,7 @@
 
 Battery-powered EE02 five-day calendar and weather dashboard.
 
-The [original prototype article](https://www.makerguides.com/e-paper-wall-calendar-with-ai-generated-artwork-and-weather-display/) explains the inherited artwork-based firmware; its artwork feature is **retired in the approved redesign** but remains present in current source until the removal is implemented.
+The [original prototype article](https://www.makerguides.com/e-paper-wall-calendar-with-ai-generated-artwork-and-weather-display/) describes the historical artwork-based firmware. AI artwork generation, processing, caching and rendering have been removed. The former 1024×1024 region is reserved for the future five-day calendar; its temporarily empty state is an intermediate development state, not a completed display design or independently releasable product outcome.
 
 ## Approved product direction (not yet implemented)
 
@@ -18,7 +18,7 @@ This is the **approved design intent**, not an assertion of deployed features. E
 
 ## Current prototype implementation (source observed; not the redesign)
 
-The currently committed firmware on `main` wakes to show AI artwork, current weather, five-day weather forecast, a monthly calendar, up to six events from a Google Apps Script endpoint, and battery indication. Its existing sleep policy excludes 00:00–04:59 when local time is known. These are implementation observations, not a requirement to preserve the artwork or the legacy calendar interface. This prototype has not been validated as a reproducible firmware build or on target hardware.
+The current source wakes to show current weather, five-day weather forecast, a monthly calendar, up to six events from a Google Apps Script endpoint, and battery indication, preserving their existing positions and dividers. The former artwork region remains empty after the existing screen clear. Its existing sleep policy excludes 00:00–04:59 when local time is known. These are implementation observations, not approval of the final layout or retention of the legacy monthly calendar. This prototype has not been validated as a reproducible firmware build or on target hardware.
 
 ## Repository workflow
 
@@ -40,13 +40,8 @@ See [AGENTS.md](AGENTS.md) for developer workflow, [docs/ENGINEERING.md](docs/EN
 2. **Connect to Wi-Fi** and sync time via NTP
 3. **Fetch weather data** from OpenWeatherMap (current, 3-hourly forecast, and daily grouped forecast); after the data-acquisition Wi-Fi connection succeeds, each fetch is attempted independently in this order
 4. **Fetch calendar events** from a Google Apps Script web app on the same connection, regardless of weather/forecast request results. Each fetch function is called once per connected acquisition; the existing calendar request retry remains internal to its fetch function. Source-specific failures are logged, and `updateWeather()` still returns current-weather success. If Wi-Fi fails, no fetch is attempted
-5. **Generate daily AI image** — When current weather is valid, generate if today's image is absent or `PIC_SKIP_EXISTING_IMAGE` is disabled:
-   - Sends current weather + season to OpenAI GPT (`gpt-4o-mini`) to create an image prompt
-   - Sends the prompt to OpenAI Image Generation (`gpt-image-1-mini`) returning a 1024×1024 PNG
-   - Decodes the PNG and applies Floyd-Steinberg dithering to the Spectra 6 palette
-   - Stores the 4bpp raw image in SPIFFS
-6. **Render the display** — Draws all sections (picture, weather, calendar, events, battery) to the e-paper
-7. **Deep sleep** until the next cycle; with `DEEP_SLEEP_HOURS = 0`, setup runs once and the empty loop performs no further updates
+5. **Render the display** — Initializes, rotates and clears the e-paper, draws the existing dividers, daily forecast, monthly calendar, events, battery and weather (including the 3-hourly forecast), then updates and sleeps the panel. No artwork requests, decoding, cache access or filesystem initialization remain
+6. **Deep sleep** until the next cycle; with `DEEP_SLEEP_HOURS = 0`, setup runs once and the empty loop performs no further updates
 
 ## Current implementation — Layout
 
@@ -54,8 +49,8 @@ See [AGENTS.md](AGENTS.md) for developer workflow, [docs/ENGINEERING.md](docs/EN
 ┌───────────────────────────────────────────────┐
 │                    ┌─────────────────────────┐│
 │                    │      Weather Panel      ││
-│   AI Picture       │                         ││
-│   (1024×1024)      │  Day name, temperature  ││
+│   Reserved for     │                         ││
+│   future week view │  Day name, temperature  ││
 │                    │  Weather icon (large)   ││
 │                    │  Humidity, rain, wind   ││
 │                    │                         ││
@@ -70,15 +65,12 @@ See [AGENTS.md](AGENTS.md) for developer workflow, [docs/ENGINEERING.md](docs/EN
 
 ## Current implementation — Configuration
 
-Current source uses [constants.h](constants.h) for settings, [driver.h](driver.h) for display selection and local credentials. These compile-time inputs will be superseded by device-hosted configuration for the approved redesign:
+Current source uses [constants.h](constants.h) for settings, [driver.h](driver.h) for display selection and local `credentials.h` for secrets. These compile-time inputs will be superseded by device-hosted configuration for the approved redesign:
 
 | Constant | Description |
 |----------|-------------|
 | `WX_LOCATION` | City and country for weather (e.g. `"Lohr am Main,DE"`) |
 | `TIMEZONE` | POSIX timezone string for NTP sync |
-| `PIC_THEMES` | Array of image-generation themes; one is randomly selected for each generated prompt |
-| `NUM_PIC_THEMES` | Theme count derived from the array |
-| `PIC_SKIP_EXISTING_IMAGE` | Skip generation if today's image already exists |
 | `DEEP_SLEEP_HOURS` | Hours between wake cycles (0 = disabled, for debugging) |
 
 For an operator build, create a local `credentials.h` with your credentials and API keys. It is intentionally excluded from Git; keep real values out of commits, shared logs, and receipts. The following values are illustrative only:
@@ -86,7 +78,6 @@ For an operator build, create a local `credentials.h` with your credentials and 
 ```
 const char *SSID = "xxx";
 const char *PASSWORD = "xxx";
-const char *OPENAI_API_KEY = "sk-proj-xxx";
 const char *OPENWEATHER_API_KEY = "xxx";
 const char *GOOGLE_CALENDAR_URL = "https://script.google.com/macros/s/xxx";
 const char *CALENDAR_API_KEY = "xxx";
@@ -104,15 +95,16 @@ These are the settings documented by the sketch. A complete successful firmware 
 | Partition Scheme | Default with spiffs (3MB APP/1.5MB SPIFFS) |
 | ESP32 Core | 4.0.0-alpha1 |
 
+The documented partition selection is unchanged. The application no longer mounts or uses SPIFFS; artwork retirement does not erase old flash contents, format storage or migrate partitions.
+
 ## Dependencies
 
 | Library | Documented version |
 |---------|---------|
 | [Seeed_GFX](https://github.com/Seeed-Studio/Seeed_GFX) (TFT_eSPI fork) | 2.0.3 |
 | ArduinoJson | 7.4.3 |
-| [PNGdec fork referenced by the sketch](https://github.com/maet3608/PNGdec) | 1.1.6 |
 
-A version number alone does not identify compatible source. The exact Seeed_GFX revision supporting EE02/board-screen 510 and the PNGdec fork/buffer configuration remain unresolved. The inspected Seeed_GFX V2.0.3 tag and upstream PNGdec 1.1.6 cannot be assumed to reproduce the intended display/image path. Alpha ESP32 core package availability, exact board options, memory fit, and a complete build remain unverified. No alternative library version is declared supported; see the [engineering baseline](docs/ENGINEERING.md#known-engineering-limitations).
+A version number alone does not identify compatible source. The exact Seeed_GFX revision supporting EE02/board-screen 510 remains unresolved; the inspected V2.0.3 tag cannot be assumed to reproduce the intended display path. Alpha ESP32 core package availability, exact board options, memory fit, and a complete build remain unverified. No alternative library version is declared supported; see the [engineering baseline](docs/ENGINEERING.md#known-engineering-limitations). PNGdec and OpenAI credentials are no longer application requirements; the core networking/TLS dependencies remain.
 
 ## Current implementation — Google Calendar Setup
 
@@ -122,7 +114,7 @@ The documented deployment executes as the deploying account and allows access to
 
 ## Operation and recovery limits
 
-There is no committed reproducible build/flash procedure or validated recovery runbook. The intended AP/web/factory-reset recovery described above is not yet implemented. A focused [host regression](tests/data_acquisition_test.cpp) covers acquisition orchestration; it does not validate Arduino integration or hardware. Keep local credentials private and use Serial output for diagnosis without sharing sensitive event/API content. Calendar retrieval is independent of weather success once acquisition Wi-Fi connects, but event data remains volatile across deep sleep, and SPIFFS can be formatted on mount failure. Do not rely on offline retention or preservation of cached artwork after filesystem failure. TLS certificate verification is currently disabled; security stabilization and owner-controlled hardware validation are still required. The redesign's selected recovery and storage policies are in the engineering anchor; implementation and hardware results remain unverified.
+There is no committed reproducible build/flash procedure or validated recovery runbook. The intended AP/web/factory-reset recovery described above is not yet implemented. A focused [host regression](tests/data_acquisition_test.cpp) covers acquisition orchestration; it does not validate Arduino integration, display geometry, memory peaks or hardware. Keep local credentials private and use Serial output for diagnosis without sharing sensitive event/API content. Calendar retrieval is independent of weather success once acquisition Wi-Fi connects, but event data remains volatile across deep sleep. No application filesystem operations or persistent data cache remain; do not rely on offline retention. TLS certificate verification is currently disabled; security stabilization and owner-controlled hardware validation are still required. The redesign's selected recovery and storage policies are in the engineering anchor; implementation and hardware results remain unverified.
 
 ## License
 

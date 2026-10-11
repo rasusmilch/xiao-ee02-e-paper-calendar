@@ -23,22 +23,6 @@ const char *DAY_NAMES[] = {"Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"};
 const char *FULL_DAY_NAMES[] = {"Sunday",   "Monday", "Tuesday", "Wednesday",
                                 "Thursday", "Friday", "Saturday"};
 
-// Season names for image prompt generation
-const char *SEASON_NAMES[] = {"Winter", "Spring", "Summer", "Autumn"};
-
-// Image generation theme — change these to alter the picture style
-const char *PIC_THEMES[] = {
-    "Japanese Anime,Totoro",           
-    "Japanese Anime, Inuyasha",
-    "Japanese Anime, Cowboy Bebop",    
-    "Japanese Anime, Ninja Scroll",
-    "Japanese Anime, Rurouni Kenshin",
-};
-const int NUM_PIC_THEMES = sizeof(PIC_THEMES) / sizeof(PIC_THEMES[0]);
-
-// Skip image generation if one already exists for today
-const bool PIC_SKIP_EXISTING_IMAGE = true;
-
 // Weather condition name mapping (OWM icon code prefix -> human readable)
 struct WeatherCondition {
   const char *iconPrefix;
@@ -58,16 +42,10 @@ const int NUM_CONDITIONS =
 // Display layout constants
 // ============================================================
 
-// Picture section (upper left: x=10..1034, y=10..1034)
-const int PIC_X = 10;
-const int PIC_Y = 10;
-const int PIC_W = 1024;
-const int PIC_H = 1024;
-const int PIC_GAP = 10;
-const int PIC_RIGHT_X = PIC_X + PIC_W + PIC_GAP; // 1044
-
-// SPIFFS image path template
-const char *IMAGE_PATH = "/img_%04d-%02d-%02d.bin";
+// Existing panel dividers; preserve retained geometry during the redesign.
+const int LAYOUT_MARGIN = 10;
+const int PANEL_DIVIDER_X = 1044;
+const int LEFT_PANEL_DIVIDER_Y = 1044;
 
 // Calendar section (lower right: x=1054..1580, y=600..1180)
 const int CAL_HEADER_X = 1064;
@@ -89,8 +67,9 @@ const int CAL_COLS = 7;
 // Forecast
 #define FORECAST_COUNT 5
 
-// Daily forecast section (below picture, left side)
+// Daily forecast section (lower left)
 // Area: x=10..1034, y=1044..1190 (146px tall)
+const int DAILY_FCST_X = 10;
 const int DAILY_FCST_Y = 1054;
 const int DAILY_FCST_H = 130;
 const int DAILY_FCST_AREA_W = 1024;
