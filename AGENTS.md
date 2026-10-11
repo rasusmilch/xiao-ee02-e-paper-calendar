@@ -27,10 +27,14 @@ contract.
 
 ## Scope and development workflow
 
-Preserve the advertised calendar, weather, and artwork capabilities and the XIAO
-ESP32-S3 Plus/EE02 Arduino platform during stabilization. Follow the technical
-constraints and stage dependencies in the engineering anchor. Documentation of
-prototype behavior is not a production-validation claim or approval of its policy.
+Retain the XIAO ESP32-S3 Plus/EE02 Arduino platform and the calendar, weather,
+forecast, and battery-monitoring capabilities. The approved target replaces the
+artwork area with a rolling five-day calendar and retires all artwork-only code,
+credentials, assets, dependencies and dead paths. Read the target requirements,
+current-source observations, risks and staged work in the engineering anchor;
+do not treat a design decision as implemented or use the redesign to bypass
+stabilization/validation. Existing prototype behavior is evidence, not approval
+of continuing retired functionality.
 
 Work from the prepared local checkout. Do not fetch, pull, clone, query hosted Git,
 push, force-update, reset, clean, or merge branches as part of this workflow.
