@@ -36,10 +36,17 @@ do not treat a design decision as implemented or use the redesign to bypass
 stabilization/validation. Existing prototype behavior is evidence, not approval
 of continuing retired functionality.
 
-Work from the prepared local checkout. Do not fetch, pull, clone, query hosted Git,
-push, force-update, reset, clean, or merge branches as part of this workflow.
-Hosted publication, PR metadata, review state, and authorized merge belong to the
-user/ChatGPT closure stage. Missing hosted access does not block local preservation.
+Work from the prepared local checkout. Remote Git operations are restricted to
+the authorized feature-branch publication and verification policy below unless
+separately authorized. Missing hosted access does not block local preservation.
+
+Use the lifecycle: Plan → ChatGPT Review → Execute → Validate → Commit → Publish
+→ ChatGPT Review. Each published semantic unit must receive independent ChatGPT
+execution and intent review before the next dependent implementation unit is
+authorized. The selected redesign workstream uses one feature branch,
+`feature/ee02-week-view`, and one eventual draft PR for the complete redesign;
+the branch designation is owner-approved, while PR creation remains separately
+authorized.
 
 Execute one authorized, independently reviewable semantic outcome at a time.
 Split unrelated outcomes even when they share a file; do not split mechanically
@@ -58,6 +65,46 @@ source changes invalidate the approved scope; a repair would entrench a flawed
 model; or safe execution requires selecting a material Open product/technical
 policy. Do not ask the owner to select routine implementation details. Preserve
 completed work and report unavailable checks rather than inventing evidence.
+
+## Authorized feature-branch publication
+
+Codex may publish a completed, validated and locally committed authorized semantic
+unit to the feature branch designated by the owner-approved workstream or task.
+This is standing permission within that scope; a separate publication exception
+is not needed for each unit. Do not infer authorization from an arbitrary branch
+name. Local durable preservation remains mandatory before publication.
+
+Before pushing, verify repository identity and sanitized origin fetch/push
+destinations, a clean working tree and index, the intended commit and feature
+branch, commit ancestry, and the expected remote branch state. Establish the
+expected predecessor from the approved task or last verified workstream publication,
+not from whatever SHA the remote happens to report. Inspect the commit range to
+ensure it contains only the approved semantic unit, without additional unreviewed
+work outside its scope.
+
+Use narrowly scoped `git ls-remote` queries for pre-push and post-push verification.
+The remote branch HEAD must equal the expected predecessor, which must be an
+ancestor of the commit being published, or already equal that exact commit. In
+the latter case, verify and report publication as already complete without pushing.
+If the destination is absent, has advanced unexpectedly, diverged, or cannot be
+verified safely, stop without pushing and report the discrepancy. Do not silently
+reconcile history or automatically fetch, pull, merge, rebase, reset or change
+branches to resolve it.
+
+Publish with an ordinary non-force Git push using an explicit refspec from the
+intended local commit to the designated feature branch. Never force-push, overwrite
+remote history or push directly to `main`. After publication, verify the remote
+branch SHA equals the intended commit and report the result accurately; preserve
+the local branch, HEAD, index and working tree. A successful push establishes
+publication, not independent review, merge authorization or merge readiness.
+
+This permission does not authorize tags, unrelated branches or repositories,
+other hosted queries, PR creation/merging, PR metadata changes, or changes to
+hosted review state. Do not automatically fetch, pull, clone, modify unrelated
+repositories, perform destructive Git operations, or force-update any reference.
+Service deployment and hardware flashing remain separately authorized activities.
+Hosted PR creation and management, review, integration approval and merging
+remain separately authorized user/ChatGPT activities.
 
 ## Commands and validation
 
@@ -161,8 +208,9 @@ describe uncommitted work as durable. Check and report final working-tree state.
 Require independent ChatGPT execution and intent review of planning/execution
 results. Integrated validation of the complete workstream, independent review GO,
 and cumulative changelog reconciliation are required before merge readiness.
-Local commits do not establish hosted publication, review, merge authorization,
-or merge completion. Governance readiness remains an independent review decision.
+Local commits establish durability; feature-branch publication follows the policy
+above and does not establish independent review, merge authorization or merge
+completion. Governance readiness remains an independent review decision.
 
 ## Compact receipt contract
 

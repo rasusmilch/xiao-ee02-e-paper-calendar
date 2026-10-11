@@ -408,6 +408,17 @@ initial transport and grid layout remain favored proposals. The two-button
 factory reset gesture and direct PSRAM transfer are unverified. No firmware,
 service or hardware validation is implied by this governance update.
 
+On 2026-10-11, the owner selected one feature branch (`feature/ee02-week-view`),
+independently reviewable semantic commits and one eventual draft PR for the complete
+redesign. The owner superseded the blanket Codex publication prohibition with
+standing permission for controlled non-force publication of validated local commits
+to the designated branch. This supersedes exclusive user/ChatGPT ownership of
+feature-branch publication, while PR management, integration approval and merging
+remain separately authorized. Independent ChatGPT review follows publication before
+authorization of the next dependent implementation unit. The current policy is
+owned by [AGENTS.md](../AGENTS.md#authorized-feature-branch-publication); this record
+is decision provenance, not evidence of review or merge completion.
+
 ## Historical validation evidence and hardware status
 
 **Evidence history, not a build/hardware success claim.** The accepted read-only
