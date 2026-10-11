@@ -278,8 +278,7 @@ and verify an Arduino CLI build path at an owner-selected milestone. CI/hosted
 builds are optional, not required. Extend small host tests of actual extracted
 application logic without live APIs. Useful boundaries include date/event selection, explicit source
 outcomes/snapshot replacement, timezone/forecast grouping, supplied-time sleep
-math, voltage interpolation, PNG/cache acceptance, dither packing and render-model
-comparison. Keep network, filesystem, ADC, panel and ESP sleep calls in narrow
+math, voltage interpolation, render-model comparison and bounded ICS recurrence handling. Keep network, filesystem, ADC, panel and ESP sleep calls in narrow
 hardware adapters. This is intended direction, not the current structure or an
 authorization to introduce infrastructure now.
 
@@ -300,7 +299,7 @@ checks. Hardware verification remains required for:
 - Wake/Wi-Fi: timestamped interval/DST/missing-time tests; unavailable AP, drop,
   DNS/NTP/TLS failure and recovery across repeated cycles.
 - PSRAM/runtime: observe allocation headroom, decoder behavior, resets/watchdog
-  and image-generation resource limits on the exact build/hardware.
+  and shared parser/framebuffer phase lifetimes on the exact build/hardware.
 
 Record actual revision/configuration, covered scope, command/method, outcome and
 limitations in historical evidence. Distinguish current execution from earlier
@@ -336,30 +335,17 @@ measurement or successful firmware build is available to support readiness.
   unmeasured sleep current/power sequencing, and unverified battery/display behavior
   remain. Static review cannot determine physical refresh mode or electrical accuracy.
 
-## Stabilization roadmap
+## Delivery roadmap and stabilization order
 
-This broad sequence governs planning priorities; it does not authorize execution.
-Each later change must have its own focused semantic task, acceptance criteria,
-source/authority inspection and independent review. Conditional persistence work
-depends on selected retention policy and safe storage publication.
-
-1. **Governance foundation:** coherent repository authority; independent ChatGPT
-   review determines governance readiness before progression.
-2. **Incremental validation and build recovery:** use static checks and focused
-   host behavior tests for authorized source repairs. Recover compatible source
-   provenance and exact board/configuration for owner-controlled firmware build
-   milestones; complete compilation does not gate initial source repairs.
-3. **Calendar correctness and reliability:** separate source outcomes, correct
-   global selection, establish time boundaries and explicit snapshot states;
-   implement retention only within a selected policy.
-4. **Security and storage integrity:** authenticated TLS, bounded decoding,
-   validated transactional cache/recovery; review distinct outcomes separately.
-5. **Power and refresh optimization:** shared forecast acquisition, reliable Wi-Fi
-   cleanup/lifecycle, selected refresh rules, calibrated battery and verified GPIO/
-   display power behavior; measurements determine outcomes.
-6. **Integrated validation and hardware pilot:** test the accumulated exact build
-   under normal/failure conditions against selected thresholds; independently review
-   execution and intent before merge readiness.
+The approved stages and exact scope are owned by the [target architecture
+section](#staged-plan-not-execution-permission). This roadmap does not authorize
+implementation, merge, dependency upgrades or hardware flashing. Finish
+unmerged correctness work under its own validated scope, then review independently
+the hardware/memory baseline, artwork removal, calendar transport and week-view
+display before implementation. Each semantic unit requires separate approval,
+applicable tests and documentation reconciliation. Full firmware compile and
+hardware validation are owner-controlled milestones, not a prerequisite for
+initial source repairs.
 
 ## Open decisions and recommendation boundaries
 
