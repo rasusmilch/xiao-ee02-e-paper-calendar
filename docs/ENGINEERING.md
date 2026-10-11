@@ -21,8 +21,7 @@ Passing compilation or host tests cannot establish hardware operation.
 
 ## Approved technical constraints
 
-Retain XIAO ESP32-S3 Plus, EE02, and Arduino C++ for stabilization. Preserve the
-advertised calendar, weather, and artwork capabilities. Use static checks and
+Retain XIAO ESP32-S3 Plus, EE02, and Arduino C++ for stabilization. Preserve calendar, weather, forecast and battery capability in the redesign; retire artwork and its exclusive dependencies. Use static checks and
 applicable lightweight host behavior tests during incremental development.
 Complete firmware compilation and hardware validation are owner-controlled
 milestone activities. A successful firmware build remains preferred but is not
@@ -35,9 +34,106 @@ when needed for meaningful tests. A large abstraction framework requires a
 demonstrated necessity case against the simpler alternative.
 
 Library upgrades or framework migrations are not assumed prerequisites. Resolve
-compatibility through evidence before proposing them. UI redesign, additional
-calendar providers, and framework/library migration are deferred. Current defaults
-and implementation mechanisms do not establish durable product requirements.
+compatibility through evidence. The five-day UI redesign, device-side multi-calendar
+support and artwork retirement are approved target scope, not implemented behavior.
+Framework migration remains unselected; legacy defaults establish no target policy.
+
+## Approved target architecture (not yet implemented)
+
+The target below is approved product direction, distinct from the existing firmware
+described in the next sections. A roadmap is not implementation authorization.
+
+### Display and event model
+
+- A rolling five-day window starts today, with a fixed but configurable waking-hours
+  time axis. A timed five-column grid is provisionally preferred, but compare it with
+  an agenda using the actual display before approval. Replace the original 1024x1024
+  artwork region with this week view; initially retain the current weather, forecast,
+  today's detailed events and battery regions. Retaining the old monthly grid and
+  the final dimensions remain Open.
+- Multiple selectable calendar sources (Google, iCloud/CalDAV and generic ICS)
+  feed a single source-independent event model. No mandatory hosted service,
+  external preprocessor or Apps Script backend. ICS-only initial transport is
+  **favored, not yet finally selected**; private iCloud requires a different
+  privacy/authentication tradeoff from public ICS.
+- Ask providers for expanded event occurrences where supported; otherwise implement
+  bounded on-device ICS recurrence expansion. Handle rules, exceptions, moved and
+  deleted occurrences, all-day/multiday intervals, timezones, DST and cross-window
+  series. Explicitly report unsupported features and overflow; never silently
+  omit an event and claim a complete schedule. Exact limits, parser strategy and
+  transport support require host tests and engineering validation.
+- Valid zero events are success. A failed calendar must not suppress successfully
+  retrieved calendars: show their events and a clearly named error bar saying the
+  overall schedule is incomplete. Treat each source independently.
+- Current weather and forecast are independent failure domains: place current
+  weather errors inside the weather region; keep previously valid forecast when
+  it is still fresh. Any retained forecast needs a verified RTC memory/freshness
+  strategy, not NVS churn or an assumption that PSRAM survives deep sleep.
+- Three **consecutive complete acquisition-cycle failures** trigger the accepted
+  full recovery/error screen. Partial failures use source-specific error indications,
+  not blanket suppression. Precisely define counter-reset and mixed-result cases
+  in state-machine tests.
+
+### Memory, time and storage
+
+- Battery powered; one user-configurable coordinated fetch/validate/render/display
+  cycle covers all current calendar and weather sources. Sync NTP if clock invalid
+  or on initial cold boot, otherwise roughly once daily; internal RTC timekeeping
+  bridges deep sleep. Never use guessed dates on time loss.
+- NVS stores changed durable user configuration only: Wi-Fi, timezone, calendar
+  URLs/selection, weather preferences, refresh settings. Do not write weather/events,
+  daily dates, update counters, transient fetch state or routine timestamps to NVS.
+  RTC-retained memory may hold versioned, validated compact sleep context; rebuild
+  or enter explicit error state on reset/retention loss. PSRAM is not deep-sleep
+  retained.
+- Strict measured stack/internal heap/PSRAM limits. The board nominally has
+  8 MB PSRAM. Prefer reusing a large PSRAM workspace for streaming ICS parsing and
+  bounded expansion, then transfer a compact **full five-day** event snapshot out
+  before reusing the workspace for rendering. Do not alias driver-owned active
+  framebuffer data. Direct PSRAM DMA/display transfer is unverified; test exact
+  Seeed_GFX/ESP32 core or stage transfers through a small internal DMA buffer.
+  Measure memory peaks, fragmentation and largest free block across network,
+  parsing and rendering phases.
+- Remove the retired artwork-only functions, credentials, OpenAI image calls,
+  PNG decoding, dithering, cache, image-only dependencies and dead code. Eliminate
+  SPIFFS if no remaining non-artwork feature uses it; do not delete shared
+  components through overly broad cleanup.
+
+### Setup and failure recovery
+
+- Device-hosted settings webpage for Wi-Fi, timezone, calendar URLs/selection,
+  weather and refresh preferences. Accessible during explicit awake configuration
+  over connected LAN or a physically triggered recovery AP; no web service in
+  deep sleep. Unconfigured first boot starts setup; configured cold boot makes
+  best-effort Wi-Fi/NTP/data attempts, then shows actionable recovery instructions
+  rather than erasing credentials when unsuccessful.
+- Recovery AP is **open, with no Wi-Fi password**; no webpage login in this revision.
+  Stop service/Wi-Fi and sleep at 10 minutes without meaningful operator activity
+  or an absolute 30-minute session duration. Automatic polling, association and
+  captive-portal probes must not extend the idle timer. Complete/rollback settings
+  saves safely before shutdown.
+- Show new passwords during entry as appropriate; after saving, mask input and do
+  not return the saved value to browsers. Always display configured calendar URL
+  fields in full, even when they contain sensitive secret ICS links. This knowingly
+  exposes such URLs during an open AP session; keep them out of logs/reviews.
+  Outbound TLS certificate trust remains a separate requirement from web login.
+- Use validated/versioned configuration saves; incorrect network credentials must
+  not trap the device. Physical factory reset must clear user configuration, not
+  silently format unrelated filesystems. Simultaneous Setup + Refresh held five
+  seconds is a **proposal**, pending physical button mapping and sleep-wake tests.
+  Simple AP entry must not erase settings.
+
+### Staged plan (not execution permission)
+
+1. **Stabilization:** retain valid acquisition/parser integrity repairs; verify build,
+   driver, memory, buttons and panel, and remove artwork as a focused reviewed unit.
+2. **MVP:** config/NVS and RTC lifecycle, bounded source adapters and recurrence,
+   partial-update states, five-day display, unified battery-conscious refresh.
+3. **Pilot:** validate exact firmware on EE02 hardware, network failures, calendar
+   exception/DST cases, peak stack/heap/PSRAM, framebuffer transfer, current and
+   battery runtime, deep sleep and physical recovery; evidence before readiness.
+4. **Expansion:** direct Google/CalDAV private authentication, further UI or security
+   only when separately approved.
 
 ## Current architecture and responsibilities
 
@@ -267,12 +363,12 @@ depends on selected retention policy and safe storage publication.
 
 ## Open decisions and recommendation boundaries
 
-**Open product/technical policy:** calendar scope/filtering, all-day priority and
-representation, tie/overflow selection; offline freshness/retention and cross-day
-invalidation; stale-data/fallback artwork and optional-service/degraded behavior;
-refresh interval/dead zone/content-change policy; filesystem-loss recovery and
-formatting; power/current, battery/timing tolerances and hardware pilot acceptance.
-Do not infer selection from existing constants or API behavior.
+**Remaining Open policy:** final agenda/grid choice and dimensions, retention of
+legacy month grid, waking-hour defaults, recurrence and overflow limits, ICS-only
+transport commitment versus private CalDAV/Google authenticated access, weather
+freshness and retained-buffer fit, failure state transitions, actual button reset
+mapping, driver PSRAM/DMA compatibility, refresh default/battery-life targets,
+and hardware pilot acceptance. Current constants do not decide these.
 
 **Recommendations not yet selected:** Arduino CLI as the reproducible build route,
 immutable compatible library pins, broader focused C++ host coverage, explicit source
@@ -306,6 +402,19 @@ The accepted planning assessment is prior execution evidence, not independent
 product authority. No historical firmware releases or earlier owner-policy decisions
 are inferred from commit messages. Future material changes preserve truthful
 supersession here and reconcile their current-state owner separately.
+
+On 2026-10-11, the owner approved the rolling five-day replacement for artwork,
+removal of artwork-only code, no external calendar preprocessor, on-device multiple
+calendar normalization, configuration-only NVS, RTC transient context, careful
+PSRAM workspace reuse, coordinated refresh with approximately daily NTP, open
+temporary AP (10-minute inactivity/30-minute absolute session), a device-hosted
+configuration webpage, and partial source-specific calendar/weather failure
+presentation. Three successive complete acquisition failures invoke an error
+screen. These supersede earlier artwork protection and deferred UI/provider
+direction **as target design**, not as a claim of source implementation. ICS-only
+initial transport and grid layout remain favored proposals. The two-button
+factory reset gesture and direct PSRAM transfer are unverified. No firmware,
+service or hardware validation is implied by this governance update.
 
 ## Historical validation evidence and hardware status
 
