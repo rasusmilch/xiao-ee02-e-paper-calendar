@@ -32,3 +32,8 @@ is historical evidence, not current architecture or requirements authority.
   Require future related work to consult the canonical contract and adjudicate
   contradictory evidence; keep sizing budgets provisional and implementation,
   driver compatibility and hardware behavior unverified.
+- Add one unmodified, commit-pinned Seeed_GFX2 vendor baseline with upstream
+  licensing and an isolated EE02/T133A01 compile/link fixture using explicit Arduino
+  library selection. Preserve the active Seeed_GFX/TFT_eSPI production implementation;
+  target compilation and hardware behavior remain unverified, and external-framebuffer
+  borrowing is not yet implemented.

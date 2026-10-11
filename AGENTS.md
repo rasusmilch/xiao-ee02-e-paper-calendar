@@ -128,8 +128,12 @@ Run repository commands from its root. Verified local inspection invocations:
   with no match; separately use `git ls-files --error-unmatch docs/ENGINEERING.md`
   to establish tracking.
 
-Build: no repository compile command or reproducible automation exists. README
-Arduino IDE settings are documented inputs, not a verified successful build.
+Build: no verified production firmware compile command or reproducible automation
+exists. README Arduino IDE settings are documented inputs, not a verified successful
+build.
+The isolated GFX2 compile/link fixture and explicit library-selection template are
+documented in the [engineering baseline](docs/ENGINEERING.md#vendored-gfx2-dependency-baseline);
+its target compilation is NOT RUN, not a substitute for production validation.
 Use static checks and applicable lightweight host behavior tests during incremental
 development. Complete firmware compilation and hardware validation are
 owner-controlled milestone activities; compilation is preferred but is not a

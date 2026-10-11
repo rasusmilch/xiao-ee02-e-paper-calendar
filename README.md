@@ -107,7 +107,56 @@ graphics integration:
 | [Seeed_GFX](https://github.com/Seeed-Studio/Seeed_GFX) (TFT_eSPI fork) | 2.0.3 |
 | ArduinoJson | 7.4.3 |
 
-A version number alone does not identify compatible source. The current Seeed_GFX/TFT_eSPI integration remains unresolved; the inspected V2.0.3 tag cannot be assumed to reproduce the intended display path. Seeed_GFX2 is now selected for the target, with a pinned, appropriately licensed local ownership extension still to be implemented and validated. Its research revision is not a validated dependency pin. Exact core/board options, packaging, memory fit and a complete build remain unverified; see the [engineering baseline](docs/ENGINEERING.md#known-engineering-limitations). PNGdec and OpenAI credentials are no longer application requirements; the core networking/TLS dependencies remain.
+A version number alone does not identify compatible source. The current Seeed_GFX/TFT_eSPI integration remains unresolved; the inspected V2.0.3 tag cannot be assumed to reproduce the intended display path. The selected target now has the unmodified GFX2 source baseline below; its ownership extension and production migration remain unimplemented. Exact core/board options, memory fit and a complete build remain unverified; see the [engineering baseline](docs/ENGINEERING.md#known-engineering-limitations). PNGdec and OpenAI credentials are no longer application requirements; the core networking/TLS dependencies remain.
+
+### Isolated GFX2 source baseline and smoke check
+
+[third_party/Seeed_GFX2](third_party/Seeed_GFX2/library.properties) vendors
+Seeed-Studio/Seeed_GFX2 commit
+`8f74b7aa91c4fcbc5ba2467bab4de4e7ce0eeeeb` (upstream metadata version 1.0.0).
+This is an approved source-integration pin, **not verified firmware compatibility**.
+The complete upstream `src` hierarchy, `library.properties` and
+[LICENSE](third_party/Seeed_GFX2/LICENSE) are byte-identical to that revision.
+The license includes Seeed's MIT terms and third-party notices; font notices remain
+inside `src`. Upstream examples, tools, assets and Git metadata are excluded.
+No external-framebuffer ownership extension is present.
+
+The separate [compile/link fixture](tests/gfx2_baseline/gfx2_baseline.ino) selects
+`Seeed_Product::Seeed_ePaper_13INCH3_C`, which the pinned catalog maps to EE02,
+T133A01 and native 1200×1600 at four bits/pixel. It calls initialization, rotation,
+six-color drawing, text, refresh and shutdown APIs. It has no credentials or network
+calls and is outside the production sketch's root/`src` compilation layout. The
+vendor tree is also outside sketch `src`; pass it explicitly only to the smoke build.
+Do not install it globally or pass it to the current production build as a substitute
+for Seeed_GFX/TFT_eSPI.
+
+**Compile/link: NOT RUN.** No Arduino CLI or installed ESP32 core/toolchain was found
+in the accessible prepared environment. No actual FQBN/menu configuration or successful
+compiler/linker/library-resolution evidence is established. With an already installed,
+compatible toolchain, inspect `arduino-cli core list`, `arduino-cli board listall XIAO`
+and `arduino-cli board details --fqbn <candidate>` first. Use the actual XIAO ESP32-S3
+Plus profile and verified menu keys for OPI PSRAM/USB CDC/partition settings; do not
+substitute another board or install/upgrade packages without authorization.
+
+The following is a command template, **not an executed build command**. From the
+repository root, replace the placeholder with the verified complete FQBN/options:
+
+```sh
+arduino-cli compile --verbose \
+  --fqbn '<verified XIAO ESP32-S3 Plus FQBN including required menu options>' \
+  --library "$PWD/third_party/Seeed_GFX2" \
+  --build-path /tmp/ee02-gfx2-smoke-build \
+  "$PWD/tests/gfx2_baseline"
+```
+
+Use the CLI's single-library `--library` option, not a relative header include that
+bypasses library discovery. Inspect verbose output and linked implementation symbols
+to confirm this vendored source, the intended board and T133A01 path. Reject unintended
+GFX2 copies or legacy TFT_eSPI linkage; the path option alone is not proof of resolution.
+The fixture enforces the pinned catalog's XIAO Plus/ESP32-S3 compile guards but cannot
+establish the board package itself. Do not flash as part of this check. Source import
+and compilation never establish physical EE02 behavior; see the
+[canonical baseline evidence and boundaries](docs/ENGINEERING.md#vendored-gfx2-dependency-baseline).
 
 ## Current implementation — Google Calendar Setup
 

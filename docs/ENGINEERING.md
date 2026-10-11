@@ -104,7 +104,8 @@ described in the next sections. A roadmap is not implementation authorization.
 
 ### Selected GFX2, PSRAM and streaming-calendar architecture
 
-**Selected target, not implemented or validated.** The owner-selected architecture
+**Selected target; production integration and ownership extension not implemented
+or validated.** The owner-selected architecture
 uses Seeed_GFX2 with a locally maintained external-framebuffer ownership extension,
 one application-owned PSRAM arena, and a separate fixed-capacity five-day occurrence
 snapshot in PSRAM. Both allocations are volatile across deep sleep. Current firmware
@@ -165,15 +166,15 @@ storage size. This is format-based arithmetic, not an observed current allocatio
 Audit mirror paths for temporary full-screen copies and verify orientation;
 selecting external ownership alone does not prove no secondary allocations occur.
 
-The supplied architecture reference reports research at Seeed_GFX2 revision
-`8f74b7aa91c4fcbc5ba2467bab4de4e7ce0eeeeb`, specifically
-`src/panel/Panel_EPaper.cpp` and `src/driver/epaper/Driver_T133A01.cpp`, with
-CPU-mediated indexed-color conversion and SPI sends. This is supplied research
-evidence, not independently inspected driver source in this documentation task
-or a validated dependency pin. Direct PSRAM DMA is neither required by the
-selection nor established as supported. Verify exact source, core/board
-configuration propagation, packaging, transfer/alignment requirements and physical
-EE02 operation before claiming compatibility; do not substitute arbitrary versions.
+The approved [vendored source baseline](#vendored-gfx2-dependency-baseline) now
+provides locally inspected GFX2 source. Its T133A01 path uses CPU-mediated
+indexed-color conversion and SPI sends. Source-integration approval does not
+establish a firmware-compatible dependency pin or runtime validation. Direct PSRAM
+DMA is neither required by the selection nor established as supported. Verify exact
+core/board configuration propagation, packaging, transfer/alignment requirements
+and physical EE02 operation before claiming compatibility; do not substitute
+arbitrary versions. Upstream framebuffer ownership remains unchanged; borrowing
+requires a separate authorized extension.
 
 #### Provisional evaluation budgets
 
@@ -285,6 +286,89 @@ one hardware-independent helper; the remaining application is not a testable cor
 | [constants.h](../constants.h) | Location/timezone/NTP, retained panel/divider layout, event limit and sleep interval. These defaults are implementation observations. |
 | [driver.h](../driver.h) | Declares board-screen 510/T133A01 and EE02 selection; propagation through the intended display library/build is unresolved. |
 | [google-calendar-api.gs](../google-calendar-api.gs) | Separate Google Apps Script deployment; query-key authentication and today's events from CalendarApp calendars. |
+
+### Vendored GFX2 dependency baseline
+
+**Imported source, isolated from production; target compilation NOT RUN.**
+[third_party/Seeed_GFX2](../third_party/Seeed_GFX2/library.properties) contains the
+approved initial source pin from `https://github.com/Seeed-Studio/Seeed_GFX2`, commit
+`8f74b7aa91c4fcbc5ba2467bab4de4e7ce0eeeeb`. It was retrieved into a disposable
+external Git directory with an exact-SHA, depth-one, no-tags fetch; `FETCH_HEAD`
+and commit type were verified. All **277 imported files (2,795,613 bytes)**,
+including staged contents, match the upstream Git blobs byte-for-byte. Upstream
+`library.properties` declares version 1.0.0 and the public header `Seeed_GFX.h`;
+the immutable SHA and committed source, rather than the version string, establish
+this reproducible source baseline. There is one maintained vendor tree, no submodule,
+patch application system or second dependency lock.
+
+The import includes the complete 275-file `src` hierarchy plus `library.properties`
+and upstream [LICENSE](../third_party/Seeed_GFX2/LICENSE). Seeed code is MIT licensed;
+the unchanged license also lists third-party notices, including Adafruit GFX fonts
+and TomThumb. The [font license](../third_party/Seeed_GFX2/src/font/GFXFF/license.txt)
+and inline notices remain intact. License references to upstream example PNG decoders
+and tools do not mean those components were imported: examples, tools, assets, docs,
+release/generated artifacts and Git metadata are excluded. Local include inspection
+found no relative includes leaving `src`; platform headers such as Arduino, SPI,
+Wire, FS and ESP32 SDK/PSRAM headers still require the compatible core. The complete
+source includes upstream generic graphics/dither/UI functionality, not restored
+application artwork orchestration.
+
+The [isolated smoke sketch](../tests/gfx2_baseline/gfx2_baseline.ino) uses official
+`Seeed_Product::Seeed_ePaper_13INCH3_C` selection. In
+[ProductCatalog.cpp](../third_party/Seeed_GFX2/src/runtime/ProductCatalog.cpp), this
+maps to `Board_XIAO_ePaper_EE02`, `Driver_T133A01`, `Panel_EPaper`, 1200×1600 at
+four bits/pixel and colorful mode. The catalog gates XIAO products using board
+macros including `ARDUINO_XIAO_ESP32S3_PLUS`; the EE02 SPI configuration has an
+ESP32-S3-specific path and dual chip select. These are inspected source definitions,
+not verified installed board recipes or electrical behavior. The fixture checks
+those target macros and calls initialization, rotation, six-color primitives, text,
+refresh and end. It contains no private credentials, network or application code.
+
+Arduino must discover this library through the CLI's single-library
+`--library <repository>/third_party/Seeed_GFX2` option for the isolated sketch.
+The [README command template](../README.md#isolated-gfx2-source-baseline-and-smoke-check)
+requires an actual verified XIAO ESP32-S3 Plus FQBN/menu configuration; none was
+established here. No Arduino CLI or installed ESP32 core/toolchain was found in
+accessible prepared paths, and no installation/upgrade or compile attempt was made.
+Existing documented alpha-core/menu inputs remain unverified. With matching tooling,
+inspect verbose library/include/compiler paths and linked graphics symbols; confirm
+the vendored implementation and intended EE02/T133A01 configuration across library
+translation units and reject unintended GFX2 or legacy TFT_eSPI selection. Do not
+pass the new library to the existing production build or install a competing global
+copy. Both the vendor and smoke sketch are outside the production root/`src` sketch
+compilation layout; production includes, global EPaper, rendering and sleep are
+unchanged. No successful compile/link or actual library-resolution result is claimed.
+
+**Inspected ownership boundaries, unchanged upstream:**
+
+- `Seeed_GFX(product)` stores a pending product; `begin()` creates board/bus/driver/
+  panel through the catalog, then begins the panel and configures colorful mode.
+- [Panel_EPaper.cpp](../third_party/Seeed_GFX2/src/panel/Panel_EPaper.cpp) initializes
+  buffer pointers to null. `begin()` initializes hardware, reads native geometry/
+  driver depth and allocates the framebuffer. ESP32 allocation first tries PSRAM,
+  then falls back to `malloc`; that fallback is existing library behavior, not the
+  selected application-arena allocation contract.
+- Mode changes can free/reallocate buffers. Colorful configuration reuses an already
+  allocated four-bit buffer; destruction calls `end()` and frees owned buffers.
+  `DisplayInstance` resets by deleting the panel and other owned hardware. Raw
+  `frameBuffer()` access does not register caller-owned memory; no borrowing interface
+  is introduced by this baseline.
+- Mirror paths may allocate full-screen temporary storage; the T133A01 driver reads
+  packed nibbles, converts palette indices and writes through SPI for two chips.
+  Calculated native framebuffer storage is 960,000 bytes. No allocation peak,
+  direct PSRAM DMA capability, alignment guarantee or transfer completion is measured.
+
+These findings identify later ownership-extension review boundaries, not permission
+to change them now. Keep production migration, framebuffer borrowing, PSRAM arena,
+calendar parsing and five-day rendering as separate authorized outcomes.
+
+Source-integrity, license/inventory, protected-file, smoke-scope and local Markdown
+checks cover this baseline. Full `git diff --cached --check` reports 1,438 inherited
+vendor whitespace diagnostics; byte preservation takes precedence over upstream
+style repair. Project-authored documentation and fixture whitespace are checked
+separately. Exact-target compile/link, library-resolution logs and physical EE02
+validation remain **NOT RUN**. Hardware checks are not required for source import,
+but remain necessary before runtime/display/memory compatibility claims.
 
 ### Boot to sleep flow
 
@@ -401,7 +485,7 @@ It covers all 16 success/failure combinations, exactly-once invocation and order
 individual outcomes, current-weather-only return semantics, and the Wi-Fi-failure
 gate without any network callbacks. Arduino's connection loop and adapters are
 inspected statically; host tests do not exercise their hardware behavior.
-No general runner, CI, reproducible firmware compile command or documentation
+No general runner, CI, reproducible production firmware compile command or documentation
 checker is committed. A full firmware build is unverified. Select checks by
 actual affected guarantees; ordinary prose work uses semantic/link/ignore/diff/scope
 checks. Static and host checks support incremental source repairs; complete firmware
@@ -458,11 +542,12 @@ measurement or successful firmware build is available to support readiness.
   by root application source; calendar.h repeats selection macros after the
   sketch's first TFT_eSPI include. Correct library-wide configuration propagation
   must be established, not assumed or patched by an unapproved upgrade.
-- **Selected GFX2 integration unimplemented/unverified:** the external-framebuffer
-  extension, dependency pin, licensing/packaging, exact core/board configuration,
-  borrowed-memory lifetime and panel transfer behavior need implementation and
-  validation. Supplied upstream research does not establish compatibility or memory
-  reliability on EE02. Graphics-foundation selection is no longer Open.
+- **Selected GFX2 integration unimplemented/unverified:** the approved unmodified
+  source baseline and license boundary are now present, with an isolated smoke sketch.
+  The external-framebuffer extension, production migration, exact core/board
+  configuration, borrowed-memory lifetime and panel transfer behavior still need
+  implementation/validation. Imported source does not establish compilation or
+  memory reliability on EE02. Graphics-foundation selection is no longer Open.
 - **Alpha core reproducibility unverified:** cached package metadata includes
   4.0.0-alpha1, but availability, complete installation, exact board recipes and
   a successful build are unverified. No installed ESP32 core/toolchain was found.
@@ -502,7 +587,7 @@ initial source repairs.
 legacy month grid, waking-hour defaults, recurrence and overflow limits, ICS-only
 transport commitment versus private CalDAV/Google authenticated access, weather
 freshness and retained-buffer fit, failure state transitions, actual button reset
-mapping, exact GFX2 dependency/core/board integration and verified PSRAM/transfer
+mapping, compatible GFX2/core/board integration and verified PSRAM/transfer
 behavior (direct DMA remains unverified, not required), refresh default/battery-life targets,
 and hardware pilot acceptance. Current constants do not decide these.
 
@@ -511,11 +596,12 @@ sequential streaming and per-calendar transactional publication are **Selected**
 not Open alternatives. Numeric evaluation budgets are provisional, not validated
 limits. Contrary engineering evidence requires explicit review and adjudication.
 
-**Recommendations not yet selected:** Arduino CLI as the reproducible build route,
+**Recommendations not yet selected:** Arduino CLI as the reproducible production build route,
 immutable compatible pins for other dependencies, broader focused C++ host coverage, explicit
 source-results/time normalization, durable configuration-save mechanisms and
-authenticated TLS mechanisms. Pinning the selected local GFX2 adaptation is required,
-but its exact compatible revision is not yet established.
+authenticated TLS mechanisms. The initial GFX2 source pin is approved and imported;
+its compatible toolchain configuration and future ownership adaptation remain
+unverified, not grounds for a silent source upgrade.
 Routine helper organization/test tooling is an implementation-local choice; an
 upgrade, durable retention guarantee or product-policy change needs supporting
 evidence and approval. Unknown wiring/configuration/runtime facts require inspection
@@ -581,6 +667,13 @@ budgets. The supplied GFX2 research revision is not a validated dependency pin;
 no migration, parser implementation, firmware build or memory/display measurements
 are implied. Current authority is the [selected architecture](#selected-gfx2-psram-and-streaming-calendar-architecture),
 which requires explicit adjudication of contradictory engineering evidence.
+
+On 2026-10-11, the owner approved the previously researched GFX2 revision
+`8f74b7aa91c4fcbc5ba2467bab4de4e7ce0eeeeb` for unmodified source integration and
+validation. This supersedes its unapproved-pin status, not earlier evidence limits:
+toolchain and physical compatibility remain unverified. The authorized outcome is
+one locally maintained vendor baseline and isolated compile/link fixture, preserving
+the active renderer; framebuffer borrowing and production migration remain separate.
 
 ## Historical validation evidence and hardware status
 
