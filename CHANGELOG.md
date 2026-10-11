@@ -6,6 +6,10 @@ is historical evidence, not current architecture or requirements authority.
 
 ## Unreleased
 
+- Select the earliest eight daily events globally across all accessible calendars
+  in displayed start-time order, preserving source encounter order for ties and
+  existing all-day formatting; the unchanged six-event firmware capacity receives
+  the earliest six of that selection.
 - Attempt current weather, both forecasts, and calendar acquisition independently
   on a successful data-acquisition Wi-Fi connection, so one source's failure does
   not suppress the others; preserve the current-weather-only return result.
