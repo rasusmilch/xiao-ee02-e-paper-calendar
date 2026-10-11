@@ -69,7 +69,19 @@ Run repository commands from its root. Verified local inspection invocations:
 
 Build: no repository compile command or reproducible automation exists. README
 Arduino IDE settings are documented inputs, not a verified successful build.
-Tests/CI: no committed automated suite, runner, or CI workflow exists.
+Use static checks and applicable lightweight host behavior tests during incremental
+development. Complete firmware compilation and hardware validation are
+owner-controlled milestone activities; compilation is preferred but is not a
+prerequisite for initial source repairs. Uncompiled changes do not establish
+firmware compatibility. No CI or hosted build infrastructure is required.
+Tests: the focused acquisition regression exercises production orchestration:
+
+```
+g++ -std=c++11 -Wall -Wextra -Werror -pedantic tests/data_acquisition_test.cpp -o /tmp/ee02-data-acquisition-test
+/tmp/ee02-data-acquisition-test
+```
+
+No general test runner or CI workflow is committed.
 Documentation: no dedicated lint/link-check command is committed; inspect Markdown
 references and affected claims directly, using available tools.
 Review: no automated review command exists; independent review inspects source/diff.

@@ -21,7 +21,7 @@ This is a working-intent prototype. The advertised capabilities above describe i
 
 ## Project direction and repository guidance
 
-Stabilization retains the XIAO ESP32-S3 Plus/EE02 hardware and Arduino framework, preserves calendar, weather, and artwork capabilities, and prioritizes correctness, security, reliability, and testability. Reproducible build validation comes before substantive firmware repairs; power optimization follows foundational fixes. UI redesign, additional calendar providers, and framework/library migration are deferred. Existing defaults do not select future calendar, retention, degraded-operation, or refresh policy.
+Stabilization retains the XIAO ESP32-S3 Plus/EE02 hardware and Arduino framework, preserves calendar, weather, and artwork capabilities, and prioritizes correctness, security, reliability, and testability. Incremental development uses static checks and applicable lightweight host behavior tests. Complete firmware compilation and hardware validation are owner-controlled milestone activities; a firmware build is preferred but is not a prerequisite for initial source repairs. Uncompiled changes are not claimed to be firmware-compatible, and no CI or hosted build infrastructure is required. Power optimization follows foundational fixes. UI redesign, additional calendar providers, and framework/library migration are deferred. Existing defaults do not select future calendar, retention, degraded-operation, or refresh policy.
 
 See [AGENTS.md](AGENTS.md) for development instructions, [docs/ENGINEERING.md](docs/ENGINEERING.md) for architecture, constraints, validation limits and Open decisions, and [CHANGELOG.md](CHANGELOG.md) for canonical project-change history.
 
@@ -37,8 +37,8 @@ See [AGENTS.md](AGENTS.md) for development instructions, [docs/ENGINEERING.md](d
 
 1. **Wake from deep sleep** — Every `DEEP_SLEEP_HOURS` (default: 3 hours), or at 05:00 if the wake time would fall in the dead zone
 2. **Connect to Wi-Fi** and sync time via NTP
-3. **Fetch weather data** from OpenWeatherMap (current, 3-hourly forecast, and daily grouped forecast)
-4. **Fetch calendar events** from a Google Apps Script web app; current code attempts calendar and forecast retrieval only after current-weather retrieval succeeds
+3. **Fetch weather data** from OpenWeatherMap (current, 3-hourly forecast, and daily grouped forecast); after the data-acquisition Wi-Fi connection succeeds, each fetch is attempted independently in this order
+4. **Fetch calendar events** from a Google Apps Script web app on the same connection, regardless of weather/forecast request results. Each fetch function is called once per connected acquisition; the existing calendar request retry remains internal to its fetch function. Source-specific failures are logged, and `updateWeather()` still returns current-weather success. If Wi-Fi fails, no fetch is attempted
 5. **Generate daily AI image** — When current weather is valid, generate if today's image is absent or `PIC_SKIP_EXISTING_IMAGE` is disabled:
    - Sends current weather + season to OpenAI GPT (`gpt-4o-mini`) to create an image prompt
    - Sends the prompt to OpenAI Image Generation (`gpt-image-1-mini`) returning a 1024×1024 PNG
@@ -121,7 +121,7 @@ The documented deployment executes as the deploying account and allows access to
 
 ## Operation and recovery limits
 
-There is no committed reproducible build/flash procedure, automated test suite, or validated recovery runbook. Keep local credentials private and use Serial output for diagnosis without sharing sensitive event/API content. Current code can skip calendar retrieval after weather failure, lose volatile event data across deep sleep, and format SPIFFS on mount failure. Do not rely on offline retention or preservation of cached artwork after filesystem failure. TLS certificate verification is currently disabled; security stabilization and hardware validation are still required. Recovery/retention choices remain Open in the engineering anchor.
+There is no committed reproducible build/flash procedure or validated recovery runbook. A focused [host regression](tests/data_acquisition_test.cpp) covers acquisition orchestration; it does not validate Arduino integration or hardware. Keep local credentials private and use Serial output for diagnosis without sharing sensitive event/API content. Calendar retrieval is independent of weather success once acquisition Wi-Fi connects, but event data remains volatile across deep sleep, and SPIFFS can be formatted on mount failure. Do not rely on offline retention or preservation of cached artwork after filesystem failure. TLS certificate verification is currently disabled; security stabilization and owner-controlled hardware validation are still required. Recovery/retention choices remain Open in the engineering anchor.
 
 ## License
 
