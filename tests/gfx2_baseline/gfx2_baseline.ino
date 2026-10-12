@@ -1,10 +1,7 @@
 // Isolated compile/link fixture; never included by the production sketch.
 // Compilation does not validate panel operation. No flashing is part of this check.
 #include <Seeed_GFX.h>
-#include <runtime/ProductCatalog.h>
-#include <runtime/DisplayInstance.h>
-#include <panel/Panel_EPaper.h>
-#include <esp32-hal-psram.h>
+#include "../../application/psram_workspace.h"
 
 // Match the XIAO Plus catalog gate and the ESP32-S3 path in the pinned source.
 // These checks do not establish an installed FQBN or verified board menu options.
@@ -34,43 +31,46 @@ static bool ownedBufferCase() {
   return refreshed.ok() && ended.ok();
 }
 
-static void borrowedBufferCase() {
-  constexpr size_t framebufferBytes = 960000;
-  if (!psramFound()) return;
-  uint8_t* storage = static_cast<uint8_t*>(ps_malloc(framebufferBytes));
-  if (!storage) return; // No large internal-RAM fallback.
+static GfxResult fillScratch(uint8_t* storage, size_t bytes, void* context) {
+  memset(storage, *static_cast<uint8_t*>(context), bytes);
+  return GfxResult::success();
+}
 
-  // Official factory owns Board/Bus/Driver/Panel, before panel initialization.
-  // The instance outlives the externally attached facade and caller storage.
-  DisplayInstance instance;
-  const GfxResult created = ProductCatalog::create(
-      Seeed_Product::Seeed_ePaper_13INCH3_C, instance);
-  if (!created.ok()) { free(storage); return; }
-  auto* panel = static_cast<Panel_EPaper*>(instance.panel());
-  if (!panel->setBorrowedFrameBuffer(storage, framebufferBytes).ok()) {
-    instance.reset(); free(storage); return;
+static GfxResult checkTail(uint8_t* storage, size_t bytes, void* context) {
+  const uint8_t expected = *static_cast<uint8_t*>(context);
+  for (size_t i = 0; i < bytes; ++i) {
+    if (storage[i] != expected)
+      return GfxResult(GfxError::InvalidArgument, "workspace tail changed");
   }
-  GfxResult ended;
-  {
-    Seeed_GFX display(*panel);
-    if (display.begin() && panel->configure(PanelMode::Colorful).ok()) {
-      display.setRotation(1);
-      display.fillScreen(TFT_WHITE);
-      display.drawPixel(0, 0, TFT_BLACK);
-      display.drawRect(10, 10, 200, 60, TFT_RED);
-      display.drawLine(10, 80, 210, 80, TFT_GREEN);
-      display.fillCircle(20, 100, 5, TFT_BLUE);
-      display.setTextColor(TFT_YELLOW);
-      display.drawString("EE02 borrowed framebuffer", 20, 20);
-      (void)display.refresh();
-    }
-    // Check the concrete panel result: facade/instance repeated end() can
-    // otherwise mask a previous failure. Destruction is not quiescence proof.
-    ended = panel->end();
-  }
-  instance.reset(); // Delete the panel before releasing application storage.
-  if (ended.ok()) free(storage);
-  // On uncertain hardware shutdown retain storage; no automatic recovery.
+  return GfxResult::success();
+}
+
+static GfxResult drawBorrowed(Seeed_GFX& display, void*) {
+  display.setRotation(1);
+  display.fillScreen(TFT_WHITE);
+  display.drawPixel(0, 0, TFT_BLACK);
+  display.drawRect(10, 10, 200, 60, TFT_RED);
+  display.drawLine(10, 80, 210, 80, TFT_GREEN);
+  display.fillCircle(20, 100, 5, TFT_BLUE);
+  display.setTextColor(TFT_YELLOW);
+  display.drawString("EE02 PSRAM workspace", 20, 20);
+  return GfxResult::success();
+}
+
+static void borrowedBufferCase() {
+  constexpr size_t evaluationBytes = 2097152; // Provisional, not a product default.
+  Ee02PsramWorkspace workspace;
+  if (!workspace.allocate(evaluationBytes).ok()) return;
+  uint8_t prefixPattern = 0x5a, tailPattern = 0x3c;
+  constexpr size_t prefixBytes = Ee02PsramWorkspace::FrameBufferBytes;
+  if (!workspace.withScratch(0, prefixBytes, fillScratch, &prefixPattern).ok()) return;
+  if (!workspace.withScratch(prefixBytes, evaluationBytes - prefixBytes,
+                             fillScratch, &tailPattern).ok()) return;
+  const auto result = workspace.render(drawBorrowed);
+  if (!result.ok()) return; // Retained allocation is not freed by destruction.
+  if (!workspace.withScratch(prefixBytes, evaluationBytes - prefixBytes,
+                             checkTail, &tailPattern).ok()) return;
+  (void)workspace.release();
 }
 
 void setup() {

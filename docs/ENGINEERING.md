@@ -104,8 +104,8 @@ described in the next sections. A roadmap is not implementation authorization.
 
 ### Selected GFX2, PSRAM and streaming-calendar architecture
 
-**Selected target; library borrowing implemented, production integration and
-hardware validation pending.** The owner-selected architecture
+**Selected target; library borrowing and isolated workspace implemented;
+production integration and hardware validation pending.** The owner-selected architecture
 uses Seeed_GFX2 with a locally maintained external-framebuffer ownership extension,
 one application-owned PSRAM arena, and a separate fixed-capacity five-day occurrence
 snapshot in PSRAM. Both allocations are volatile across deep sleep. Current firmware
@@ -430,8 +430,9 @@ and stack destruction; on uncertain hardware state, do not reassign/release it o
 the strength of destruction. Check `Panel_EPaper::end()` directly: repeated end on
 the unmodified facade/instance can mask an earlier error. Bus `end()`/board
 `powerOff()` have void interfaces, so successful return does not independently
-verify those electrical operations. The smoke fixture retains its allocation on
-uncertain shutdown; it provides no recovery or application arena implementation.
+verify those electrical operations. The smoke fixture now uses the
+[application workspace](#application-owned-psram-workspace) to retain allocation
+on uncertain shutdown; it provides no recovery, parser or snapshot implementation.
 
 Focused host tests compile the actual panel and `DisplayInstance` with test-local
 GPIO/time shims and small bus/board/driver fakes. Linker allocation/free tracking,
@@ -454,6 +455,121 @@ expectation about explicit mirror overrides; both were corrected before passing.
 Hardware validation still requires actual allocation/largest-block/stack/heap
 measurements, six colors/orientation, repeated initialization/update/sleep/wake and
 failure behavior on physical EE02. Production rendering and memory remain unchanged.
+
+### Application-owned PSRAM workspace
+
+[application/psram_workspace.h](../application/psram_workspace.h) implements
+`Ee02PsramWorkspace`, used only by the isolated smoke fixture. Production still
+uses legacy `EPaper`; no calendar parser or independent event snapshot exists.
+The header is outside root/`src` auto-compilation, has no global allocation and
+does not add GFX2 to the production sketch. This is the scoped application-memory
+outcome, not production migration or validated memory capacity.
+
+One noncopyable/nonmovable owner holds one allocation, capacity and the minimal
+phase/error state. Plain allocation is insufficient for reusable checked access
+and retention on uncertain shutdown; a general allocator, registry, persistent
+state machine or production dependency-injection framework is unnecessary.
+
+- `allocate(capacity)` has **no default capacity**. It requires at least 960,000
+  bytes and a representable span (`PTRDIFF_MAX`/address overflow checks), rejects
+  replacement and uses `ps_malloc()` only. The inspected core 3.3.12 implementation
+  requests `MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT` and returns null without PSRAM;
+  there is no internal-RAM fallback/realloc. Failure leaves `Unallocated` with
+  zero capacity; invalid returned address spans are released before admission.
+- `state()` and `capacity()` expose metadata, not an unrestricted allocation pointer.
+  States are `Unallocated`, `Scratch`, temporary `ScratchAccess`, `Rendering` and
+  `Retained`. No state/data is persisted or valid across deep sleep.
+- `withScratch(offset, bytes, callback, context)` lends direct writable storage
+  for a synchronous callback. Validate `offset <= capacity` and
+  `bytes <= capacity - offset` before pointer arithmetic. Zero bytes at the end
+  are allowed. Byte offsets have no DMA alignment restriction. Callers using
+  typed structures must satisfy their alignment, construction and destruction
+  requirements; this introduces no parser allocation tables or record schema.
+  Direct access avoids compulsory parser copies. Reentrant scratch access,
+  render, release and allocation are rejected while `ScratchAccess` is active.
+- `render(draw, context)` accepts a drawing-only `Seeed_GFX&` callback and owns
+  the complete scoped handoff. Finish all parser/network activity, temporary
+  objects and scratch users first. Enter `Rendering` before factory construction;
+  scratch access/reallocation/release remain disabled. Use the official
+  `ProductCatalog::create(Seeed_ePaper_13INCH3_C, instance)`, register exactly
+  **960,000 bytes**, attach an external facade, begin and explicitly configure
+  `PanelMode::Colorful`, then draw and perform synchronous full refresh. Native
+  prefix white-fill overwrites scratch; no graphics access admits the arena tail.
+  No second full framebuffer is allocated. Effective mirroring is still refused
+  by the unchanged borrowing interface.
+- `RenderResult` preserves `operation` (factory/registration/begin/configure/draw
+  or refresh) independently from `shutdown`, with `shutdownChecked` indicating
+  whether concrete `Panel_EPaper::end()` ran. `ok()` requires both results and
+  checked shutdown. A successful end cannot mask an earlier refresh failure.
+  Drawing failure skips refresh but still checks shutdown after registration.
+  The facade dies before `DisplayInstance::reset()`, while workspace storage stays
+  alive throughout. This uses existing GFX2 interfaces without changing them.
+- Factory/registration failure before admission permits ordinary cleanup. After
+  registration, initialization/configuration or logical refresh rejection also
+  permits reuse only after checked successful end and destruction of stack
+  references. `Scratch` storage contents then remain unspecified; another render
+  white-fills its prefix. Healthy repeated rendering reuses the same allocation.
+- Any BUSY/communication operation failure or unsuccessful checked shutdown enters
+  `Retained` and preserves the relevant failure. Scratch, render, allocation and
+  release remain refused even after stack destruction. This restricts memory use,
+  **not a recoverable software condition**: no retry, force-release, recovery or
+  transition out of `Retained` exists. Destruction intentionally leaves retained
+  storage allocated; it does not prove physical quiescence. A destroyed owner no
+  longer exposes that allocation, so it remains an intentional unreclaimed block
+  in the current runtime, not an offline/deep-sleep retention mechanism.
+- `release()` frees only safely unborrowed `Scratch` storage and returns to
+  `Unallocated`; repeated release is harmless. Destruction also frees healthy
+  scratch storage and never frees active/retained storage.
+
+All callbacks must return normally; no throw/longjmp, owner destruction, pointer
+free/realloc, asynchronous work or concurrent access is permitted. Scratch aliases
+must die before their callback returns; graphics callbacks must not retain facade,
+panel or framebuffer references or change their lifecycle/ownership. The wrapper
+checks mediated state/bounds and reentrancy; **C++ cannot revoke raw pointer escape,
+prevent out-of-range pointer writes or make external aliases/races impossible**.
+No stronger guarantee is claimed, and future parser use is not permanently
+restricted to copy-only access. A snapshot must eventually contain independent
+records, with no scratch aliases surviving handoff; that outcome remains separate.
+Any callback-provided `GfxResult::message` storage must remain valid for returned
+results, including the retained owner's lifetime for hardware-class failures;
+use stable messages, not pointers into temporary scratch/stack storage.
+
+The smoke fixture supplies **2,097,152 bytes provisionally**, writes distinct
+scratch patterns into prefix and tail, renders through this owner, then checks
+the **1,137,152-byte tail** after healthy shutdown. Its original owned-buffer case
+finishes/destructs before workspace allocation. No second framebuffer or test-only
+snapshot is allocated. The 327,680-byte snapshot allowance and event schema/
+capacity/overflow handling remain unimplemented and Open for separate review.
+
+Host [workspace tests](../tests/psram_workspace_test.cpp) compile this actual header
+with actual `Panel_EPaper`/`DisplayInstance`. Minimal test-local PSRAM, factory,
+facade and hardware stand-ins cover ownership, direct typed scratch use, bounds,
+guards, phase refusal, white-fill/tail isolation, logical errors, BUSY/transport
+retention and repeated cleanup. They intentionally dispose the fake process heap
+only after retention assertions; this is not a production release/recovery API.
+See [AGENTS.md](../AGENTS.md#commands-and-validation) for the exact command.
+Strict C++11 and ASan/UBSan passed, as did the existing borrowing/acquisition
+regressions. Host facade/factory stand-ins do not validate the actual renderer;
+isolated target compilation must link the real vendored implementation.
+
+On 2026-10-12, one clean verbose isolated compile/link of the workspace fixture
+passed using the existing Arduino CLI 1.5.1, Arduino-ESP32 3.3.12, GCC 14.2.0 and
+the README's XIAO ESP32-S3 Plus/OPI configuration. Compiler paths and ELF symbols
+confirmed actual workspace/official EE02/T133A01/borrowed-facade linkage, one
+vendored GFX2 selection, board macro and OPI includes, without host shims or legacy
+TFT_eSPI. Reported flash/static RAM is 507,771/24,720 bytes, not runtime headroom.
+Three inherited `Seeed_GFX.cpp` warnings remain at 795, 695 and 707. Build/log/ELF
+outputs are outside the repository under `/tmp`; no package installation occurred.
+Initial host checking corrected a test ledger's handling of reused allocation
+addresses; all final checks passed without changing vendored source.
+
+Runtime capacity/headroom, PSRAM largest block and fragmentation, internal heap
+minimum/free space, stack high-water and overlapping TLS/snapshot/workspace costs
+remain unmeasured. Measure before/after allocation, scratch, graphics begin,
+refresh/end and cleanup on exact hardware; 2 MiB is no operating guarantee.
+Physical orientation/colors, refresh, electrical shutdown and repeated sleep/wake
+remain owner-controlled validation. Software end uses void bus/power interfaces
+and cannot independently certify those electrical operations.
 
 ### Boot to sleep flow
 
@@ -506,8 +622,9 @@ or persistent data cache remain. The removed artwork path owned the overlapping
 4MiB+1 response and variable-size decoded PNG PSRAM allocations, prompt strings,
 decoder/file state, static dither/error storage and row buffers. This establishes
 removed allocation sites, not measured memory savings or verified headroom. No new
-workspace, persistent state or framebuffer ownership mechanism is introduced;
-display-driver/core allocations and actual stack/heap/PSRAM peaks remain unverified.
+workspace, persistent state or framebuffer ownership mechanism is introduced into
+the production application; the isolated workspace/borrowing code is described above.
+Display-driver/core allocations and actual stack/heap/PSRAM peaks remain unverified.
 Existing flash contents and the documented partition selection are untouched.
 
 Weather failure no longer suppresses calendar or forecast acquisition on a
@@ -628,8 +745,8 @@ measurement or successful firmware build is available to support readiness.
   sketch's first TFT_eSPI include. Correct library-wide configuration propagation
   must be established, not assumed or patched by an unapproved upgrade.
 - **Selected GFX2 production integration/hardware unverified:** the pinned import,
-  local panel-borrowing extension, focused host ownership tests and isolated exact-
-  target compile/link evidence are present. Production migration, runtime PSRAM/
+  local panel-borrowing extension, scoped application workspace, focused host ownership
+  tests and isolated exact-target compile/link evidence are present. Production migration, runtime PSRAM/
   heap/stack measurements, orientation and physical panel behavior remain pending.
   Isolated compilation establishes neither a complete production build nor memory
   reliability on EE02. Graphics-foundation selection is no longer Open.
@@ -686,7 +803,8 @@ limits. Contrary engineering evidence requires explicit review and adjudication.
 immutable compatible pins for other dependencies, broader focused C++ host coverage, explicit
 source-results/time normalization, durable configuration-save mechanisms and
 authenticated TLS mechanisms. The initial GFX2 source pin is approved and imported;
-its compatible toolchain configuration and future ownership adaptation remain
+its local borrowing and scoped workspace are implemented with isolated compile/link
+evidence. Production integration and physical memory/display behavior remain
 unverified, not grounds for a silent source upgrade.
 Routine helper organization/test tooling is an implementation-local choice; an
 upgrade, durable retention guarantee or product-policy change needs supporting
@@ -769,6 +887,14 @@ was needed for the selected wake sequence.
 The implementation rejects borrowed mirroring, preserving ordinary owned behavior;
 physical orientation, electrical shutdown and runtime memory remain unverified.
 This records library implementation scope, not production migration or hardware approval.
+
+On 2026-10-12, the owner authorized the scoped application PSRAM workspace outcome
+and adjudicated direct scratch access (no permanent copy-only parser restriction)
+and uncertain shutdown as a restriction on memory reuse, not software recovery.
+The isolated workspace and tests implement that contract without production
+migration, a snapshot schema/allocation, calendar processing or a fixed 2 MiB limit.
+Historical borrowing/source-import evidence remains distinct from this unit's
+host/compile results and from still-unverified physical/runtime behavior.
 
 ## Historical validation evidence and hardware status
 

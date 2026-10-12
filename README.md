@@ -9,7 +9,7 @@ The [original prototype article](https://www.makerguides.com/e-paper-wall-calend
 - **Display:** 1600×1200 Spectra 6, rolling next five days starting today, fixed waking-hour window (exact hours configurable), timed grid the leading candidate versus a five-day agenda. The week view **replaces the 1024×1024 artwork area**. Display layout is not finally selected.
 - **Other panels:** retain weather, multi-day forecast, today's detailed events, battery indication, and their existing positions initially. Whether the legacy monthly calendar remains is Open.
 - **Calendars:** select multiple source calendars; support Google, iCloud/CalDAV and general ICS by source-independent internal event representation. Entirely on-device fetching/normalization; **no separate backend, hosted processor or update preprocessor**. Sequential streaming ICS processing is selected; provider-access scope, including ICS-only initial access and private iCloud versus public ICS, remains Open.
-- **Selected graphics/memory architecture:** Seeed_GFX2 with a locally maintained external-framebuffer ownership extension; one application-owned PSRAM workspace for sequential, one-source-at-a-time streaming ICS processing, then rendering. A separate fixed-capacity five-day PSRAM snapshot holds transactionally validated calendar results without references into the reused workspace. GFX2 borrows only the 960,000-byte framebuffer slice and must not free it or allocate an unnecessary second framebuffer. The 2 MiB workspace, 1,024 occurrences and 320 KiB snapshot are provisional evaluation budgets, not validated operating limits. Library borrowing is locally implemented; application phase reuse and streaming processing remain selected direction, with hardware behavior unvalidated. Consult the [canonical architecture and validation contract](docs/ENGINEERING.md#selected-gfx2-psram-and-streaming-calendar-architecture).
+- **Selected graphics/memory architecture:** Seeed_GFX2 with a locally maintained external-framebuffer ownership extension; one application-owned PSRAM workspace for sequential, one-source-at-a-time streaming ICS processing, then rendering. A separate fixed-capacity five-day PSRAM snapshot will hold transactionally validated calendar results without references into the reused workspace. GFX2 borrows only the 960,000-byte framebuffer slice and must not free it or allocate an unnecessary second framebuffer. The 2 MiB workspace, 1,024 occurrences and 320 KiB snapshot are provisional evaluation budgets, not validated operating limits. Borrowing and a scoped workspace are implemented in isolation; production phase reuse, streaming processing and snapshot storage remain unimplemented, with hardware behavior unvalidated. Consult the [canonical architecture and validation contract](docs/ENGINEERING.md#selected-gfx2-psram-and-streaming-calendar-architecture).
 - **Storage/time:** NVS stores changed persistent configuration only (Wi-Fi, timezone, calendar URLs/selection, refresh settings). No daily churn, events, weather or routine counters go to NVS. RTC-retained memory may hold validated compact sleep context; reconstruct after invalid RTC/reset. NTP on cold boot when required, then approximately daily; use internal RTC between syncs.
 - **Refresh/recovery:** battery-powered, single user-configurable coordinated data-acquisition/render cycle, independently validated per source. Successful calendars display even if another calendar fails, with a named error bar; a weather failure is shown in its own panel while previously valid forecast data may remain. Three consecutive complete acquisition failures cause a full error screen; cold boot tries Wi-Fi before presenting recovery instructions.
 - **Setup:** device-hosted Wi-Fi webpage (LAN while explicitly awake, or open/no-password AP). AP stops after 10 minutes without meaningful user activity or 30 minutes maximum, then sleeps. Entering a new password may show characters; after save it is masked and the saved value is never echoed. Calendar URL fields remain displayed. An operator-accessible hardware AP trigger is required; simultaneous Setup+Refresh hold for five seconds is a **proposed, unverified** factory-reset gesture, not yet a pin/wake contract.
@@ -131,6 +131,17 @@ memory and does not prove physical quiescence. Consult the
 [canonical interface/lifetime contract](docs/ENGINEERING.md#local-t133a01-framebuffer-borrowing)
 before use. Production still uses legacy Seeed_GFX/TFT_eSPI.
 
+[Ee02PsramWorkspace](application/psram_workspace.h) now owns one caller-sized
+PSRAM-only allocation with scoped direct `withScratch(offset, bytes, callback)`
+access and a checked `render(draw)` handoff. It registers only the 960,000-byte
+prefix, preserves operation/shutdown results separately and refuses reuse/free
+after uncertain hardware shutdown, including on destruction. No recovery or
+force-release API exists. Callbacks must finish users and discard aliases; C++
+cannot prevent escaped pointers or concurrent writes. The isolated fixture uses
+2 MiB only as a provisional evaluation parameter, verifies scratch-tail isolation,
+and runs the ordinary owned case before workspace allocation. The independent
+snapshot remains unimplemented. See the [canonical workspace contract](docs/ENGINEERING.md#application-owned-psram-workspace).
+
 The separate [compile/link fixture](tests/gfx2_baseline/gfx2_baseline.ino) selects
 `Seeed_Product::Seeed_ePaper_13INCH3_C`, which the pinned catalog maps to EE02,
 T133A01 and native 1200×1600 at four bits/pixel. It calls initialization, rotation,
@@ -144,11 +155,11 @@ for Seeed_GFX/TFT_eSPI.
 
 **Modified fixture compile/link: PASS (2026-10-12).** The already available isolated
 Arduino CLI 1.5.1 / official Arduino-ESP32 3.3.12 / GCC 14.2.0 toolchain compiled the
-local extension and both paths. The exact command below ran from the repository
+workspace handoff and both paths. The exact command below ran from the repository
 root, with all configuration/cache/build outputs outside the checkout. The temporary
 installation is environment evidence, not a portable installation guarantee; use
 an equivalent already available exact toolchain, and inspect its board recipes before
-substituting paths. No install/upgrade was performed for this ownership change.
+substituting paths. No install/upgrade was performed for this workspace change.
 
 ```sh
 env ARDUINO_DIRECTORIES_DATA=/tmp/ee02-gfx2-compat.qWyDXC/data \
@@ -157,9 +168,9 @@ env ARDUINO_DIRECTORIES_DATA=/tmp/ee02-gfx2-compat.qWyDXC/data \
   compile --clean --verbose --warnings all --jobs 2 \
   --fqbn esp32:esp32:XIAO_ESP32S3_Plus:PSRAM=opi,CDCOnBoot=default,PartitionScheme=default_8MB \
   --library /workspace/xiao-ee02-e-paper-calendar/third_party/Seeed_GFX2 \
-  --build-path /tmp/ee02-gfx2-borrow-build \
+  --build-path /tmp/ee02-psram-workspace-build \
   /workspace/xiao-ee02-e-paper-calendar/tests/gfx2_baseline \
-  > /tmp/ee02-gfx2-borrow-compile.log 2>&1
+  > /tmp/ee02-psram-workspace-compile.log 2>&1
 ```
 
 Use the CLI's single-library `--library` option, not a relative header include that
@@ -167,8 +178,9 @@ bypasses library discovery. Inspect verbose output and linked implementation sym
 to confirm this vendored source, the intended board and T133A01 path. Reject unintended
 GFX2 copies or legacy TFT_eSPI linkage; the path option alone is not proof of resolution.
 The run verified the board-provided `ARDUINO_XIAO_ESP32S3_PLUS` macro and `qio_opi`
-include path, one vendored GFX2 selection, EE02 factory/board, borrowed API and T133A01
-transfer/update symbols, with no legacy TFT_eSPI linkage. It reports 506,915/3,342,336
+include path, one vendored GFX2 selection, workspace handoff, EE02 factory/board,
+borrowed API and T133A01 transfer/update symbols, with no legacy TFT_eSPI or host-shim
+linkage. It reports 507,771/3,342,336
 bytes flash and 24,720/327,680 bytes static RAM. These are compiler totals, not runtime
 heap/PSRAM/stack headroom. Three inherited warnings remain at `Seeed_GFX.cpp:795`
 (type limits) and `:695`/`:707` (possibly uninitialized); no unrelated fixes were made.

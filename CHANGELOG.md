@@ -41,4 +41,10 @@ is historical evidence, not current architecture or requirements authority.
   caller-owned native T133A01 framebuffer storage, bounded initialization, ownership-
   safe cleanup and explicit unsupported-mode/mirroring failures. Preserve the
   ordinary owned-buffer path; cover borrowing, lifecycle failures and reset with
-  focused host ownership tests. No application workspace or renderer migration occurs.
+  focused host ownership tests. Production renderer migration remains pending.
+- Add one capacity-parameterized application-owned PSRAM workspace with scoped
+  direct scratch access and a scoped handoff to the existing EE02 framebuffer borrow.
+  Preserve operation/shutdown results, prohibit memory reuse/free after uncertain
+  hardware shutdown, and validate bounded prefix/tail handling and repeated healthy
+  lifecycle operations. Exercise 2 MiB only as an isolated provisional evaluation;
+  retain production graphics and defer the independent snapshot/calendar pipeline.
