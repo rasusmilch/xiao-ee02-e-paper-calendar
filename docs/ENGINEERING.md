@@ -104,7 +104,8 @@ described in the next sections. A roadmap is not implementation authorization.
 
 ### Selected GFX2, PSRAM and streaming-calendar architecture
 
-**Selected target; library borrowing, isolated workspace and normalized snapshot implemented;
+**Selected target; library borrowing, isolated workspace, normalized snapshot and
+standalone HTTP framing/line unfolding implemented;
 production integration and hardware validation pending.** The owner-selected architecture
 uses Seeed_GFX2 with a locally maintained external-framebuffer ownership extension,
 one application-owned PSRAM arena, and a separate fixed-capacity five-day occurrence
@@ -112,7 +113,8 @@ snapshot in PSRAM. Both allocations are volatile across deep sleep. Current firm
 still uses the global TFT_eSPI/EPaper object and ordinary event/weather storage;
 it uses none of the GFX2 borrowing extension, arena, normalized snapshot or streaming ICS pipeline.
 Contradictory engineering evidence must trigger explicit review and adjudication,
-not silent architectural substitution. Detailed parser limits remain Open.
+not silent architectural substitution. Live transport and semantic ICS processing
+remain unimplemented; detailed parser limits remain Open.
 
 #### Ownership and wake-cycle sequence
 
@@ -555,6 +557,8 @@ facade and hardware stand-ins cover ownership, direct typed scratch use, bounds,
 guards, phase refusal, white-fill/tail isolation, independent snapshot survival, logical errors, BUSY/transport
 retention and repeated cleanup. They intentionally dispose the fake process heap
 only after retention assertions; this is not a production release/recovery API.
+The same suite now covers standalone ingestion inside guarded scratch slices,
+with no new factory/rendering calls or snapshot publication in that case.
 See [AGENTS.md](../AGENTS.md#commands-and-validation) for the exact command.
 Strict C++11 and ASan/UBSan passed, as did the existing borrowing/acquisition
 regressions. Host facade/factory stand-ins do not validate the actual renderer;
@@ -695,6 +699,162 @@ build is established. The smoke fixture uses synthetic UTC boundaries and evalua
 snapshot/workspace coexistence only if later executed; compilation does not run it.
 No ICS/provider/recurrence or three-consecutive-failures policy is implemented.
 
+### Bounded streaming ICS ingestion
+
+**Implemented standalone software; no live acquisition or calendar semantics.**
+[application/ics_ingestion.h](../application/ics_ingestion.h) implements one bounded
+raw HTTP response framer feeding the separate
+[application/ics_logical_lines.h](../application/ics_logical_lines.h) byte unfolder.
+Both are hardware-independent, noncopyable and allocation-free. The production
+Apps Script/JSON path, `Ee02PsramWorkspace`, `FiveDaySnapshot`, GFX2 and display
+lifecycle are unchanged. Lines are provisional until ingestion completes; even
+Complete means supported framing/unfolding, **not complete, semantically valid ICS**.
+
+#### Raw HTTP contract
+
+- `IcsIngestion::initialize(scratch, capacity, limits, sink, sinkContext, clock,
+  clockContext)` admits caller storage and explicit limits. `feed(bytes, count)`
+  accepts raw HTTP/1.0 or HTTP/1.1 status/headers/body, not an HTTPClient-decoded
+  body. Validate header tokens, strict CRLF, field counts/bytes and metadata length.
+  Header/status bounds include CRLF and the terminating empty line.
+- Ordinary ingestion requires status **200**. Content-Length must be decimal with
+  checked overflow, no signs/junk/list values or duplicate fields (even identical).
+  Consume exactly that number of bytes. HTTP/1.1 Transfer-Encoding accepts only
+  one `chunked` coding; reject HTTP/1.0 TE, duplicate TE, CL+TE and coding chains.
+  Absent Content-Encoding or single identity is supported; compression/unknown
+  encodings and duplicate Content-Encoding fail. Informational/upgrade responses,
+  204, 206, 304 and other non-supported statuses cannot complete ordinary ingestion.
+  Reject unframed close-delimited bodies: ordinary closure cannot prove delivery.
+- Chunk sizes use fully validated hexadecimal arithmetic. Validate bounded chunk
+  extensions (token/quoted-string with permitted whitespace), ignore their values,
+  consume each data block and its CRLF, then require a zero chunk **and** a complete
+  bounded trailer section. Reject trailer fields changing framing, routing,
+  authentication or payload processing; syntax-check other optional metadata.
+  Ignoring a Digest trailer is not integrity verification. HTTP delimiters and
+  trailers never become ICS content.
+- Reaching a known body boundary leaves `InProgress`. `finish()` must also finalize
+  the unfolder before returning `Complete`. `transport(Closed)` uses this same
+  checked finalization; premature closure is `IncompleteFraming`. WouldBlock and
+  `feed(nullptr, 0)` cannot complete acquisition. Submit only actual short-read
+  counts, never requested counts. Observed bytes after the ordinary boundary are
+  `UnexpectedBytes`, including positive feed after Complete. A future socket
+  caller must check observed surplus and close its dedicated response connection;
+  no detection of bytes arriving after that closure is claimed.
+- `transport(Error/Cancelled)` gives explicit terminal failure. Status, HTTP status,
+  received/decoded byte counts, line count and enum limit category are the only
+  diagnostic metadata. The first failure remains latched through finish/release;
+  subsequent calls do not emit more lines. Body bytes and header/URL contents are
+  not copied into messages, logs or persistent results. Empty framed 200 bodies
+  may complete with zero lines; this never means a valid empty calendar.
+
+#### Redirect handoff and deferred security
+
+301/302/303/307/308 with complete supported headers require one nonempty, bounded
+Location. Reject duplicate/missing fields, whitespace/control/non-ASCII octets and
+invalid percent escapes. `RedirectRequired` exposes a length-delimited,
+**untrusted** Location view plus HTTP status. This is field-framing validation,
+not complete URI validation or URL resolution. It is not NUL-terminated or safe
+to log. Redirect bodies in the supplied read are discarded and never unfolded;
+all supplied bytes still count toward the received-byte budget. A header handoff
+does not assert complete acquisition of that redirect's body or final calendar.
+
+No redirects are followed, resumed or chained here. No same-origin-only provider
+restriction is selected: even an HTTP/cross-origin Location can be returned as
+untrusted data. A separately approved transport adapter must resolve/validate
+targets, bound redirect count and the whole acquisition duration/bytes, reject
+HTTPS downgrade, apply origin/credential-forwarding policy, validate certificates
+at every hop and own socket cleanup. Never inherit prototype `setInsecure()` or
+automatic force-follow behavior. Authentication/provider coverage and trust/clock
+provisioning remain Open. Synthetic tests establish none of these live guarantees.
+This standalone supported subset establishes no permanent provider/transport restriction.
+
+The locally inspected core 3.3.12 HTTPClient reads headers/chunk sizes into growing
+Strings, loses duplicate recognized values, uses permissive numeric conversions
+and stops its chunk writer at zero without trailer completion. `getStreamPtr()`
+returns the underlying client, not dechunked body bytes. These source limitations
+justify the small raw framer rather than another framing authority around that API;
+no core patch, dependency upgrade or general networking framework is introduced.
+The actual NetworkClientSecure read API also requires a later binding to distinguish
+no available data from EOF/errors correctly; this unit consumes explicit events.
+
+#### Unfolding and borrowed lifetime
+
+`IcsLogicalLines::initialize(buffer, capacity, physicalLimit, logicalLimit, sink,
+context)`, `feed()` and explicit `finish()` implement RFC 5545 section 3.1:
+collect octets, require LF after CR, and hold a terminated candidate until a next
+byte or confirmed body end. CRLF plus exactly one SPACE/HTAB continues the same
+logical line; preserve all later whitespace and other octets, including UTF-8
+split across reads/folds. Empty lines are delivered. Initial whitespace without
+a preceding CRLF remains content. Lone LF, CR followed by another byte, unfinished
+folds and unterminated final content fail. The 75-octet folding recommendation is
+not a mandatory 75-byte limit. No UTF-8/property/value/component validation occurs.
+Oversized lines fail, never truncate or silently skip; property-aware ignore rules
+belong to the later semantic parser.
+
+Construct/destroy the session within **one `withScratch()` callback**. Partition
+the admitted slice into metadata, Location and logical-line buffers using checked
+subtraction, span/address validation and byte alignment. Inputs must be readable
+and disjoint from this scratch; a receive slice can live beside it in the same
+workspace. No per-line allocation, whole feed, second memory owner, event array,
+framebuffer access or persistence exists. Callback views are const octet spans,
+not strings, valid only during the synchronous sink call. Location views last
+until release/destruction; callers must use neither after workspace reuse.
+
+`release()` forgets every scratch/sink/clock binding, cancels unfinished ingestion
+and preserves terminal outcomes/counters. It does not free caller storage. Sessions
+are single-use; construct a fresh object for another response. Finish/release and
+all users must return normally before scratch reuse; no throws, longjmp, owner
+destruction, reentrancy or concurrent calls are supported. Mediated reentrancy is
+rejected. C++ cannot prevent a consumer from escaping a pointer or violating bounds.
+
+#### Limits and executed validation
+
+All limits are caller parameters, with **no permanent defaults**. The host fixture
+uses these reviewed evaluation candidates only:
+
+| Parameter | Provisional test argument |
+| --- | --- |
+| Received / decoded body bytes, one response | 16 MiB / 8 MiB |
+| Status+headers / fields | 16 KiB / 64 |
+| HTTP metadata line / chunk metadata line | 2 KiB / 256 bytes |
+| Trailer section / fields | 8 KiB / 32 |
+| Location | 2 KiB |
+| Physical / logical ICS line | 4 KiB / 16 KiB |
+| Processing / stalled reads | 120,000 / 10,000 ms |
+
+Physical limits exclude CRLF but count the removed continuation marker. Logical
+limits count unfolded content. The three parser buffers total **20 KiB** for this
+profile; a separate caller receive slice of 1 KiB gives **21 KiB**, not another
+allocation. Received bytes include HTTP metadata and discarded redirect bytes.
+Check numeric conversion/counters before increment/access; exact byte limits are
+accepted and overflow fails. Monotonic clock callbacks check duration at feed,
+periodic parsing and sink/finalization boundaries; backwards clocks fail. Stall
+checks occur on feed/WouldBlock entry, and read-wait time starts after processing
+the last nonempty feed. Zero reads never reset it. Exact time budgets are allowed;
+exceeding them is ResourceLimit with ProcessingTime/StallTime. No callback preemption
+or hard real-time guarantee exists. Caller polling and prompt callbacks are required.
+Final capacities and physical PSRAM/internal-heap/stack/TLS headroom remain unmeasured.
+
+Strict C++11 and ASan/UBSan [host tests](../tests/ics_ingestion_test.cpp) passed
+1,325 partition/behavior scenarios, including every single split of representative
+responses, one-byte and mixed short reads, CRLF/folds/UTF-8 across HTTP chunks,
+length/chunk/trailer completion, malformed/unsupported profiles, redirect handoffs,
+limits, fake-clock failures, callbacks and lifecycle cleanup. The preallocated
+test sink and guarded buffers audit zero ingestion `new` allocations; source
+inspection establishes no allocation calls. The first host run corrected a fixture
+that accidentally included the C-string terminator in a binary input's byte count.
+No implementation workaround or relaxed line rule was needed.
+
+The workspace suite additionally passed strict and sanitizer checks with the
+actual new header inside guarded scratch, a disjoint receive slice, release,
+poison/reuse and repeated construction. That case adds no factory/graphics/snapshot
+calls or extra allocation. Existing acquisition, snapshot and framebuffer regressions
+passed unchanged. Exact commands are in AGENTS. Full production compilation,
+new target ingestion compile/link, TLS/providers, physical EE02 and measured runtime
+memory behavior were **NOT RUN**; the historical GFX2 fixture build does not validate
+this code. Later semantic normalization must validate calendar completeness and
+identity before independently authorized transactional snapshot publication.
+
 ### Boot to sleep flow
 
 1. Start Serial. No filesystem mount, formatting or artwork initialization occurs.
@@ -747,7 +907,7 @@ or persistent data cache remain. The removed artwork path owned the overlapping
 decoder/file state, static dither/error storage and row buffers. This establishes
 removed allocation sites, not measured memory savings or verified headroom. No new
 workspace, persistent state or framebuffer ownership mechanism is introduced into
-the production application; the isolated workspace/borrowing/snapshot code is described above.
+the production application; isolated workspace/borrowing/snapshot/ingestion code is described above.
 Display-driver/core allocations and actual stack/heap/PSRAM peaks remain unverified.
 Existing flash contents and the documented partition selection are untouched.
 
@@ -881,7 +1041,7 @@ measurement or successful firmware build is available to support readiness.
 - **No complete build/regression baseline:** documented library versions are not
   compatible revision proof; credentials/configuration, memory and partition fit
   remain prerequisites for a verified complete build. Host coverage is limited
-  to acquisition orchestration and isolated panel/workspace/snapshot contracts; no CI is committed.
+  to acquisition orchestration and isolated panel/workspace/snapshot/ingestion contracts; no CI is committed.
 - **Data reliability:** truncation before global sort,
   insufficient response-state distinctions, volatile events and unresolved timezone
   alignment limit confidence. The target calendar snapshot is wake-cycle-only;
@@ -1028,6 +1188,13 @@ time with Complete/Incomplete publication and failure rollback. This supersedes
 the earlier unimplemented/Open snapshot-schema and overflow-behavior descriptions;
 final capacities and provider/timezone/recurrence normalization remain Open.
 Synthetic host/build evidence changes no production acquisition or hardware claims.
+
+On 2026-10-12, independent plan review approved bounded raw HTTP framing and
+strict ICS line unfolding, with a mandatory correction limiting redirects to
+header validation and an untrusted handoff. The implementation follows that
+boundary. Earlier same-origin/redirect-chain planning recommendations were not
+selected policy; URL resolution, following, credentials and certificates remain
+separate future adjudication. No production migration or semantic parser was authorized.
 
 ## Historical validation evidence and hardware status
 

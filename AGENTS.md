@@ -183,6 +183,21 @@ g++ -std=c++11 -Wall -Wextra -Werror -pedantic -Itests/gfx2_host tests/five_day_
 Its ASan/UBSan variant uses the same sanitizer flags above. These tests cover supplied
 window semantics, ownership and source transactions, not real calendar completeness,
 timezone resolution or physical PSRAM capacity.
+
+The standalone raw HTTP/ICS-unfolding regression uses allocation-free production
+headers with synthetic byte reads, a monotonic clock and guarded caller storage:
+
+```
+g++ -std=c++11 -Wall -Wextra -Werror -pedantic tests/ics_ingestion_test.cpp -o /tmp/ee02-ics-ingestion-test
+/tmp/ee02-ics-ingestion-test
+g++ -std=c++11 -Wall -Wextra -Werror -pedantic -fsanitize=address,undefined -fno-omit-frame-pointer tests/ics_ingestion_test.cpp -o /tmp/ee02-ics-ingestion-sanitized
+/tmp/ee02-ics-ingestion-sanitized
+```
+
+The existing workspace command also exercises scratch-only ingestion and
+poison/reuse, without new snapshot publication or graphics integration. These
+checks establish supported framing/unfolding behavior, not valid calendar events,
+secure redirects, actual TLS/socket binding or target firmware compatibility.
 Documentation: no dedicated lint/link-check command is committed; inspect Markdown
 references and affected claims directly, using available tools.
 Review: no automated review command exists; independent review inspects source/diff.
