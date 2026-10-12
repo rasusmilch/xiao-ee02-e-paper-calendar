@@ -104,13 +104,13 @@ described in the next sections. A roadmap is not implementation authorization.
 
 ### Selected GFX2, PSRAM and streaming-calendar architecture
 
-**Selected target; library borrowing and isolated workspace implemented;
+**Selected target; library borrowing, isolated workspace and normalized snapshot implemented;
 production integration and hardware validation pending.** The owner-selected architecture
 uses Seeed_GFX2 with a locally maintained external-framebuffer ownership extension,
 one application-owned PSRAM arena, and a separate fixed-capacity five-day occurrence
 snapshot in PSRAM. Both allocations are volatile across deep sleep. Current firmware
 still uses the global TFT_eSPI/EPaper object and ordinary event/weather storage;
-it uses none of the GFX2 borrowing extension, arena or streaming ICS pipeline.
+it uses none of the GFX2 borrowing extension, arena, normalized snapshot or streaming ICS pipeline.
 Contradictory engineering evidence must trigger explicit review and adjudication,
 not silent architectural substitution. Detailed parser limits remain Open.
 
@@ -184,8 +184,10 @@ extends the imported baseline; production does not yet use it.
 | Independent five-day snapshot | **1,024 occurrences × estimated 320 bytes = 327,680 bytes (320 KiB)** |
 
 The occurrence count, snapshot capacity and arena size are provisional evaluation
-budgets. The 320-byte record allowance is not an implemented `sizeof` or final
-record schema. Illustrative additional allowances in the supplied reference are
+budgets. The historical 320-byte per-occurrence allowance is not an implemented
+`sizeof`: the [normalized snapshot](#normalized-five-day-occurrence-snapshot) now
+uses 24-byte records and a separately bounded text pool in the same allocation.
+Final capacities remain unselected. Illustrative additional allowances in the supplied reference are
 64 KiB source metadata, 16 KiB weather and 16 KiB ordering/layout indices; these
 are estimates, not selected fixed allocations or measurements. Actual TLS/network,
 Arduino/core/task-stack and graphics temporary-buffer costs remain unmeasured.
@@ -202,8 +204,9 @@ feeds. Preserve full UID identities without unsafe truncation. The supported
 contract must correctly resolve `RECURRENCE-ID`, `RRULE`, `RDATE`, `EXDATE`,
 cancellations/moved instances, timezone/DST, all-day/multiday overlap and out-of-order
 definitions. Supported subsets, source-byte/logical-line bounds, component/exception
-limits, recurrence-candidate/CPU budgets and event-capacity overflow behavior need
-separate adjudication. Enforce explicit limits and name incomplete sources; never
+limits and recurrence-candidate/CPU budgets need separate adjudication. Snapshot
+record/text exhaustion now aborts the source transaction as Incomplete; final
+operating capacities remain Open. Enforce explicit limits and name incomplete sources; never
 silently omit occurrences while reporting a complete schedule.
 
 Normal processing uses one download with compact staging. A two-pass streaming
@@ -326,7 +329,8 @@ ESP32-S3-specific path and dual chip select. These are inspected source definiti
 not electrical evidence. The fixture checks those target macros and exercises both
 ordinary product initialization and factory construction followed by borrowed-panel
 initialization, colorful configuration, rotation, six-color primitives, text,
-refresh and end. It contains no private credentials, network or application code.
+refresh and end. It also exercises the isolated application workspace and synthetic
+snapshot, with no private credentials, networking or production application code.
 
 Arduino must discover this library through the CLI's single-library
 `--library <repository>/third_party/Seeed_GFX2` option for the isolated sketch.
@@ -432,7 +436,8 @@ the unmodified facade/instance can mask an earlier error. Bus `end()`/board
 `powerOff()` have void interfaces, so successful return does not independently
 verify those electrical operations. The smoke fixture now uses the
 [application workspace](#application-owned-psram-workspace) to retain allocation
-on uncertain shutdown; it provides no recovery, parser or snapshot implementation.
+on uncertain shutdown; that path provides no recovery or parser. The independently
+allocated [snapshot](#normalized-five-day-occurrence-snapshot) is a separate owner.
 
 Focused host tests compile the actual panel and `DisplayInstance` with test-local
 GPIO/time shims and small bus/board/driver fakes. Linker allocation/free tracking,
@@ -460,7 +465,8 @@ failure behavior on physical EE02. Production rendering and memory remain unchan
 
 [application/psram_workspace.h](../application/psram_workspace.h) implements
 `Ee02PsramWorkspace`, used only by the isolated smoke fixture. Production still
-uses legacy `EPaper`; no calendar parser or independent event snapshot exists.
+uses legacy `EPaper` and the six-event array; no calendar parser is implemented.
+The independently allocated snapshot below is isolated from production.
 The header is outside root/`src` auto-compilation, has no global allocation and
 does not add GFX2 to the production sketch. This is the scoped application-memory
 outcome, not production migration or validated memory capacity.
@@ -528,8 +534,8 @@ panel or framebuffer references or change their lifecycle/ownership. The wrapper
 checks mediated state/bounds and reentrancy; **C++ cannot revoke raw pointer escape,
 prevent out-of-range pointer writes or make external aliases/races impossible**.
 No stronger guarantee is claimed, and future parser use is not permanently
-restricted to copy-only access. A snapshot must eventually contain independent
-records, with no scratch aliases surviving handoff; that outcome remains separate.
+restricted to copy-only access. The separate snapshot copies its records/text;
+no scratch aliases may survive handoff.
 Any callback-provided `GfxResult::message` storage must remain valid for returned
 results, including the retained owner's lifetime for hardware-class failures;
 use stable messages, not pointers into temporary scratch/stack storage.
@@ -537,14 +543,16 @@ use stable messages, not pointers into temporary scratch/stack storage.
 The smoke fixture supplies **2,097,152 bytes provisionally**, writes distinct
 scratch patterns into prefix and tail, renders through this owner, then checks
 the **1,137,152-byte tail** after healthy shutdown. Its original owned-buffer case
-finishes/destructs before workspace allocation. No second framebuffer or test-only
-snapshot is allocated. The 327,680-byte snapshot allowance and event schema/
-capacity/overflow handling remain unimplemented and Open for separate review.
+finishes/destructs before workspace allocation. No second framebuffer is allocated.
+The fixture now also allocates the actual independent snapshot, stages a synthetic
+title from scratch, commits it and checks it after prefix reuse. The 327,680-byte
+snapshot allowance and final operating capacities remain provisional; the implemented
+record/transaction contract is documented below.
 
 Host [workspace tests](../tests/psram_workspace_test.cpp) compile this actual header
 with actual `Panel_EPaper`/`DisplayInstance`. Minimal test-local PSRAM, factory,
 facade and hardware stand-ins cover ownership, direct typed scratch use, bounds,
-guards, phase refusal, white-fill/tail isolation, logical errors, BUSY/transport
+guards, phase refusal, white-fill/tail isolation, independent snapshot survival, logical errors, BUSY/transport
 retention and repeated cleanup. They intentionally dispose the fake process heap
 only after retention assertions; this is not a production release/recovery API.
 See [AGENTS.md](../AGENTS.md#commands-and-validation) for the exact command.
@@ -552,7 +560,8 @@ Strict C++11 and ASan/UBSan passed, as did the existing borrowing/acquisition
 regressions. Host facade/factory stand-ins do not validate the actual renderer;
 isolated target compilation must link the real vendored implementation.
 
-On 2026-10-12, one clean verbose isolated compile/link of the workspace fixture
+Before the snapshot extension, on 2026-10-12 one clean verbose isolated compile/link
+of the workspace-only fixture
 passed using the existing Arduino CLI 1.5.1, Arduino-ESP32 3.3.12, GCC 14.2.0 and
 the README's XIAO ESP32-S3 Plus/OPI configuration. Compiler paths and ELF symbols
 confirmed actual workspace/official EE02/T133A01/borrowed-facade linkage, one
@@ -570,6 +579,121 @@ refresh/end and cleanup on exact hardware; 2 MiB is no operating guarantee.
 Physical orientation/colors, refresh, electrical shutdown and repeated sleep/wake
 remain owner-controlled validation. Software end uses void bus/power interfaces
 and cannot independently certify those electrical operations.
+
+### Normalized five-day occurrence snapshot
+
+[application/five_day_snapshot.h](../application/five_day_snapshot.h) implements
+`FiveDaySnapshot` independently from `Ee02PsramWorkspace`. Production still uses
+the legacy six-event array; this snapshot accepts synthetic/already-normalized
+inputs only. One noncopyable/nonmovable owner allocates the window, occurrence
+slots, complete source catalogue and shared text pool in **one PSRAM-only block**.
+`psramFound()` and the inspected core's `ps_malloc()` provide no internal-RAM
+fallback. There are no per-event allocations, second event array, persistent cache,
+provider identities, sorting representation or references into producer storage.
+Fixed capacity means fixed for this initialization, not a permanent product limit.
+
+#### Model, window and producer responsibility
+
+- `Kind::Timed` stores original signed 64-bit UTC POSIX start/end seconds. Positive
+  duration is a half-open interval, included when `start < windowEnd && end > windowStart`.
+  Equal endpoints are a point, included when `windowStart <= start < windowEnd`.
+  Negative duration is invalid. No clipping or waking-hour/elapsed-time filter applies.
+- `Kind::AllDay` stores original signed 32-bit proleptic-Gregorian civil-day ordinals
+  from 1970-01-01: inclusive start, exclusive end, with `end > start`. Inclusion uses
+  the selected civil-day range. DATE-only events never become UTC-midnight intervals.
+  Cross-midnight/multiday occurrences and those starting before the window survive
+  whenever they overlap; merely touching either window boundary is excluded.
+- `Window` copies the first selected civil-day ordinal and six supplied resolved UTC
+  boundaries. `firstCivilDay + 5` must be representable and boundaries strictly
+  increasing. No 86,400-second-day assumption or timezone resolver exists here.
+  The producer must establish five consecutive valid civil dates in the **same
+  selected display timezone** used for normalization and rendering. Unresolved,
+  nonexistent/skipped dates require upstream failure, not invented boundaries or
+  a complete schedule. This creates no second timezone configuration authority.
+- Before `completeSource`, the producer must finish transport, expansion/exclusions,
+  cancellations/moved instances, out-of-order exceptions, timezone normalization
+  and occurrence-identity reconciliation. It must distinguish legitimate point
+  occurrences from malformed explicitly supplied source intervals. The snapshot
+  cannot verify these assertions or UID uniqueness; duplicate-looking records are
+  retained within/across sources. Provider and normalizer implementations remain Open.
+
+#### API, transactions and storage limits
+
+- `initialize(window, recordCapacity, textCapacity, labels, sourceCount)` validates
+  the complete catalogue and copies all nonempty, valid UTF-8 labels before publication.
+  Every source starts `Pending`. Duplicate labels are valid; wake-cycle-local
+  `uint16_t` indices distinguish up to 65,536 representable source slots, subject
+  to allocation/layout capacity. This is a representation bound, not a selected quota.
+  Records/text use checked 32-bit offsets/cursors, checked layout multiplication,
+  natural alignment, `PTRDIFF_MAX` and address-span limits. Initialization failure
+  leaves the owner unallocated; replacing a live allocation is rejected.
+- `beginSource(index)` accepts one Pending source at a time. Published record/text
+  cursors are append checkpoints; staged records remain inaccessible through
+  `occurrence()`/`title()`. `addOccurrence(index, input)` validates range and text,
+  returns `OutsideWindow` for valid excluded input, and copies admitted records/titles.
+  Complete UTF-8 is required: reject NUL, invalid/overlong sequences, surrogates,
+  invalid spans and exhausted capacity. Empty titles are valid; terminators count
+  against text capacity. No truncation, interning or deduplication occurs.
+- Any failed `addOccurrence` during an active transaction, including a misaddressed add,
+  immediately restores both checkpoints and publishes that source
+  `Incomplete` with an enum reason. Ignoring the error cannot lead to Complete.
+  `failSource(index, reason)` explicitly cancels/fails the active source, even when
+  record/text capacity is exhausted. Reasons are bounded provider-neutral enums,
+  never URLs, credentials or raw provider payloads. Rollback logically discards
+  staging; it is not a secure-erasure guarantee.
+- `completeSource(index)` publishes the healthy source's full record range and
+  `Complete` outcome at the single-threaded API boundary, including zero events.
+  Each source has one terminal outcome; no reopening/replacement exists. Earlier
+  committed records, titles and outcomes survive later failures. Pending is not
+  Complete; Incomplete is not a successful empty calendar. Consumers can inspect
+  every source to distinguish complete schedules from partial success.
+- `window()`, `source()`, `sourceLabel()`, `occurrence()` and `title()` return bounded
+  const views into this allocation, with occurrences in committed input order.
+  No read/mutation concurrency is supported. Inputs must actually be readable;
+  callers must not mutate borrowed const views or retain them beyond `release()`
+  or destruction. `release()` refuses an active transaction, otherwise frees once
+  and resets; repeated release/reinitialization is supported. Destruction ends all
+  view/producer lifetimes. Nothing survives deep sleep or aliases the workspace.
+
+Host and exact-target compilation verify `sizeof/alignof`: occurrence **24/8**,
+source **16/4**, window **56/8** bytes. The candidate 1,024 records, 16 source slots
+and 262,144 text bytes require **287,032 bytes** including window/layout (allocator
+overhead excluded). With the candidate 2,097,152-byte workspace, requested payloads
+total **2,384,184 bytes**. These are calculated/test arguments, not defaults,
+measured PSRAM headroom or guarantees; the approximate 320 KiB allowance remains
+provisional. Final capacities require representative workloads and hardware
+largest-block/internal-heap/stack/TLS-overlap measurements and explicit review.
+
+#### Executed validation and limitations
+
+[Snapshot host tests](../tests/five_day_snapshot_test.cpp) passed strict C++11 and
+ASan/UBSan: initialization/catalogue failures, allocation/address/layout bounds,
+canaries, exact capacities, UTF-8/text ownership, half-open intervals/points,
+all-day overlap, supplied 23/25-hour DST dates, hidden staging, complete/empty
+publication, rollback/exhaustion, ignored-error refusal, source-index limits and
+repeated cleanup. [Workspace integration tests](../tests/psram_workspace_test.cpp)
+reuse actual `Panel_EPaper`/`DisplayInstance` with narrow hardware stand-ins:
+commit a scratch-backed input, poison scratch, render/white-fill the borrowed
+prefix and verify independent records/text and tail preservation. Exactly two
+PSRAM allocations (snapshot/workspace) and no panel framebuffer allocation occur.
+Existing acquisition and borrowing regressions also passed; commands are in AGENTS.
+
+On 2026-10-12 one clean verbose isolated fixture compile/link passed using existing
+Arduino CLI 1.5.1, Arduino-ESP32 3.3.12 and GCC 14.2.0 with XIAO ESP32-S3 Plus/OPI
+PSRAM. The [README command](../README.md#isolated-gfx2-source-baseline-and-smoke-check)
+records external build/log paths. Verbose paths and ELF symbols establish vendored
+GFX2, actual snapshot/workspace, official EE02/T133A01 and borrowing linkage;
+board macro/OPI paths and layout assertions passed, without host shims or legacy
+TFT_eSPI. Reported flash/static RAM: **509,715/24,720 bytes**. The same three inherited
+graphics warnings remain; vendor/workspace and production files are unchanged.
+During development the test allocator's malloc linkage and a stale expectation
+that misaddressed adds left a transaction healthy were corrected; final checks passed.
+
+No physical execution, runtime allocation/headroom, timezone resolution, calendar
+feed completeness, UID reconciliation, electrical shutdown or production firmware
+build is established. The smoke fixture uses synthetic UTC boundaries and evaluates
+snapshot/workspace coexistence only if later executed; compilation does not run it.
+No ICS/provider/recurrence or three-consecutive-failures policy is implemented.
 
 ### Boot to sleep flow
 
@@ -615,7 +739,7 @@ truncates at six before sorting by HH:MM (script lines 18,38–65; calendar.h
 lines 181–207). All-day output is `00:00`/`24:00`. Selection order, filtering and
 all-day priority remain Open. Successful JSON parsing alone does not distinguish
 an unauthorized/error response from a valid empty event collection. Events and
-weather live in ordinary static RAM; no retained calendar snapshot is implemented.
+weather live in ordinary static RAM; production uses no normalized snapshot.
 
 No OpenAI requests, artwork processing/rendering, application filesystem operations
 or persistent data cache remain. The removed artwork path owned the overlapping
@@ -623,7 +747,7 @@ or persistent data cache remain. The removed artwork path owned the overlapping
 decoder/file state, static dither/error storage and row buffers. This establishes
 removed allocation sites, not measured memory savings or verified headroom. No new
 workspace, persistent state or framebuffer ownership mechanism is introduced into
-the production application; the isolated workspace/borrowing code is described above.
+the production application; the isolated workspace/borrowing/snapshot code is described above.
 Display-driver/core allocations and actual stack/heap/PSRAM peaks remain unverified.
 Existing flash contents and the documented partition selection are untouched.
 
@@ -745,7 +869,7 @@ measurement or successful firmware build is available to support readiness.
   sketch's first TFT_eSPI include. Correct library-wide configuration propagation
   must be established, not assumed or patched by an unapproved upgrade.
 - **Selected GFX2 production integration/hardware unverified:** the pinned import,
-  local panel-borrowing extension, scoped application workspace, focused host ownership
+  local panel-borrowing extension, scoped application workspace, normalized snapshot, focused host ownership
   tests and isolated exact-target compile/link evidence are present. Production migration, runtime PSRAM/
   heap/stack measurements, orientation and physical panel behavior remain pending.
   Isolated compilation establishes neither a complete production build nor memory
@@ -757,7 +881,7 @@ measurement or successful firmware build is available to support readiness.
 - **No complete build/regression baseline:** documented library versions are not
   compatible revision proof; credentials/configuration, memory and partition fit
   remain prerequisites for a verified complete build. Host coverage is limited
-  to acquisition orchestration; no CI is committed.
+  to acquisition orchestration and isolated panel/workspace/snapshot contracts; no CI is committed.
 - **Data reliability:** truncation before global sort,
   insufficient response-state distinctions, volatile events and unresolved timezone
   alignment limit confidence. The target calendar snapshot is wake-cycle-only;
@@ -787,7 +911,7 @@ initial source repairs.
 ## Open decisions and recommendation boundaries
 
 **Remaining Open policy:** final agenda/grid choice and dimensions, retention of
-legacy month grid, waking-hour defaults, recurrence and overflow limits, ICS-only
+legacy month grid, waking-hour defaults, recurrence/producer limits and final snapshot capacities, ICS-only
 transport commitment versus private CalDAV/Google authenticated access, weather
 freshness and retained-buffer fit, failure state transitions, actual button reset
 mapping, compatible GFX2/core/board integration and verified PSRAM/transfer
@@ -801,9 +925,9 @@ limits. Contrary engineering evidence requires explicit review and adjudication.
 
 **Recommendations not yet selected:** Arduino CLI as the reproducible production build route,
 immutable compatible pins for other dependencies, broader focused C++ host coverage, explicit
-source-results/time normalization, durable configuration-save mechanisms and
+production source-results/time normalization, durable configuration-save mechanisms and
 authenticated TLS mechanisms. The initial GFX2 source pin is approved and imported;
-its local borrowing and scoped workspace are implemented with isolated compile/link
+its local borrowing, scoped workspace and synthetic snapshot are implemented with isolated compile/link
 evidence. Production integration and physical memory/display behavior remain
 unverified, not grounds for a silent source upgrade.
 Routine helper organization/test tooling is an implementation-local choice; an
@@ -895,6 +1019,15 @@ The isolated workspace and tests implement that contract without production
 migration, a snapshot schema/allocation, calendar processing or a fixed 2 MiB limit.
 Historical borrowing/source-import evidence remains distinct from this unit's
 host/compile results and from still-unverified physical/runtime behavior.
+
+On 2026-10-12, the owner adjudicated the normalized snapshot model: original UTC
+timed intervals and points, civil-day all-day intervals, six supplied UTC boundaries
+for five consecutive local dates, complete owned UTF-8 text and a preinitialized source catalogue.
+The independent snapshot now implements one append-checkpoint transaction at a
+time with Complete/Incomplete publication and failure rollback. This supersedes
+the earlier unimplemented/Open snapshot-schema and overflow-behavior descriptions;
+final capacities and provider/timezone/recurrence normalization remain Open.
+Synthetic host/build evidence changes no production acquisition or hardware claims.
 
 ## Historical validation evidence and hardware status
 

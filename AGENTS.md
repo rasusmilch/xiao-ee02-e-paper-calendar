@@ -159,8 +159,9 @@ g++ -std=c++11 -Wall -Wextra -Werror -pedantic -Itests/gfx2_host tests/gfx2_fram
 Adding `-fsanitize=address,undefined -fno-omit-frame-pointer` to this host compile
 also passed. It validates software ownership/lifetime, not electrical display behavior.
 
-The scoped application workspace regression uses the actual owner/panel/reset with
-minimal test-local PSRAM, facade and factory stand-ins (no production injection):
+The scoped application workspace regression uses the actual owner/panel/reset and
+checks independent snapshot survival through scratch poisoning/framebuffer reuse,
+with minimal test-local PSRAM, facade and factory stand-ins (no production injection):
 
 ```
 g++ -std=c++11 -Wall -Wextra -Werror -pedantic -Itests/gfx2_host -Ithird_party/Seeed_GFX2/src tests/psram_workspace_test.cpp third_party/Seeed_GFX2/src/panel/Panel_EPaper.cpp third_party/Seeed_GFX2/src/runtime/DisplayInstance.cpp third_party/Seeed_GFX2/src/driver/epaper/SeeedEPaperProfiles.cpp -Wl,--wrap=malloc,--wrap=free -o /tmp/ee02-psram-workspace-test
@@ -170,6 +171,18 @@ g++ -std=c++11 -Wall -Wextra -Werror -pedantic -Itests/gfx2_host -Ithird_party/S
 Its ASan/UBSan variant uses the same sanitizer flags above. Target compilation of
 the isolated fixture uses real vendored GFX2, not these host stand-ins; runtime
 PSRAM/stack/heap and electrical behavior still require physical measurements.
+
+The independent normalized snapshot regression uses its actual implementation and
+a minimal guarded PSRAM stand-in, with no provider, parser or timezone resolver:
+
+```
+g++ -std=c++11 -Wall -Wextra -Werror -pedantic -Itests/gfx2_host tests/five_day_snapshot_test.cpp -Wl,--wrap=free -o /tmp/ee02-five-day-snapshot-test
+/tmp/ee02-five-day-snapshot-test
+```
+
+Its ASan/UBSan variant uses the same sanitizer flags above. These tests cover supplied
+window semantics, ownership and source transactions, not real calendar completeness,
+timezone resolution or physical PSRAM capacity.
 Documentation: no dedicated lint/link-check command is committed; inspect Markdown
 references and affected claims directly, using available tools.
 Review: no automated review command exists; independent review inspects source/diff.

@@ -8,6 +8,7 @@
 #include <type_traits>
 #include <vector>
 #include "../application/psram_workspace.h"
+#include "../application/five_day_snapshot.h"
 
 using Workspace = Ee02PsramWorkspace;
 namespace {
@@ -260,6 +261,49 @@ void patternsAndRepeatedRendering() {
     assert(psAttempts==before+1 && workspaceFrees==freed);
     expect(w.release(),GfxError::Ok); assert(workspaceFrees==freed+1);
 }
+struct SnapshotContext { Workspace* workspace; FiveDaySnapshot* snapshot; };
+GfxResult stageFromScratch(uint8_t* p,size_t n,void* context) {
+    const char title[]="from scratch"; assert(n>=sizeof(title));
+    std::memcpy(p,title,sizeof(title));
+    FiveDaySnapshot::Input input={}; input.kind=FiveDaySnapshot::Kind::Timed;
+    input.range.timed={1,2}; input.title={reinterpret_cast<const char*>(p),sizeof(title)-1};
+    auto& snapshot=*static_cast<FiveDaySnapshot*>(context);
+    assert(snapshot.addOccurrence(0,input)==FiveDaySnapshot::Result::Ok);
+    return GfxResult::success();
+}
+void checkSnapshot(const FiveDaySnapshot& snapshot) {
+    assert(snapshot.occurrenceCount()==1 && snapshot.occurrence(0)->range.timed.start==1);
+    const auto title=snapshot.title(0);
+    assert(title.size==12 && !std::memcmp(title.data,"from scratch",13));
+    assert(snapshot.source(0)->outcome==FiveDaySnapshot::Outcome::Complete);
+}
+GfxResult drawWithSnapshot(Seeed_GFX& gfx,void* context) {
+    const auto& c=*static_cast<SnapshotContext*>(context);
+    checkSnapshot(*c.snapshot); return draw(gfx,c.workspace);
+}
+void snapshotIndependence() {
+    const size_t before=psAttempts, freed=workspaceFrees, panelBefore=panelAllocations;
+    FiveDaySnapshot snapshot; Workspace w;
+    FiveDaySnapshot::Window window={{0,86400,172800,259200,345600,432000},0,0};
+    const FiveDaySnapshot::Text labels[]={{"synthetic",9}};
+    assert(snapshot.initialize(window,4,64,labels,1)==FiveDaySnapshot::Result::Ok);
+    expect(w.allocate(evaluationBytes),GfxError::Ok);
+    assert(snapshot.beginSource(0)==FiveDaySnapshot::Result::Ok);
+    expect(w.withScratch(0,64,stageFromScratch,&snapshot),GfxError::Ok);
+    assert(snapshot.completeSource(0)==FiveDaySnapshot::Result::Ok);
+    uint8_t poison=0xbd;
+    expect(w.withScratch(0,evaluationBytes,fill,&poison),GfxError::Ok);
+    checkSnapshot(snapshot);
+    SnapshotContext c={&w,&snapshot}; assert(w.render(drawWithSnapshot,&c).ok());
+    checkSnapshot(snapshot);
+    assert(std::all_of(latest->p+frameBytes,latest->p+evaluationBytes,
+                      [poison](uint8_t b){return b==poison;}));
+    assert(psAttempts==before+2 && panelAllocations==panelBefore);
+    expect(w.release(),GfxError::Ok);
+    checkSnapshot(snapshot); // Also survives complete workspace destruction/release.
+    assert(snapshot.release()==FiveDaySnapshot::Result::Ok);
+    assert(workspaceFrees==freed+2);
+}
 void failures() {
     const Fault faults[] = {Fault::Factory,Fault::Registration,Fault::BoardBegin,
         Fault::BusBegin,Fault::DriverBegin,Fault::InitBusy,Fault::Configuration,
@@ -308,10 +352,10 @@ void failures() {
 int main() {
     static_assert(!std::is_copy_constructible<Workspace>::value,"single owner");
     static_assert(!std::is_move_constructible<Workspace>::value,"stable owner");
-    allocationAndBounds(); patternsAndRepeatedRendering(); failures();
+    allocationAndBounds(); patternsAndRepeatedRendering(); snapshotIndependence(); failures();
     assert(panelAllocations==0 && components==0 && facades==0 && refreshes>0);
     // Dispose the fake process/PSRAM heap after assertions. This is test teardown,
     // not a workspace force-release method or hardware recovery implementation.
     for (auto& a : records) if (a.active) { checkGuards(a); __real_free(a.raw); }
-    std::puts("PASS: PSRAM workspace allocation, scratch, handoff, cleanup and retention");
+    std::puts("PASS: PSRAM workspace allocation, scratch, handoff, cleanup, retention and independent snapshot");
 }

@@ -2,6 +2,11 @@
 // Compilation does not validate panel operation. No flashing is part of this check.
 #include <Seeed_GFX.h>
 #include "../../application/psram_workspace.h"
+#include "../../application/five_day_snapshot.h"
+
+static_assert(alignof(FiveDaySnapshot::Occurrence) == 8 &&
+              alignof(FiveDaySnapshot::Source) == 4 &&
+              alignof(FiveDaySnapshot::Window) == 8, "review target snapshot layout");
 
 // Match the XIAO Plus catalog gate and the ESP32-S3 path in the pinned source.
 // These checks do not establish an installed FQBN or verified board menu options.
@@ -45,7 +50,29 @@ static GfxResult checkTail(uint8_t* storage, size_t bytes, void* context) {
   return GfxResult::success();
 }
 
-static GfxResult drawBorrowed(Seeed_GFX& display, void*) {
+static bool checkSnapshot(const FiveDaySnapshot& snapshot) {
+  const auto title = snapshot.title(0);
+  return snapshot.occurrenceCount() == 1 && title.size == 20 &&
+         memcmp(title.data, "Synthetic occurrence", 21) == 0 &&
+         snapshot.source(0)->outcome == FiveDaySnapshot::Outcome::Complete;
+}
+
+static GfxResult stageSynthetic(uint8_t* storage, size_t bytes, void* context) {
+  const char title[] = "Synthetic occurrence";
+  if (bytes < sizeof(title)) return GfxResult(GfxError::InvalidArgument, "scratch too small");
+  memcpy(storage, title, sizeof(title));
+  FiveDaySnapshot::Input input = {};
+  input.kind = FiveDaySnapshot::Kind::Timed;
+  input.range.timed = {3600, 3600};
+  input.title = {reinterpret_cast<const char*>(storage), sizeof(title) - 1};
+  auto& snapshot = *static_cast<FiveDaySnapshot*>(context);
+  return snapshot.addOccurrence(0, input) == FiveDaySnapshot::Result::Ok
+      ? GfxResult::success() : GfxResult(GfxError::InvalidArgument, "synthetic staging failed");
+}
+
+static GfxResult drawBorrowed(Seeed_GFX& display, void* context) {
+  if (!checkSnapshot(*static_cast<FiveDaySnapshot*>(context)))
+    return GfxResult(GfxError::InvalidArgument, "snapshot changed after scratch reuse");
   display.setRotation(1);
   display.fillScreen(TFT_WHITE);
   display.drawPixel(0, 0, TFT_BLACK);
@@ -59,18 +86,38 @@ static GfxResult drawBorrowed(Seeed_GFX& display, void*) {
 
 static void borrowedBufferCase() {
   constexpr size_t evaluationBytes = 2097152; // Provisional, not a product default.
+  FiveDaySnapshot snapshot;
+  // Synthetic UTC dates only; no timezone resolution or real feeds. All sizing
+  // arguments are evaluation parameters, not product limits or defaults.
+  const FiveDaySnapshot::Window window = {{0,86400,172800,259200,345600,432000},0,0};
+  FiveDaySnapshot::Text labels[16];
+  for (auto& label : labels) label = {"Synthetic calendar",18};
+  if (snapshot.initialize(window, 1024, 262144, labels, 16) != FiveDaySnapshot::Result::Ok) return;
   Ee02PsramWorkspace workspace;
   if (!workspace.allocate(evaluationBytes).ok()) return;
+  if (snapshot.beginSource(0) != FiveDaySnapshot::Result::Ok) return;
+  if (!workspace.withScratch(0, 64, stageSynthetic, &snapshot).ok()) return;
+  if (snapshot.completeSource(0) != FiveDaySnapshot::Result::Ok) return;
+  for (size_t i = 1; i < 16; ++i) {
+    if (snapshot.beginSource(i) != FiveDaySnapshot::Result::Ok) return;
+    const auto outcome = i == 1
+        ? snapshot.failSource(i, FiveDaySnapshot::Reason::ProducerFailure)
+        : snapshot.completeSource(i); // Valid zero-event calendars.
+    if (outcome != FiveDaySnapshot::Result::Ok) return;
+  }
   uint8_t prefixPattern = 0x5a, tailPattern = 0x3c;
   constexpr size_t prefixBytes = Ee02PsramWorkspace::FrameBufferBytes;
   if (!workspace.withScratch(0, prefixBytes, fillScratch, &prefixPattern).ok()) return;
   if (!workspace.withScratch(prefixBytes, evaluationBytes - prefixBytes,
                              fillScratch, &tailPattern).ok()) return;
-  const auto result = workspace.render(drawBorrowed);
+  if (!checkSnapshot(snapshot)) return;
+  const auto result = workspace.render(drawBorrowed, &snapshot);
   if (!result.ok()) return; // Retained allocation is not freed by destruction.
   if (!workspace.withScratch(prefixBytes, evaluationBytes - prefixBytes,
                              checkTail, &tailPattern).ok()) return;
+  if (!checkSnapshot(snapshot)) return;
   (void)workspace.release();
+  (void)snapshot.release();
 }
 
 void setup() {

@@ -47,4 +47,12 @@ is historical evidence, not current architecture or requirements authority.
   Preserve operation/shutdown results, prohibit memory reuse/free after uncertain
   hardware shutdown, and validate bounded prefix/tail handling and repeated healthy
   lifecycle operations. Exercise 2 MiB only as an isolated provisional evaluation;
-  retain production graphics and defer the independent snapshot/calendar pipeline.
+  retain production graphics and defer the calendar pipeline.
+- Add an independently allocated, capacity-parameterized PSRAM five-day snapshot
+  owning normalized UTC intervals/points, civil-date all-day occurrences, complete
+  UTF-8 text and source outcomes. Hide staged records until complete publication;
+  roll back failed sources without damaging earlier calendars, and distinguish
+  valid empty success from Pending/Incomplete. Reject invalid input and exhaustion
+  without truncation or false completeness. Validate synthetic transactions and
+  independence through scratch-to-framebuffer reuse; preserve production acquisition,
+  keep capacities provisional and leave timezone/provider normalization unimplemented.
