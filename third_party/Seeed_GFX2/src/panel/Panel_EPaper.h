@@ -6,7 +6,8 @@
  * full/partial refresh, temperature-compensated
  * waveform optimization, and gray mode switching.
  *
- * The frame buffer is a standalone allocation managed by this class.
+ * Local EE02 adaptation: supports caller-owned framebuffer borrowing.
+ * Without registration, the frame buffer is an allocation managed by this class.
  * At 1bpp: each byte = 8 horizontal pixels, MSB = leftmost pixel.
  * At 4bpp: each byte = 2 horizontal pixels, high nibble = left pixel.
  * Monochrome uses 1 = white and 0 = black. Indexed4 uses the
@@ -26,6 +27,16 @@ class Panel_EPaper : public IPanel {
 public:
     Panel_EPaper(IDriver& driver, IBus& bus, IBoard* board = nullptr);
     virtual ~Panel_EPaper();
+
+    /** Register caller-owned T133A01 storage before begin().
+     *  Requires native 1200x1600 indexed 4bpp geometry and at least 960000 bytes.
+     *  Only that prefix is borrowed; byte alignment is sufficient. The caller
+     *  guarantees writable storage/lifetime (and PSRAM where required).
+     *  No allocation/free/fallback occurs in borrowed mode. Successful end()
+     *  forgets the pointer; rebegin then requires fresh registration. Destruction
+     *  never frees caller memory and does not prove physical panel quiescence.
+     */
+    GfxResult setBorrowedFrameBuffer(uint8_t* buffer, size_t availableBytes);
 
     // IPanel interface
 
@@ -192,6 +203,9 @@ private:
 
     uint8_t* _frameBuffer;
     uint8_t* _oldFrameBuffer;
+    uint8_t* _borrowedBuffer = nullptr; // Pending registration / active alias.
+    bool _usesBorrowedFrameBuffer = false; // Sticky: never silently allocate.
+    GfxResult _borrowFailure; // First uncertain transfer/shutdown result.
     uint8_t  _rotation;
     uint8_t  _grayLevel;
     uint8_t  _bpp;
@@ -271,6 +285,12 @@ private:
 
     /** Allocate the frame buffer for the current bpp */
     bool allocateFrameBuffer();
+
+    /** Native format check before binding caller memory. */
+    bool borrowedGeometrySupported() const;
+
+    /** Preserve hardware failure; this is not a controller recovery mechanism. */
+    GfxResult recordBorrowedFailure(GfxResult result);
 
     /** Free the frame buffer */
     void freeFrameBuffer();

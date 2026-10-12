@@ -2,7 +2,8 @@
  * @file   Panel_EPaper.cpp
  * @brief  ePaper panel implementation for Seeed_GFX v2.0
  *
- * Manages a standalone frame buffer for ePaper displays.
+ * Local EE02 adaptation: supports caller-owned framebuffer borrowing.
+ * Otherwise manages a standalone frame buffer for ePaper displays.
  * All drawing operations write to the frame buffer; the update()
  * method sends the buffer to the physical display.
  *
@@ -18,6 +19,8 @@
 #endif
 
 namespace {
+constexpr size_t kBorrowedFrameBufferBytes = 1200U * 1600U / 2U;
+
 void* allocateEPaperMemory(size_t bytes) {
 #if defined(ESP32)
     if (psramFound()) {
@@ -67,7 +70,64 @@ Panel_EPaper::~Panel_EPaper() {
 
 // IPanel interface: Initialization
 
+bool Panel_EPaper::borrowedGeometrySupported() const {
+    return _driver.name() && strcmp(_driver.name(), "T133A01") == 0 &&
+           _driver.width() == 1200 && _driver.height() == 1600 &&
+           _driver.rotation() == 0 && _driver.colorDepth() == 4 &&
+           _driver.supportsColorfulEPaper() &&
+           (_visible_width == 0 || _visible_width == 1200) &&
+           (_visible_height == 0 || _visible_height == 1600);
+}
+
+GfxResult Panel_EPaper::setBorrowedFrameBuffer(uint8_t* buffer,
+                                               size_t availableBytes) {
+    if (_usesBorrowedFrameBuffer && !_borrowFailure.ok()) {
+        _lastResult = _borrowFailure;
+    } else if (_initialized || _frameBuffer || _oldFrameBuffer || _borrowedBuffer) {
+        _lastResult = GfxResult(GfxError::InvalidArgument,
+                                "framebuffer registration requires an unbound panel");
+    } else if (!buffer || availableBytes < kBorrowedFrameBufferBytes ||
+               availableBytes > UINTPTR_MAX - reinterpret_cast<uintptr_t>(buffer)) {
+        _lastResult = GfxResult(GfxError::InvalidArgument,
+                                "invalid borrowed framebuffer span");
+    } else if (!borrowedGeometrySupported()) {
+        _lastResult = GfxResult(GfxError::NotSupported,
+                                "borrowing requires native T133A01 indexed 4bpp");
+    } else {
+        _usesBorrowedFrameBuffer = true;
+        _borrowedBuffer = buffer;
+        _lastResult = GfxResult::success();
+    }
+    return _lastResult;
+}
+
+GfxResult Panel_EPaper::recordBorrowedFailure(GfxResult result) {
+    if (!_usesBorrowedFrameBuffer) return result;
+    if (_borrowFailure.ok() &&
+        (result.error == GfxError::BusyTimeout ||
+         result.error == GfxError::CommunicationFailed)) {
+        _borrowFailure = result;
+    }
+    return _borrowFailure.ok() ? result : _borrowFailure;
+}
+
 bool Panel_EPaper::begin() {
+    if (_usesBorrowedFrameBuffer) {
+        if (!_borrowFailure.ok()) {
+            if (_initialized || _frameBuffer) {
+                _lastResult = _borrowFailure;
+                return false;
+            }
+            // An explicit retry of failed initialization uses the existing
+            // driver init path. A failed active refresh/shutdown cannot retry.
+            _borrowFailure = GfxResult::success();
+        }
+        if (!_borrowedBuffer || !borrowedGeometrySupported()) {
+            _lastResult = GfxResult(GfxError::InvalidArgument,
+                                    "valid borrowed framebuffer registration required");
+            return false;
+        }
+    }
     if (_initialized) {
         _lastResult = GfxResult::success();
         return true;
@@ -100,10 +160,10 @@ bool Panel_EPaper::begin() {
     if (!driverInitialized || !driverInitResult.ok()) {
         _bus.end();
         if (_board) _board->powerOff();
-        _lastResult = driverInitResult.ok()
+        _lastResult = recordBorrowedFailure(driverInitResult.ok()
             ? GfxResult(GfxError::DriverInitFailed,
                         "ePaper driver initialization failed")
-            : driverInitResult;
+            : driverInitResult);
         return false;
     }
 
@@ -135,6 +195,16 @@ bool Panel_EPaper::begin() {
     if (_bpp < 1) _bpp = 1;
     if (_bpp != 1 && _bpp != 4) _bpp = 1;
 
+    // Revalidate after driver init, before touching caller storage.
+    if (_usesBorrowedFrameBuffer &&
+        (!borrowedGeometrySupported() || frameBufferSize() != kBorrowedFrameBufferBytes)) {
+        _bus.end();
+        if (_board) _board->powerOff();
+        _lastResult = GfxResult(GfxError::NotSupported,
+                                "driver changed borrowed framebuffer geometry");
+        return false;
+    }
+
     if (!allocateFrameBuffer()) {
         _bus.end();
         if (_board) _board->powerOff();
@@ -158,20 +228,47 @@ bool Panel_EPaper::begin() {
 }
 
 GfxResult Panel_EPaper::end() {
+    if (_usesBorrowedFrameBuffer && !_borrowFailure.ok()) {
+        _lastResult = _borrowFailure;
+        return _lastResult;
+    }
     if (!_initialized) {
+        if (_usesBorrowedFrameBuffer) {
+            _frameBuffer = nullptr;
+            _borrowedBuffer = nullptr;
+        }
         _lastResult = GfxResult::success();
         return _lastResult;
     }
     sleep();
     const GfxResult sleepResult = _lastResult;
+    if (_usesBorrowedFrameBuffer && !sleepResult.ok()) return sleepResult;
     _bus.end();
     if (_board) _board->powerOff();
     _initialized = false;
+    if (_usesBorrowedFrameBuffer) {
+        _frameBuffer = nullptr;
+        _borrowedBuffer = nullptr;
+    }
     _lastResult = sleepResult;
     return _lastResult;
 }
 
 GfxResult Panel_EPaper::configure(PanelMode mode) {
+    if (_usesBorrowedFrameBuffer) {
+        if (!_borrowFailure.ok()) {
+            _lastResult = _borrowFailure;
+            return _lastResult;
+        }
+        if (mode != PanelMode::Colorful) {
+            _lastResult = GfxResult(GfxError::NotSupported,
+                                    "borrowed framebuffer requires colorful mode");
+            return _lastResult;
+        }
+        if (!initColorfulMode()) return _lastResult;
+        _lastResult = GfxResult::success();
+        return _lastResult;
+    }
     if ((mode == PanelMode::Gray4 && !_driver.supportsGrayRefresh(4)) ||
         (mode == PanelMode::Gray16 && !_driver.supportsGrayRefresh(16))) {
         _lastResult = GfxResult(GfxError::NotSupported,
@@ -202,6 +299,16 @@ GfxResult Panel_EPaper::configure(PanelMode mode) {
 
 GfxResult Panel_EPaper::configureVisibleArea(uint16_t visibleWidth,
                                              uint16_t visibleHeight) {
+    if (_usesBorrowedFrameBuffer && !_borrowFailure.ok()) {
+        _lastResult = _borrowFailure;
+        return _lastResult;
+    }
+    if (_usesBorrowedFrameBuffer &&
+        (visibleWidth != 1200 || visibleHeight != 1600)) {
+        _lastResult = recordBorrowedFailure(GfxResult(
+            GfxError::NotSupported, "borrowed framebuffer geometry is fixed"));
+        return _lastResult;
+    }
     if (_initialized) {
         _lastResult = GfxResult(
             GfxError::InvalidArgument,
@@ -500,17 +607,25 @@ uint16_t Panel_EPaper::readPixel(uint16_t x, uint16_t y) {
 // IPanel interface: Power management
 
 void Panel_EPaper::sleep() {
+    if (_usesBorrowedFrameBuffer && !_borrowFailure.ok()) {
+        _lastResult = _borrowFailure;
+        return;
+    }
     if (_sleeping) {
         _lastResult = GfxResult::success();
         return;
     }
     _driver.clearOperationError();
     ePaperSleep();
-    _sleeping = true;
-    _lastResult = driverOperationResult();
+    _lastResult = recordBorrowedFailure(driverOperationResult());
+    _sleeping = _usesBorrowedFrameBuffer ? _lastResult.ok() : true;
 }
 
 void Panel_EPaper::wake() {
+    if (_usesBorrowedFrameBuffer && !_borrowFailure.ok()) {
+        _lastResult = _borrowFailure;
+        return;
+    }
     if (!_initialized) {
         _lastResult = GfxResult(GfxError::NotInitialized,
                                 "ePaper panel is not initialized");
@@ -523,30 +638,31 @@ void Panel_EPaper::wake() {
     _driver.clearOperationError();
     ePaperWakeUp();
     _sleeping = false;
-    _lastResult = driverOperationResult();
+    _lastResult = recordBorrowedFailure(driverOperationResult());
 }
 
 // ePaper-specific: Full update
 
 void Panel_EPaper::update() {
-    _lastResult = refreshFull(false);
+    _lastResult = recordBorrowedFailure(refreshFull(false));
 }
 
 void Panel_EPaper::updateFast() {
-    _lastResult = refreshFull(true);
+    _lastResult = recordBorrowedFailure(refreshFull(true));
 }
 
 GfxResult Panel_EPaper::refresh() {
-    _lastResult = refreshFull(false);
+    _lastResult = recordBorrowedFailure(refreshFull(false));
     return _lastResult;
 }
 
 GfxResult Panel_EPaper::refreshFast() {
-    _lastResult = refreshFull(true);
+    _lastResult = recordBorrowedFailure(refreshFull(true));
     return _lastResult;
 }
 
 GfxResult Panel_EPaper::refreshFull(bool fast) {
+    if (_usesBorrowedFrameBuffer && !_borrowFailure.ok()) return _borrowFailure;
     if (!_initialized || !_frameBuffer) {
         return GfxResult(GfxError::NotInitialized,
                          "ePaper panel is not initialized");
@@ -554,6 +670,14 @@ GfxResult Panel_EPaper::refreshFull(bool fast) {
     if (fast && (_bpp != 1 || !_driver.supportsFastRefresh())) {
         return GfxResult(GfxError::NotSupported,
                          "fast refresh is not supported in this mode");
+    }
+
+    // Refuse allocation-dependent transforms before wake, padding or transfer.
+    if (_usesBorrowedFrameBuffer &&
+        (_bpp != 4 || _colorMode != COLOR_MODE_COLORFUL ||
+         horizontalMirror() || verticalMirror())) {
+        return GfxResult(GfxError::NotSupported,
+                         "borrowed refresh requires unmirrored colorful mode");
     }
 
     _driver.clearOperationError();
@@ -723,6 +847,10 @@ GfxResult Panel_EPaper::refreshFull(bool fast) {
 // ePaper-specific: Partial update
 
 void Panel_EPaper::updatePartial(uint16_t x, uint16_t y, uint16_t w, uint16_t h) {
+    if (_usesBorrowedFrameBuffer && !_borrowFailure.ok()) {
+        _lastResult = _borrowFailure;
+        return;
+    }
     if (!_initialized || !_frameBuffer) {
         _lastResult = GfxResult(GfxError::NotInitialized,
                                 "ePaper panel is not initialized");
@@ -878,6 +1006,10 @@ void Panel_EPaper::updatePartial(uint16_t x, uint16_t y, uint16_t w, uint16_t h)
 
 GfxResult Panel_EPaper::refreshPartial(uint16_t x, uint16_t y,
                                        uint16_t w, uint16_t h) {
+    if (_usesBorrowedFrameBuffer && !_borrowFailure.ok()) {
+        _lastResult = _borrowFailure;
+        return _lastResult;
+    }
     if (!_initialized || !_frameBuffer) {
         _lastResult = GfxResult(GfxError::NotInitialized,
                                 "ePaper panel is not initialized");
@@ -966,6 +1098,11 @@ bool Panel_EPaper::mapToPhysical(int32_t x, int32_t y, uint16_t& physicalX,
 // Gray mode
 
 bool Panel_EPaper::initGrayMode(uint8_t grayLevel) {
+    if (_usesBorrowedFrameBuffer) {
+        _lastResult = recordBorrowedFailure(GfxResult(
+            GfxError::NotSupported, "borrowed framebuffer cannot change mode"));
+        return false;
+    }
     if (grayLevel != 4 && grayLevel != 16) {
         return false;
     }
@@ -1002,6 +1139,11 @@ bool Panel_EPaper::initGrayMode(uint8_t grayLevel) {
 }
 
 bool Panel_EPaper::deinitGrayMode() {
+    if (_usesBorrowedFrameBuffer) {
+        _lastResult = recordBorrowedFailure(GfxResult(
+            GfxError::NotSupported, "borrowed framebuffer cannot change mode"));
+        return false;
+    }
     if (_bpp == 1) return _frameBuffer != nullptr;
 
     // Free the old 4bpp buffer
@@ -1111,6 +1253,23 @@ uint16_t Panel_EPaper::decode4BitColor(uint8_t value) const {
 }
 
 bool Panel_EPaper::initColorfulMode() {
+    if (_usesBorrowedFrameBuffer) {
+        if (!_borrowFailure.ok()) {
+            _lastResult = _borrowFailure;
+            return false;
+        }
+        if (!_initialized || !_frameBuffer) {
+            _lastResult = GfxResult(GfxError::NotInitialized,
+                                    "borrowed framebuffer is not initialized");
+            return false;
+        }
+        if (_bpp != 4 || frameBufferSize() != kBorrowedFrameBufferBytes) {
+            _lastResult = GfxResult(GfxError::NotSupported,
+                                    "borrowed framebuffer format is fixed");
+            return false;
+        }
+        _lastResult = GfxResult::success();
+    }
     if (_bpp == 4 && _colorMode == COLOR_MODE_COLORFUL)
         return _frameBuffer != nullptr;
 
@@ -1140,6 +1299,11 @@ bool Panel_EPaper::initColorfulMode() {
 }
 
 bool Panel_EPaper::initBWRYMode() {
+    if (_usesBorrowedFrameBuffer) {
+        _lastResult = recordBorrowedFailure(GfxResult(
+            GfxError::NotSupported, "borrowed framebuffer cannot change mode"));
+        return false;
+    }
     if (_bpp == 4 && _colorMode == COLOR_MODE_BWRY)
         return _frameBuffer != nullptr;
 
@@ -1222,6 +1386,12 @@ void Panel_EPaper::setDisplayVerticalMirror(bool mirror) {
 // Internal: Frame buffer allocation
 
 bool Panel_EPaper::allocateFrameBuffer() {
+    if (_usesBorrowedFrameBuffer) {
+        if (!_borrowedBuffer || _bpp != 4 ||
+            frameBufferSize() != kBorrowedFrameBufferBytes) return false;
+        _frameBuffer = _borrowedBuffer;
+        return true;
+    }
     freeFrameBuffer();
 
     size_t bufSize = frameBufferSize();
@@ -1285,9 +1455,10 @@ void Panel_EPaper::clearStoragePadding(uint8_t* buffer) {
 
 void Panel_EPaper::freeFrameBuffer() {
     if (_frameBuffer) {
-        free(_frameBuffer);
+        if (!_usesBorrowedFrameBuffer) free(_frameBuffer);
         _frameBuffer = nullptr;
     }
+    _borrowedBuffer = nullptr;
     if (_oldFrameBuffer) {
         free(_oldFrameBuffer);
         _oldFrameBuffer = nullptr;

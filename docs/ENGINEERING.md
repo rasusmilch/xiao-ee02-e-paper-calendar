@@ -104,13 +104,13 @@ described in the next sections. A roadmap is not implementation authorization.
 
 ### Selected GFX2, PSRAM and streaming-calendar architecture
 
-**Selected target; production integration and ownership extension not implemented
-or validated.** The owner-selected architecture
+**Selected target; library borrowing implemented, production integration and
+hardware validation pending.** The owner-selected architecture
 uses Seeed_GFX2 with a locally maintained external-framebuffer ownership extension,
 one application-owned PSRAM arena, and a separate fixed-capacity five-day occurrence
 snapshot in PSRAM. Both allocations are volatile across deep sleep. Current firmware
 still uses the global TFT_eSPI/EPaper object and ordinary event/weather storage;
-it implements none of this ownership extension, arena or streaming ICS pipeline.
+it uses none of the GFX2 borrowing extension, arena or streaming ICS pipeline.
 Contradictory engineering evidence must trigger explicit review and adjudication,
 not silent architectural substitution. Detailed parser limits remain Open.
 
@@ -173,8 +173,8 @@ establish a firmware-compatible dependency pin or runtime validation. Direct PSR
 DMA is neither required by the selection nor established as supported. Verify exact
 core/board configuration propagation, packaging, transfer/alignment requirements
 and physical EE02 operation before claiming compatibility; do not substitute
-arbitrary versions. Upstream framebuffer ownership remains unchanged; borrowing
-requires a separate authorized extension.
+arbitrary versions. The local [borrowing implementation](#local-t133a01-framebuffer-borrowing)
+extends the imported baseline; production does not yet use it.
 
 #### Provisional evaluation budgets
 
@@ -289,13 +289,16 @@ one hardware-independent helper; the remaining application is not a testable cor
 
 ### Vendored GFX2 dependency baseline
 
-**Imported source, isolated from production; target compilation NOT RUN.**
+**Pinned import with local panel-ownership changes, isolated from production.**
 [third_party/Seeed_GFX2](../third_party/Seeed_GFX2/library.properties) contains the
 approved initial source pin from `https://github.com/Seeed-Studio/Seeed_GFX2`, commit
 `8f74b7aa91c4fcbc5ba2467bab4de4e7ce0eeeeb`. It was retrieved into a disposable
 external Git directory with an exact-SHA, depth-one, no-tags fetch; `FETCH_HEAD`
-and commit type were verified. All **277 imported files (2,795,613 bytes)**,
-including staged contents, match the upstream Git blobs byte-for-byte. Upstream
+and commit type were verified. At import, all **277 files (2,795,613 bytes)**,
+including staged contents, matched upstream Git blobs byte-for-byte. Only
+`src/panel/Panel_EPaper.h` and `.cpp` are subsequently locally modified for the
+[borrowing contract](#local-t133a01-framebuffer-borrowing); all other vendor files,
+metadata and licensing retain their imported bytes. Upstream
 `library.properties` declares version 1.0.0 and the public header `Seeed_GFX.h`;
 the immutable SHA and committed source, rather than the version string, establish
 this reproducible source baseline. There is one maintained vendor tree, no submodule,
@@ -320,55 +323,137 @@ maps to `Board_XIAO_ePaper_EE02`, `Driver_T133A01`, `Panel_EPaper`, 1200×1600 a
 four bits/pixel and colorful mode. The catalog gates XIAO products using board
 macros including `ARDUINO_XIAO_ESP32S3_PLUS`; the EE02 SPI configuration has an
 ESP32-S3-specific path and dual chip select. These are inspected source definitions,
-not verified installed board recipes or electrical behavior. The fixture checks
-those target macros and calls initialization, rotation, six-color primitives, text,
+not electrical evidence. The fixture checks those target macros and exercises both
+ordinary product initialization and factory construction followed by borrowed-panel
+initialization, colorful configuration, rotation, six-color primitives, text,
 refresh and end. It contains no private credentials, network or application code.
 
 Arduino must discover this library through the CLI's single-library
 `--library <repository>/third_party/Seeed_GFX2` option for the isolated sketch.
-The [README command template](../README.md#isolated-gfx2-source-baseline-and-smoke-check)
-requires an actual verified XIAO ESP32-S3 Plus FQBN/menu configuration; none was
-established here. No Arduino CLI or installed ESP32 core/toolchain was found in
-accessible prepared paths, and no installation/upgrade or compile attempt was made.
-Existing documented alpha-core/menu inputs remain unverified. With matching tooling,
+The [README command](../README.md#isolated-gfx2-source-baseline-and-smoke-check)
+records the exact isolated XIAO ESP32-S3 Plus configuration and current evidence.
+At source import, compilation was NOT RUN because matching tooling was unavailable.
+A subsequent disposable experiment compiled/linked the unmodified baseline using
+Arduino CLI 1.5.1 and Arduino-ESP32 3.3.12 with OPI PSRAM; it did not validate hardware.
+Existing production alpha-core/menu inputs remain unverified. With matching tooling,
 inspect verbose library/include/compiler paths and linked graphics symbols; confirm
 the vendored implementation and intended EE02/T133A01 configuration across library
 translation units and reject unintended GFX2 or legacy TFT_eSPI selection. Do not
 pass the new library to the existing production build or install a competing global
 copy. Both the vendor and smoke sketch are outside the production root/`src` sketch
 compilation layout; production includes, global EPaper, rendering and sleep are
-unchanged. No successful compile/link or actual library-resolution result is claimed.
+unchanged. Isolated compile evidence does not establish a complete production build.
 
-**Inspected ownership boundaries, unchanged upstream:**
+**Imported ownership boundaries and subsequent local scope:**
 
 - `Seeed_GFX(product)` stores a pending product; `begin()` creates board/bus/driver/
   panel through the catalog, then begins the panel and configures colorful mode.
 - [Panel_EPaper.cpp](../third_party/Seeed_GFX2/src/panel/Panel_EPaper.cpp) initializes
   buffer pointers to null. `begin()` initializes hardware, reads native geometry/
-  driver depth and allocates the framebuffer. ESP32 allocation first tries PSRAM,
+  driver depth and ordinarily allocates the framebuffer. ESP32 owned allocation first tries PSRAM,
   then falls back to `malloc`; that fallback is existing library behavior, not the
   selected application-arena allocation contract.
 - Mode changes can free/reallocate buffers. Colorful configuration reuses an already
   allocated four-bit buffer; destruction calls `end()` and frees owned buffers.
   `DisplayInstance` resets by deleting the panel and other owned hardware. Raw
-  `frameBuffer()` access does not register caller-owned memory; no borrowing interface
-  is introduced by this baseline.
+  `frameBuffer()` access alone does not register caller-owned memory. The local
+  extension below intercepts allocation, mode changes and cleanup only in borrowed mode.
 - Mirror paths may allocate full-screen temporary storage; the T133A01 driver reads
   packed nibbles, converts palette indices and writes through SPI for two chips.
   Calculated native framebuffer storage is 960,000 bytes. No allocation peak,
   direct PSRAM DMA capability, alignment guarantee or transfer completion is measured.
 
-These findings identify later ownership-extension review boundaries, not permission
-to change them now. Keep production migration, framebuffer borrowing, PSRAM arena,
-calendar parsing and five-day rendering as separate authorized outcomes.
+Keep production migration, the PSRAM arena, calendar parsing and five-day rendering
+as separate authorized outcomes; the extension changes none of those implementations.
 
 Source-integrity, license/inventory, protected-file, smoke-scope and local Markdown
-checks cover this baseline. Full `git diff --cached --check` reports 1,438 inherited
+checks cover this baseline. At import, full `git diff --cached --check` reported 1,438 inherited
 vendor whitespace diagnostics; byte preservation takes precedence over upstream
 style repair. Project-authored documentation and fixture whitespace are checked
-separately. Exact-target compile/link, library-resolution logs and physical EE02
-validation remain **NOT RUN**. Hardware checks are not required for source import,
-but remain necessary before runtime/display/memory compatibility claims.
+separately. That import-stage whitespace/evidence record remains historical; it does
+not describe whitespace introduced by the local extension. Physical EE02 validation
+remains **NOT RUN**, necessary before runtime/display/memory compatibility claims.
+
+#### Local T133A01 framebuffer borrowing
+
+`Panel_EPaper::setBorrowedFrameBuffer(uint8_t* buffer, size_t availableBytes)`
+returns `GfxResult` and registers writable caller storage **before `begin()`**.
+Only native T133A01 1200×1600, indexed four-bit geometry is supported: 600 bytes/row,
+exactly 960,000 admitted bytes, high nibble first. Rotation changes coordinates,
+not storage size. Byte alignment is sufficient for this synchronous path; no DMA
+alignment or PSRAM provenance/writability check is claimed. The caller guarantees
+actual writable capacity, PSRAM placement when required, exclusive drawing access
+and lifetime. Oversized arenas are permitted; their tail is never admitted or touched.
+
+Null, undersized or address-overflowing spans and duplicate/active/already-owned
+registration return `InvalidArgument`; unsupported driver/depth/geometry returns
+`NotSupported`. Geometry is checked again after driver initialization, before any
+caller memory is touched. First successful `begin()` aliases the registered slice
+and fills exactly that slice with white (`0x00`); it never allocates, resizes, frees
+or falls back to internal RAM. Repeated successful `begin()` is idempotent.
+Registration before initialization does not expose a drawable framebuffer.
+
+Use the existing `ProductCatalog::create(Seeed_ePaper_13INCH3_C, instance)` with a
+separately owned `DisplayInstance`, register on its concrete `Panel_EPaper`, then
+attach an external `Seeed_GFX` facade. The instance owns the board/bus/driver/panel
+and must outlive the facade. The externally attached facade's `begin()` does not
+configure product mode: explicitly call `panel->configure(PanelMode::Colorful)`
+after initialization and before drawing/refresh. Initial colorful configuration
+white-fills the same slice; repeated colorful configuration preserves its pixels.
+Native/gray/BWRY configurations, their direct helpers and changed visible geometry
+are rejected without replacing storage. Ordinary non-borrowing allocation/mirroring
+behavior remains the imported behavior, including its PSRAM-to-`malloc` fallback.
+
+Borrowed full refresh requires colorful mode and **no effective mirroring**.
+Mirrored refresh is rejected with `NotSupported` before wake, padding or transfer,
+so this path never needs a second full framebuffer. Partial/fast refresh is also
+unsupported for this four-bit path. Existing T133A01 palette conversion, dual-chip
+SPI commands and synchronous transfer implementation are unchanged. This proves
+neither physical orientation nor direct PSRAM DMA support.
+
+Check the concrete panel's refresh and `end()` results. Successful `end()` sleeps,
+closes the bus/powers off through existing interfaces and forgets both caller aliases;
+another cycle must register again, with no silent owned-allocation fallback. An
+uninitialized pending borrow can also end without touching storage. Failed board,
+bus or driver initialization retains registration for explicit `begin()` retry;
+an initialization BUSY/transport error remains reported until that explicit retry.
+After an active BUSY timeout or transport/shutdown failure, the first failure is
+preserved; later begin/refresh/configure/wake/sleep/end cannot claim quiescence or
+perform automatic recovery. An unsuccessful end keeps the active pointer/lifetime
+obligation. No separate release API is needed for the selected processing → render
+→ sleep sequence.
+
+Destruction and `DisplayInstance::reset()` forget pointers and never free borrowed
+storage, including on failure. They are **not proof of physical refresh completion
+or safe panel shutdown**. The caller keeps storage alive through checked shutdown
+and stack destruction; on uncertain hardware state, do not reassign/release it on
+the strength of destruction. Check `Panel_EPaper::end()` directly: repeated end on
+the unmodified facade/instance can mask an earlier error. Bus `end()`/board
+`powerOff()` have void interfaces, so successful return does not independently
+verify those electrical operations. The smoke fixture retains its allocation on
+uncertain shutdown; it provides no recovery or application arena implementation.
+
+Focused host tests compile the actual panel and `DisplayInstance` with test-local
+GPIO/time shims and small bus/board/driver fakes. Linker allocation/free tracking,
+byte-offset buffers, canaries and sanitizer checks cover registration, bounded
+white-fill/pixels, owned allocation failure/regression, retry, rotation, mode and
+mirror refusal, failure preservation, repeated lifecycle and reset/destruction.
+See [AGENTS.md commands](../AGENTS.md#commands-and-validation) for invocation.
+Host tests establish ownership software behavior, not T133A01 electrical behavior.
+On 2026-10-12 these tests passed with strict C++11 warnings and separately with
+AddressSanitizer/UBSan. The acquisition regression also passed its 16 combinations
+and Wi-Fi failure. One clean verbose compile/link of the modified isolated fixture
+passed with Arduino CLI 1.5.1, Arduino-ESP32 3.3.12, GCC 14.2.0 and the README's
+XIAO ESP32-S3 Plus/OPI FQBN. Compiler paths and ELF symbols verified the vendored
+library, board-provided macro, official EE02 factory/board, T133A01 and borrowed API,
+without legacy TFT_eSPI linkage. Reported flash/static RAM is 506,915/24,720 bytes;
+three inherited `Seeed_GFX.cpp` warnings remain (lines 795, 695, 707). Logs/build/ELF
+are temporary external artifacts, not committed reproducibility inputs. Initial
+host checking caught a masked pre-begin configuration error and an incorrect test
+expectation about explicit mirror overrides; both were corrected before passing.
+Hardware validation still requires actual allocation/largest-block/stack/heap
+measurements, six colors/orientation, repeated initialization/update/sleep/wake and
+failure behavior on physical EE02. Production rendering and memory remain unchanged.
 
 ### Boot to sleep flow
 
@@ -542,15 +627,16 @@ measurement or successful firmware build is available to support readiness.
   by root application source; calendar.h repeats selection macros after the
   sketch's first TFT_eSPI include. Correct library-wide configuration propagation
   must be established, not assumed or patched by an unapproved upgrade.
-- **Selected GFX2 integration unimplemented/unverified:** the approved unmodified
-  source baseline and license boundary are now present, with an isolated smoke sketch.
-  The external-framebuffer extension, production migration, exact core/board
-  configuration, borrowed-memory lifetime and panel transfer behavior still need
-  implementation/validation. Imported source does not establish compilation or
-  memory reliability on EE02. Graphics-foundation selection is no longer Open.
+- **Selected GFX2 production integration/hardware unverified:** the pinned import,
+  local panel-borrowing extension, focused host ownership tests and isolated exact-
+  target compile/link evidence are present. Production migration, runtime PSRAM/
+  heap/stack measurements, orientation and physical panel behavior remain pending.
+  Isolated compilation establishes neither a complete production build nor memory
+  reliability on EE02. Graphics-foundation selection is no longer Open.
 - **Alpha core reproducibility unverified:** cached package metadata includes
   4.0.0-alpha1, but availability, complete installation, exact board recipes and
-  a successful build are unverified. No installed ESP32 core/toolchain was found.
+  a successful production build are unverified. Separately, the isolated GFX2
+  fixture uses the available stable 3.3.12 toolchain; this changes no production settings.
 - **No complete build/regression baseline:** documented library versions are not
   compatible revision proof; credentials/configuration, memory and partition fit
   remain prerequisites for a verified complete build. Host coverage is limited
@@ -674,6 +760,15 @@ validation. This supersedes its unapproved-pin status, not earlier evidence limi
 toolchain and physical compatibility remain unverified. The authorized outcome is
 one locally maintained vendor baseline and isolated compile/link fixture, preserving
 the active renderer; framebuffer borrowing and production migration remain separate.
+
+On 2026-10-12, the owner authorized the narrow local `Panel_EPaper` borrowing
+extension. Only those two vendor source files diverge from the immutable import.
+Successful panel end forgets the borrow; destruction forgets pointers without
+proving quiescence. No separate release API or general allocation/recovery framework
+was needed for the selected wake sequence.
+The implementation rejects borrowed mirroring, preserving ordinary owned behavior;
+physical orientation, electrical shutdown and runtime memory remain unverified.
+This records library implementation scope, not production migration or hardware approval.
 
 ## Historical validation evidence and hardware status
 

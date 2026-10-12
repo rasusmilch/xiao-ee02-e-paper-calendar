@@ -133,7 +133,8 @@ exists. README Arduino IDE settings are documented inputs, not a verified succes
 build.
 The isolated GFX2 compile/link fixture and explicit library-selection template are
 documented in the [engineering baseline](docs/ENGINEERING.md#vendored-gfx2-dependency-baseline);
-its target compilation is NOT RUN, not a substitute for production validation.
+its isolated owned/borrowed target compile/link has passed with the documented
+toolchain, not a substitute for production or hardware validation.
 Use static checks and applicable lightweight host behavior tests during incremental
 development. Complete firmware compilation and hardware validation are
 owner-controlled milestone activities; compilation is preferred but is not a
@@ -147,6 +148,16 @@ g++ -std=c++11 -Wall -Wextra -Werror -pedantic tests/data_acquisition_test.cpp -
 ```
 
 No general test runner or CI workflow is committed.
+The focused GFX2 ownership regression compiles the actual modified panel and reset
+implementation with minimal test-local hardware stand-ins:
+
+```
+g++ -std=c++11 -Wall -Wextra -Werror -pedantic -Itests/gfx2_host tests/gfx2_framebuffer_test.cpp third_party/Seeed_GFX2/src/panel/Panel_EPaper.cpp third_party/Seeed_GFX2/src/runtime/DisplayInstance.cpp third_party/Seeed_GFX2/src/driver/epaper/SeeedEPaperProfiles.cpp -Wl,--wrap=malloc,--wrap=free -o /tmp/ee02-gfx2-framebuffer-test
+/tmp/ee02-gfx2-framebuffer-test
+```
+
+Adding `-fsanitize=address,undefined -fno-omit-frame-pointer` to this host compile
+also passed. It validates software ownership/lifetime, not electrical display behavior.
 Documentation: no dedicated lint/link-check command is committed; inspect Markdown
 references and affected claims directly, using available tools.
 Review: no automated review command exists; independent review inspects source/diff.
