@@ -63,3 +63,9 @@ is historical evidence, not current architecture or requirements authority.
   without following them; keep provisional lines separate from semantic success.
   Validate synthetic fragmentation/failure and workspace lifetime behavior without
   changing production acquisition, snapshot publication or provider/TLS policy.
+- Validate complete unfolded ICS properties and RFC 5545/RFC 9073 component
+  structure in bounded caller-owned scratch with transient contextual callbacks.
+  Preserve encoded parameters and full value octets; distinguish unsupported
+  extensions, malformed nesting and exhaustion without false calendar completeness.
+  Cover guarded workspace use and isolated EE02 compilation, retaining separate
+  production staging, semantic normalization and snapshot publication boundaries.

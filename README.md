@@ -9,7 +9,7 @@ The [original prototype article](https://www.makerguides.com/e-paper-wall-calend
 - **Display:** 1600×1200 Spectra 6, rolling next five days starting today, fixed waking-hour window (exact hours configurable), timed grid the leading candidate versus a five-day agenda. The week view **replaces the 1024×1024 artwork area**. Display layout is not finally selected.
 - **Other panels:** retain weather, multi-day forecast, today's detailed events, battery indication, and their existing positions initially. Whether the legacy monthly calendar remains is Open.
 - **Calendars:** select multiple source calendars; support Google, iCloud/CalDAV and general ICS by source-independent internal event representation. Entirely on-device fetching/normalization; **no separate backend, hosted processor or update preprocessor**. Sequential streaming ICS processing is selected; provider-access scope, including ICS-only initial access and private iCloud versus public ICS, remains Open.
-- **Selected graphics/memory architecture:** Seeed_GFX2 with a locally maintained external-framebuffer ownership extension; one application-owned PSRAM workspace for sequential, one-source-at-a-time streaming ICS processing, then rendering. A separate fixed-capacity five-day PSRAM snapshot owns normalized occurrences, text and transactional source outcomes without references into the reused workspace. GFX2 borrows only the 960,000-byte framebuffer slice and must not free it or allocate an unnecessary second framebuffer. The 2 MiB workspace, 1,024 occurrences and 320 KiB snapshot are provisional evaluation budgets, not validated operating limits. Borrowing, a scoped workspace, synthetic snapshot publication and standalone HTTP framing/line unfolding are implemented in isolation; live calendar acquisition, semantic processing and production phase reuse remain unimplemented, with hardware behavior unvalidated. Consult the [canonical architecture and validation contract](docs/ENGINEERING.md#selected-gfx2-psram-and-streaming-calendar-architecture).
+- **Selected graphics/memory architecture:** Seeed_GFX2 with a locally maintained external-framebuffer ownership extension; one application-owned PSRAM workspace for sequential, one-source-at-a-time streaming ICS processing, then rendering. A separate fixed-capacity five-day PSRAM snapshot owns normalized occurrences, text and transactional source outcomes without references into the reused workspace. GFX2 borrows only the 960,000-byte framebuffer slice and must not free it or allocate an unnecessary second framebuffer. The 2 MiB workspace, 1,024 occurrences and 320 KiB snapshot are provisional evaluation budgets, not validated operating limits. Borrowing, a scoped workspace, synthetic snapshot publication, standalone HTTP framing/line unfolding and bounded property/component parsing are implemented in isolation; live calendar acquisition, semantic processing and production phase reuse remain unimplemented, with hardware behavior unvalidated. Consult the [canonical architecture and validation contract](docs/ENGINEERING.md#selected-gfx2-psram-and-streaming-calendar-architecture).
 - **Storage/time:** NVS stores changed persistent configuration only (Wi-Fi, timezone, calendar URLs/selection, refresh settings). No daily churn, events, weather or routine counters go to NVS. RTC-retained memory may hold validated compact sleep context; reconstruct after invalid RTC/reset. NTP on cold boot when required, then approximately daily; use internal RTC between syncs.
 - **Refresh/recovery:** battery-powered, single user-configurable coordinated data-acquisition/render cycle, independently validated per source. Successful calendars display even if another calendar fails, with a named error bar; a weather failure is shown in its own panel while previously valid forecast data may remain. Three consecutive complete acquisition failures cause a full error screen; cold boot tries Wi-Fi before presenting recovery instructions.
 - **Setup:** device-hosted Wi-Fi webpage (LAN while explicitly awake, or open/no-password AP). AP stops after 10 minutes without meaningful user activity or 30 minutes maximum, then sleeps. Entering a new password may show characters; after save it is masked and the saved value is never echoed. Calendar URL fields remain displayed. An operator-accessible hardware AP trigger is required; simultaneous Setup+Refresh hold for five seconds is a **proposed, unverified** factory-reset gesture, not yet a pin/wake contract.
@@ -150,8 +150,9 @@ hide staging, commit complete sources (including empty ones), or roll back only
 the failed source as Incomplete. Validation/capacity errors automatically abort;
 text is never truncated. Read-only records preserve committed input order.
 The fixture uses synthetic inputs, 1,024 record slots, 16 sources and 262,144 text
-bytes only as evaluation arguments (287,032 allocated bytes). No parser, timezone
-resolver, persistent identity or production integration is implied. See the
+bytes only as evaluation arguments (287,032 allocated bytes). No production
+dependency staging, timezone resolver, persistent identity or production integration
+is implied. See the
 [canonical snapshot contract](docs/ENGINEERING.md#normalized-five-day-occurrence-snapshot).
 
 The separate [compile/link fixture](tests/gfx2_baseline/gfx2_baseline.ino) selects
@@ -208,7 +209,8 @@ response bytes and explicit transport events in caller-owned scratch. It support
 exact Content-Length and HTTP/1.1 chunked framing with bounded extensions/trailers.
 [IcsLogicalLines](application/ics_logical_lines.h) independently unfolds strict
 CRLF plus one SPACE/HTAB, preserving other octets across arbitrary input chunks.
-No property/event semantics or whole-feed storage is implemented.
+This ingestion layer performs no property/component validation or whole-feed storage.
+The downstream structural parser below validates syntax and hierarchy; event semantics remain unimplemented.
 
 Only HTTP 200 with complete supported framing and explicit successful logical-line
 finalization produces ingestion Complete. Empty framed bodies mean zero lines,
@@ -227,6 +229,31 @@ or physical EE02 evidence is claimed. Production Apps Script acquisition and the
 snapshot/graphics implementations are unchanged. Consult the
 [canonical ingestion contract](docs/ENGINEERING.md#bounded-streaming-ics-ingestion)
 and [focused test commands](AGENTS.md#commands-and-validation).
+
+### Bounded ICS property/component parser
+
+[IcsStructure](application/ics_structure.h) validates complete unfolded octet spans
+without allocating. It preserves property values and exposes quoted-aware encoded
+parameter iterators, including unchanged RFC 6868 caret sequences. It validates
+UTF-8, RFC 5545 structure and RFC 9073 PARTICIPANT/VLOCATION/VRESOURCE relationships
+and child ordering. Callbacks carry the current component, parent ordinal, depth
+and calendar ordinal; child UID/SUMMARY values never become enclosing event data.
+
+Caller-owned scratch and callback views live within one workspace `withScratch()`
+scope. All capacities are explicit; 839 scratch bytes for the host evaluation
+profile is calculated from the actual layout, not measured device headroom.
+Multiple calendar objects are bounded; root closure is provisional until explicit
+finalization after ingestion Complete. Unknown calendar-level components are
+opaque; unsupported placement and RFC 7953 availability fail as UnsupportedProfile.
+Malformed nesting, invalid text, exhaustion and consumer failure are terminal.
+
+Strict C++11 and ASan/UBSan host checks passed, including guarded actual-workspace
+use. The extended isolated EE02 fixture compiled/linked using the existing CLI
+1.5.1/core 3.3.12/OPI toolchain; this does not establish production compatibility
+or runtime hardware behavior. No live feed, production staging, recurrence/timezone
+normalization or parser-driven snapshot publication is implemented. See the
+[canonical contract](docs/ENGINEERING.md#bounded-ics-propertycomponent-parser)
+and [host commands](AGENTS.md#commands-and-validation).
 
 ## Current implementation — Google Calendar Setup
 

@@ -3,6 +3,34 @@
 #include <Seeed_GFX.h>
 #include "../../application/psram_workspace.h"
 #include "../../application/five_day_snapshot.h"
+#include "../../application/ics_structure.h"
+
+static bool structureEvent(const IcsStructure::Event& event, void* context) {
+  if (event.type == IcsStructure::EventType::Property) {
+    ++*static_cast<size_t*>(context); // No view escapes and no snapshot calls.
+    if (IcsStructure::identifier(event.property.name, "UID"))
+      return event.component.kind == IcsStructure::Kind::Participant &&
+             event.component.parentOrdinal == 2;
+  }
+  return true;
+}
+
+static GfxResult structureScratch(uint8_t* storage, size_t bytes, void*) {
+  const IcsStructure::Limits limits = {512,8,8,16,4,32,64,128,32,2};
+  size_t required = 0, properties = 0;
+  if (IcsStructure::scratchBytes(limits, required) != IcsStructure::Status::InProgress || bytes < required)
+    return GfxResult(GfxError::InvalidArgument, "structural scratch too small");
+  IcsStructure parser;
+  if (parser.initialize(storage, bytes, limits, structureEvent, &properties) != IcsStructure::Status::InProgress)
+    return GfxResult(GfxError::InvalidArgument, "structural initialization failed");
+  const char* const lines[] = {"BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:synthetic",
+    "BEGIN:VEVENT", "BEGIN:PARTICIPANT", "UID:person", "END:PARTICIPANT", "END:VEVENT", "END:VCALENDAR"};
+  for (const char* line : lines)
+    if (parser.consume(reinterpret_cast<const uint8_t*>(line), strlen(line)) != IcsStructure::Status::InProgress)
+      return GfxResult(GfxError::InvalidArgument, "structural input failed");
+  return parser.finish() == IcsStructure::Status::StructurallyComplete && properties == 3
+      ? GfxResult::success() : GfxResult(GfxError::InvalidArgument, "structural finalization failed");
+}
 
 static_assert(alignof(FiveDaySnapshot::Occurrence) == 8 &&
               alignof(FiveDaySnapshot::Source) == 4 &&
@@ -95,6 +123,7 @@ static void borrowedBufferCase() {
   if (snapshot.initialize(window, 1024, 262144, labels, 16) != FiveDaySnapshot::Result::Ok) return;
   Ee02PsramWorkspace workspace;
   if (!workspace.allocate(evaluationBytes).ok()) return;
+  if (!workspace.withScratch(0, 1024, structureScratch).ok()) return;
   if (snapshot.beginSource(0) != FiveDaySnapshot::Result::Ok) return;
   if (!workspace.withScratch(0, 64, stageSynthetic, &snapshot).ok()) return;
   if (snapshot.completeSource(0) != FiveDaySnapshot::Result::Ok) return;

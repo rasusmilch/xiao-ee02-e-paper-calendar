@@ -198,6 +198,22 @@ The existing workspace command also exercises scratch-only ingestion and
 poison/reuse, without new snapshot publication or graphics integration. These
 checks establish supported framing/unfolding behavior, not valid calendar events,
 secure redirects, actual TLS/socket binding or target firmware compatibility.
+
+The bounded property/component regression exercises the actual standalone parser
+and existing ingestion bridge with guarded caller storage and no per-property
+allocation, semantic normalizer, live feeds or snapshot publication:
+
+```
+g++ -std=c++11 -Wall -Wextra -Werror -pedantic tests/ics_structure_test.cpp -o /tmp/ee02-ics-structure-test
+/tmp/ee02-ics-structure-test
+g++ -std=c++11 -Wall -Wextra -Werror -pedantic -fsanitize=address,undefined -fno-omit-frame-pointer tests/ics_structure_test.cpp -o /tmp/ee02-ics-structure-sanitized
+/tmp/ee02-ics-structure-sanitized
+```
+
+The workspace command also covers framing/structure within one `withScratch()`
+scope, disjoint slices, cleanup and poisoning. The isolated EE02 fixture now
+compiles synthetic structural parsing; production and hardware remain unverified.
+
 Documentation: no dedicated lint/link-check command is committed; inspect Markdown
 references and affected claims directly, using available tools.
 Review: no automated review command exists; independent review inspects source/diff.

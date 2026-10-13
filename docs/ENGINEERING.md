@@ -105,7 +105,7 @@ described in the next sections. A roadmap is not implementation authorization.
 ### Selected GFX2, PSRAM and streaming-calendar architecture
 
 **Selected target; library borrowing, isolated workspace, normalized snapshot and
-standalone HTTP framing/line unfolding implemented;
+standalone HTTP framing/line unfolding and property/component parsing implemented;
 production integration and hardware validation pending.** The owner-selected architecture
 uses Seeed_GFX2 with a locally maintained external-framebuffer ownership extension,
 one application-owned PSRAM arena, and a separate fixed-capacity five-day occurrence
@@ -467,7 +467,8 @@ failure behavior on physical EE02. Production rendering and memory remain unchan
 
 [application/psram_workspace.h](../application/psram_workspace.h) implements
 `Ee02PsramWorkspace`, used only by the isolated smoke fixture. Production still
-uses legacy `EPaper` and the six-event array; no calendar parser is implemented.
+uses legacy `EPaper` and the six-event array; it invokes neither the isolated
+ingestion layer nor the structural parser.
 The independently allocated snapshot below is isolated from production.
 The header is outside root/`src` auto-compilation, has no global allocation and
 does not add GFX2 to the production sketch. This is the scoped application-memory
@@ -788,8 +789,9 @@ split across reads/folds. Empty lines are delivered. Initial whitespace without
 a preceding CRLF remains content. Lone LF, CR followed by another byte, unfinished
 folds and unterminated final content fail. The 75-octet folding recommendation is
 not a mandatory 75-byte limit. No UTF-8/property/value/component validation occurs.
-Oversized lines fail, never truncate or silently skip; property-aware ignore rules
-belong to the later semantic parser.
+Oversized lines fail, never truncate or silently skip; property-aware skipping requires a separately reviewed earlier-stream interface
+and supported ignore policy. The structural parser cannot classify a line already
+rejected by the unfolder.
 
 Construct/destroy the session within **one `withScratch()` callback**. Partition
 the admitted slice into metadata, Location and logical-line buffers using checked
@@ -854,6 +856,154 @@ new target ingestion compile/link, TLS/providers, physical EE02 and measured run
 memory behavior were **NOT RUN**; the historical GFX2 fixture build does not validate
 this code. Later semantic normalization must validate calendar completeness and
 identity before independently authorized transactional snapshot publication.
+
+### Bounded ICS property/component parser
+
+**Implemented isolated syntax/structure; not a calendar importer.**
+[application/ics_structure.h](../application/ics_structure.h) adds `IcsStructure`
+without changing accepted ingestion, workspace, snapshot or vendor implementations.
+Production remains on Apps Script JSON and legacy graphics. Source-local production
+staging, typed event validation, recurrence, timezone resolution and snapshot
+producer integration remain unimplemented.
+
+#### API, ownership and generic grammar
+
+- `scratchBytes(limits, bytes)` returns the checked worst-case natural-aligned
+  stack/name-storage requirement. `initialize(scratch, capacity, limits, sink,
+  context)` borrows one disjoint caller slice. No allocation, fallback, recursion,
+  whole-feed retention, general memory manager or persistence occurs.
+- `consume(line, length)` accepts complete unfolded spans, not C strings or CRLF
+  lines. It validates the whole line before emitting, including UTF-8 (no NUL,
+  prohibited controls, overlong encodings, surrogates or invalid sequences).
+  Names use the generic ASCII ALPHA/DIGIT/hyphen grammar and case-insensitive
+  comparison; original property values and parameter spelling remain unchanged.
+- Parameter names require equals; commas/semicolons/colons inside quoted values
+  remain content. The first unquoted header colon begins the untouched value.
+  Empty property and generic parameter values/list members are accepted; typed
+  cardinality/meaning is later work. No truncation, Unicode normalization, generic
+  TEXT unescaping or RFC 6868 decoding occurs. Iterators expose encoded spans and
+  quoted flags, preserving recognized/unknown caret sequences and trailing carets.
+- Synchronous BeginComponent/Property/EndComponent callbacks expose component
+  kind/name, depth (root 1), source-local structural ordinal, parent ordinal and
+  calendar ordinal. These numbers associate syntax nodes, not semantic UID identity.
+  A participant/location/resource UID or SUMMARY remains attached to that child.
+  All event/property/parameter views and iterators expire on callback return.
+  Only copied bounded component names and structural state survive between lines.
+- `lineSink` directly implements the existing boolean line callback. Parser status
+  and bounded line/octet/limit diagnostics remain available when ingestion reports
+  CallbackFailure. Errors retain no raw content, titles, URLs or credentials.
+- Construct/destroy ingestion and structure inside **one `withScratch()` scope**,
+  with checked, disjoint receive, ingestion and structure slices. Typed state uses
+  placement construction/natural alignment inside the admitted scratch. Callbacks
+  must return promptly/normally; no throws, reentrancy, concurrent use, escaped
+  aliases or owner destruction. C++ cannot revoke consumer pointers or prove that
+  a caller span is readable/writable.
+
+#### Supported hierarchy and extension boundaries
+
+| Parent | Recognized children |
+| --- | --- |
+| VCALENDAR | VEVENT, VTODO, VJOURNAL, VFREEBUSY, VTIMEZONE; unknown opaque components |
+| VEVENT / VTODO | VALARM, PARTICIPANT, VLOCATION, VRESOURCE |
+| VJOURNAL / VFREEBUSY | PARTICIPANT, VLOCATION, VRESOURCE |
+| PARTICIPANT | VLOCATION, VRESOURCE |
+| VTIMEZONE | STANDARD, DAYLIGHT |
+| VALARM / STANDARD / DAYLIGHT / VLOCATION / VRESOURCE | No recognized children |
+
+This combines RFC 5545 with RFC 9073 sections 4 and 7.1–7.3. Enforce property-before-
+child placement and the specified child groups: alarms, participants, locations,
+resources (omit unsupported groups by parent). PARTICIPANT uses locations then
+resources. Repeated children are allowed within limits. VTIMEZONE follows its
+own interleavable property/observance grammar and requires an observance child.
+
+BEGIN/END have no parameters, require valid component tokens and exact
+case-insensitive matching. Known prohibited nesting/order yields InvalidNesting.
+Unknown names directly under VCALENDAR are delivered opaquely with a nonempty
+bounded generic body; nested unknown opaque components are supported. No registry
+membership or semantic support is claimed. A recognized child inside an opaque
+context, or unknown child in another unsupported placement, yields UnsupportedProfile.
+Nested VCALENDAR is always invalid. Recognized RFC 7953 VAVAILABILITY/AVAILABLE
+also yield UnsupportedProfile, without claiming standards-valid availability is
+malformed or implementing its semantics. No subtrees are silently discarded.
+
+Every root requires one VERSION (2.0 or equivalent 2.0;2.0), one PRODID and a
+component. Duplicate VERSION/PRODID/METHOD/CALSCALE or missing required root data
+is InvalidMetadata; other versions are UnsupportedProfile. Property-value-specific
+conformance and PRODID uniqueness are not established. Zero VEVENTs can be valid
+structure; metadata-only roots or an empty response do not succeed.
+
+#### Finalization, errors and evaluation limits
+
+Root closure remains InProgress to permit another bounded calendar object.
+Only explicit `finish()` after ingestion Complete may return StructurallyComplete;
+open frames give IncompleteStructure and no root gives MissingRoot. Malformed
+properties/parameters/text, invalid metadata/nesting, unsupported profiles,
+exhaustion, cancellation, consumer refusal and invalid lifecycle are terminal.
+The first failure survives later finish/cancel/release. New input after successful
+finalization is invalid. `release()` cancels unfinished work, destroys structural
+frames and clears all scratch/callback bindings without freeing caller storage;
+sessions are single-use, with fresh construction for another source.
+
+Structural success proves the declared generic text/hierarchy profile only. It is
+not ingestion success, full property/extension semantics, a complete event schedule,
+normalized occurrences or FiveDaySnapshot Complete. A later producer must finish
+transport, semantic validation, identity/recurrence/timezone reconciliation and
+normalization before transactional publication. Unsupported potentially relevant
+semantics must not be silently dropped while claiming complete calendar results.
+
+| Explicit caller limit | Provisional host evaluation argument |
+| --- | --- |
+| Logical line | 16 KiB, alongside unchanged 4 KiB physical/8 MiB body ingestion candidates |
+| Parameters / values per parameter / total values per property | 32 / 64 / 128 |
+| Depth / component-name bytes | 8 / 64 |
+| Properties per component / source | 4,096 / 65,536 |
+| Components / calendar objects per source | 4,096 / 4 |
+
+All limits have no defaults. Check sizing, address spans, offsets and counters;
+exact limits are admitted, overflows fail. The host evaluation requires **839
+scratch bytes** (8 actual 40-byte frames, 512 name bytes, up to 7 alignment bytes);
+`sizeof(IcsStructure)` is **208 host bytes**. These are layout arithmetic, not
+measured stack/PSRAM headroom or selected product capacities. Work is bounded by
+line scans, iterator traversal and counters; callbacks are not preempted. Current
+oversized-line handling stays fail-closed upstream. Final capacities, staging
+schema, semantic extensions/provider policy and hardware memory limits remain Open.
+
+Strict C++11 and ASan/UBSan [tests](../tests/ics_structure_test.cpp) passed **565**
+property/hierarchy/fragmentation scenarios, auditing zero parser `new` allocations.
+The actual-workspace regression additionally checks disjoint guarded slices,
+one-byte raw HTTP delivery, child identity, repeated release/poison/reuse and no
+additional allocation/factory/framebuffer. Existing ingestion, acquisition,
+snapshot and framebuffer regressions passed. Test-only copied records are not
+production staging; no new parser path invokes snapshot transactions.
+
+The extended isolated [EE02 fixture](../tests/gfx2_baseline/gfx2_baseline.ino)
+compiles/links synthetic parser use inside the existing workspace, with no parser-
+driven snapshot calls. Existing owned/borrowed/synthetic snapshot cases remain
+separate. The final command/toolchain evidence below is isolated, not a production
+firmware build, live feed or runtime measurement. Arduino CLI **1.5.1**,
+Arduino-ESP32 **3.3.12** and Xtensa GCC **14.2.0** compiled/linked successfully;
+dependencies and ELF symbols confirm this parser, the XIAO Plus macro/OPI path,
+one vendored GFX2 library and EE02/T133A01. No legacy TFT_eSPI was selected.
+The compiler reports **513,467 bytes flash** and **24,720 bytes static globals**
+(out of 3,342,336 / 327,680), not runtime PSRAM/internal-heap headroom. The verbose
+log contains no warning/error diagnostics; CLI uses `-w`, so this is not a claim
+of warning-free vendor source. Strict host compilation did not suppress warnings.
+
+```sh
+/tmp/ee02-gfx2-compat.qWyDXC/bin/arduino-cli \
+  --config-file /tmp/ee02-gfx2-compat.qWyDXC/arduino-cli.yaml \
+  compile --clean --verbose \
+  --fqbn esp32:esp32:XIAO_ESP32S3_Plus:PSRAM=opi,CDCOnBoot=default,PartitionScheme=default_8MB \
+  --library /workspace/xiao-ee02-e-paper-calendar/third_party/Seeed_GFX2 \
+  --build-path /tmp/ee02-ics-structure-build tests/gfx2_baseline \
+  > /tmp/ee02-ics-structure-compile.log 2>&1
+```
+
+No installation/upgrade, production build, live calendars/TLS, flashing, physical
+EE02 refresh or runtime heap/PSRAM/stack measurements were performed. Host behavior
+and compilation establish neither complete real-calendar semantics nor hardware
+capacity/correctness. Prior source-import, borrowing, snapshot and ingestion
+validation history remains distinct from this parser outcome.
 
 ### Boot to sleep flow
 
@@ -1195,6 +1345,12 @@ header validation and an untrusted handoff. The implementation follows that
 boundary. Earlier same-origin/redirect-chain planning recommendations were not
 selected policy; URL resolution, following, credentials and certificates remain
 separate future adjudication. No production migration or semantic parser was authorized.
+
+On 2026-10-13, independent review approved the bounded structural parser unit
+with explicit RFC 9073 relationships. This supersedes unimplemented property/
+component parsing descriptions in isolated current-state authority, while retaining
+transient ownership, separate staging and deferred semantic normalization. It does
+not select provider access, semantic extension coverage or final operating limits.
 
 ## Historical validation evidence and hardware status
 

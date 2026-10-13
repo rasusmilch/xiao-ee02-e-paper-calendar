@@ -10,6 +10,7 @@
 #include "../application/psram_workspace.h"
 #include "../application/five_day_snapshot.h"
 #include "../application/ics_ingestion.h"
+#include "../application/ics_structure.h"
 
 using Workspace = Ee02PsramWorkspace;
 namespace {
@@ -356,6 +357,76 @@ void ingestionScratchLifetime() {
     assert(factoryCalls==factories && psAttempts==before+1);
     expect(w.release(),GfxError::Ok); assert(workspaceFrees==freed+1);
 }
+struct StructureCheck { size_t properties, participants; };
+bool structureEvent(const IcsStructure::Event& event,void* context) {
+    auto& check=*static_cast<StructureCheck*>(context);
+    if(event.type!=IcsStructure::EventType::Property) return true;
+    ++check.properties;
+    if(IcsStructure::identifier(event.property.name,"UID")) {
+        assert(event.component.kind==IcsStructure::Kind::Participant);
+        assert(event.component.depth==3 && event.component.parentOrdinal==2);
+        ++check.participants;
+    }
+    return true; // Copy counters only; no borrowed views survive.
+}
+uint64_t structureClock(void*) { return 0; }
+GfxResult structureScratch(uint8_t* p,size_t n,void*) {
+    assert(n==4096);
+    const IcsIngestion::Limits limits={4096,4096,1024,16,128,64,512,8,128,256,512,1000,100};
+    const IcsStructure::Limits structureLimits={512,8,8,16,4,32,64,128,32,2};
+    size_t structureBytes=0;
+    assert(IcsStructure::scratchBytes(structureLimits,structureBytes)==IcsStructure::Status::InProgress);
+    constexpr size_t ingestionBytes=128+128+512;
+    uint8_t* ingestionStorage=p+16;
+    uint8_t* structureStorage=ingestionStorage+ingestionBytes+16;
+    uint8_t* receive=structureStorage+structureBytes+16;
+    assert(static_cast<size_t>(receive-p)<n);
+    StructureCheck check={0,0};
+    const char body[]="BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:host\r\nBEGIN:VEVENT\r\n"
+        "BEGIN:PARTICIPANT\r\nUID:person\r\nEND:PARTICIPANT\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n";
+    char header[96];
+    const int headerBytes=std::snprintf(header,sizeof(header),"HTTP/1.1 200 OK\r\nContent-Length: %zu\r\n\r\n",sizeof(body)-1);
+    assert(headerBytes>0 && static_cast<size_t>(headerBytes)<sizeof(header));
+    {
+        IcsStructure structure;
+        assert(structure.initialize(structureStorage,structureBytes,structureLimits,structureEvent,&check)==IcsStructure::Status::InProgress);
+        IcsIngestion ingestion;
+        assert(ingestion.initialize(ingestionStorage,ingestionBytes,limits,IcsStructure::lineSink,&structure,
+                                   structureClock,nullptr)==IcsIngestion::Status::InProgress);
+        for(size_t i=0;i<static_cast<size_t>(headerBytes)+sizeof(body)-1;++i) {
+            receive[0]=static_cast<uint8_t>(i<static_cast<size_t>(headerBytes)?header[i]:body[i-headerBytes]);
+            assert(ingestion.feed(receive,1)==IcsIngestion::Status::InProgress);
+        }
+        assert(ingestion.finish()==IcsIngestion::Status::Complete);
+        assert(structure.finish()==IcsStructure::Status::StructurallyComplete);
+        assert(check.properties==3 && check.participants==1);
+        ingestion.release(); structure.release();
+        std::memset(ingestionStorage,0xbd,ingestionBytes);
+        std::memset(structureStorage,0xbd,structureBytes);
+        assert(structure.finish()==IcsStructure::Status::StructurallyComplete);
+    }
+    for(size_t i=0;i<16;++i) {
+        assert(p[i]==0xa5 && ingestionStorage[ingestionBytes+i]==0xa5);
+        assert(structureStorage[structureBytes+i]==0xa5);
+    }
+    for(size_t i=static_cast<size_t>(receive-p)+1;i<n;++i) assert(p[i]==0xa5);
+    return GfxResult::success();
+}
+void structureScratchLifetime() {
+    const size_t before=psAttempts, freed=workspaceFrees, panels=panelAllocations;
+    const int factories=factoryCalls;
+    Workspace w; expect(w.allocate(frameBytes),GfxError::Ok);
+    for(int cycle=0;cycle<3;++cycle) {
+        uint8_t reset=0xa5;
+        expect(w.withScratch(0,4096,fill,&reset),GfxError::Ok);
+        expect(w.withScratch(0,4096,structureScratch),GfxError::Ok);
+        uint8_t poison=0x7f;
+        expect(w.withScratch(0,4096,fill,&poison),GfxError::Ok);
+        checkGuards(*latest);
+    }
+    assert(factoryCalls==factories && panelAllocations==panels && psAttempts==before+1);
+    expect(w.release(),GfxError::Ok); assert(workspaceFrees==freed+1);
+}
 void failures() {
     const Fault faults[] = {Fault::Factory,Fault::Registration,Fault::BoardBegin,
         Fault::BusBegin,Fault::DriverBegin,Fault::InitBusy,Fault::Configuration,
@@ -404,7 +475,7 @@ void failures() {
 int main() {
     static_assert(!std::is_copy_constructible<Workspace>::value,"single owner");
     static_assert(!std::is_move_constructible<Workspace>::value,"stable owner");
-    allocationAndBounds(); patternsAndRepeatedRendering(); snapshotIndependence(); ingestionScratchLifetime(); failures();
+    allocationAndBounds(); patternsAndRepeatedRendering(); snapshotIndependence(); ingestionScratchLifetime(); structureScratchLifetime(); failures();
     assert(panelAllocations==0 && components==0 && facades==0 && refreshes>0);
     // Dispose the fake process/PSRAM heap after assertions. This is test teardown,
     // not a workspace force-release method or hardware recovery implementation.
