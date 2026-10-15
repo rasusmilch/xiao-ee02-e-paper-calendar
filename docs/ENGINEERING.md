@@ -106,7 +106,8 @@ described in the next sections. A roadmap is not implementation authorization.
 
 **Selected target; library borrowing, isolated workspace, normalized snapshot and
 standalone HTTP framing/line unfolding, property/component parsing, selective
-source-local dependency staging, typed primitive decoding and VEVENT-local checks implemented;
+source-local dependency staging, typed primitive decoding, VEVENT-local checks and
+timezone/observance-local checks implemented;
 production integration and hardware validation pending.** The owner-selected architecture
 uses Seeed_GFX2 with a locally maintained external-framebuffer ownership extension,
 one application-owned PSRAM arena, and a separate fixed-capacity five-day occurrence
@@ -864,8 +865,8 @@ identity before independently authorized transactional snapshot publication.
 [application/ics_structure.h](../application/ics_structure.h) adds `IcsStructure`
 without changing accepted ingestion, workspace, snapshot or vendor implementations.
 Production remains on Apps Script JSON and legacy graphics. Selective source-local
-staging, typed primitive decoding and selected VEVENT-local checks now exist in
-isolation below; complete typed event validation, recurrence, timezone resolution
+staging, typed primitive decoding, selected VEVENT-local and timezone/observance-local
+checks now exist in isolation below; complete typed event validation, recurrence, timezone resolution
 and snapshot producer integration remain unimplemented.
 
 #### API, ownership and generic grammar
@@ -1475,6 +1476,123 @@ uses `--clean`. Logs are `/tmp/ee02-ics-event-local-compile.log` and
 `/tmp/ee02-ics-event-local-final-compile.log`. No dependencies were installed/upgraded,
 hardware flashed or provider policies selected. These checks establish selected
 software behavior and isolated linkage, not complete calendar or hardware correctness.
+
+### VTIMEZONE and observance-local validation
+
+**Implemented isolated local schema checks, not timezone resolution.**
+[application/ics_timezone_local.h](../application/ics_timezone_local.h) exposes
+stateless `IcsTimezoneLocal::validateTimezone(stage, calendarIndex, timezoneIndex,
+limits)` and `validateObservance(stage, timezoneIndex, observanceIndex, limits)`.
+Accepted ingestion, structure, stage, typed decoder, event validator, workspace,
+snapshot and production implementations are unchanged.
+
+#### Admission, ordering and schema
+
+Require currently readable successfully staged storage, valid supplied indices,
+closed Calendar/Timezone or Timezone/Standard-or-Daylight kinds, matching
+structural ordinal/index, direct parent and nonzero matching calendar ordinal.
+Terminal StagedSuccessfully surviving release cannot admit a reader. No name-based
+parent lookup, source-wide scan, child enumeration, TZID index or rule cache exists.
+The structural parser already guarantees at least one observance per VTIMEZONE;
+a timezone-local pass does not assert that its children passed local validation.
+
+Traverse only the target component's direct append-only property links. Check
+owners, stored indices, strictly increasing links (also detecting cycles), terminal
+last link and exact observed descriptor count. Explicit maxTimezoneProperties or
+maxObservanceProperties bounds every traversal; zero is not unlimited. Parent
+metadata is checked without scanning the parent's property list. Later source
+validation must visit every relevant component separately.
+
+Failure precedence: admission/association, full property-chain integrity/budget,
+singleton cardinality, required presence, then selected typed checks in retained
+input order. Duplicate reports identify the second singleton occurrence. Failures
+have zero deferred bits and bounded property index/code (None for missing fields),
+without raw content, staging mutation, durable error state or source rollback.
+
+VTIMEZONE requires one TZID; LAST-MODIFIED and TZURL are optional singletons.
+STANDARD/DAYLIGHT each require one DTSTART, TZOFFSETFROM and TZOFFSETTO, with that
+missing-field priority. Other fields receive no invented singleton limits. RRULE
+SHOULD NOT repeat under RFC 5545 3.6.5; repetition sets pending bits, not a MUST NOT
+cardinality error or first/last-rule-wins policy. RDATE may repeat. No extra required
+fields, modern regional offset limits or offset-difference requirements are added.
+
+#### Typed checks, omissions and obligations
+
+- TZID uses scalar TEXT measurement, requires nonempty complete retained identity,
+  and bounds encoded work by maxTzidTextBytes. There is no truncation, normalization,
+  case folding, naming convention, external lookup or cross-definition comparison.
+  Parameter semantics remain review obligations.
+- LAST-MODIFIED uses the accepted property-local temporal decoder, requiring UTC
+  DATE-TIME. It never selects a competing definition. TZURL remains retained and
+  optionally unvalidated, with no URI grammar or network retrieval in this unit.
+- Observance DTSTART uses the existing typed context: local DATE-TIME without Z or
+  TZID. Explicit DATE-TIME VALUE is supported; invalid/unsupported combinations use
+  typed error categories. Leap second 60 is preserved as pending confirmation.
+- Both offsets use decodeUtcOffset: signed HHMM/HHMMSS, valid individual fields,
+  positive zero permitted and negative zero rejected. Identical offsets, unusual
+  magnitudes and non-hour changes are not automatically rejected. Offset parameters
+  remain available for review; no offset application or instant calculation occurs.
+- Each RDATE uses the actual TemporalList with maxRdateMembers/maxRdateBytes.
+  These bounds apply independently to each property; bytes include its retained
+  value and encoded parameters. Zero budget with a present list is ResourceLimit.
+  Complete iteration through End and final Ok/NeedsContext are required. Members
+  must be local DATE-TIME; DATE, PERIOD, UTC, TZID, empty/malformed members and an
+  invalid suffix fail. No ordering, deduplication, exclusions or expansion occurs.
+- RRULE stays unparsed, including RSCALE/SKIP. EXDATE in observances is not a core
+  tzprop under RFC 5545: preserve it with ObservanceExdateReviewPending and
+  ExtensionReviewPending, without applying, dropping or inventing extension support.
+- Declared TZNAME/COMMENT payload omissions remain distinct from original empty
+  values. Do not decode them or fabricate missing required timezone information.
+  Retained review flags survive. Unknown relevant properties/parameters and known
+  uninterpreted extensions retain explicit review obligations; recognized retained
+  optional fields without selected typed checks remain optionally unvalidated.
+
+Every successful result has SourceValidationRequired and TransitionResolutionPending.
+Timezone success additionally has TimezoneIdentityReconciliationPending. Applicable
+bits are RecurrenceValidationPending, MultipleRrulePending, ExtensionReviewPending,
+OptionalPropertyValidationPending, LeapSecondPending and ObservanceExdateReviewPending.
+These are obligations, never semantic acceptance. No transition completeness,
+resolved TZID, UTC event timestamp, complete source or snapshot outcome is returned.
+
+#### Lifetime and evidence boundaries
+
+All processing completes inside the stage's existing withScratch lifetime. Report
+is a small pointer-free POD; there is no decoded timezone table, second property
+pool, allocation, recursion or persistent state. Constant bounded direct-list
+passes plus linear bounded TEXT/RDATE work use fixed local counters and temporary
+typed PODs. Candidate workspace capacities are unchanged; runtime stack, internal
+heap, PSRAM headroom and energy remain unmeasured. Physical EE02, live providers,
+complete firmware, transition/recurrence rules and timezone conversion are not
+validated by this isolated unit.
+
+Strict C++11 and ASan/UBSan focused runs passed **202 deterministic scenarios**
+with zero audited validator `new` allocations and guarded byte-for-byte source
+immutability. Cases use actual complete synthetic framing/structure/staging,
+Content-Length/chunked fragmentation/folds, invalid associations/links, exact and
+over-budget work, deferred extensions/EXDATE, failed upstream completion and
+release/poisoning. Existing strict typed/stage/structure/ingestion and VEVENT-local
+regressions passed 400 assertions / 618 / 565 / 1,325 / 150 scenarios respectively.
+Commands are in AGENTS.md; no unrelated snapshot/framebuffer/acquisition regression
+was needed because their implementations and contracts are unchanged.
+
+An initial clean and final incremental isolated compile/link passed on 2026-10-15
+using the existing README Arduino CLI 1.5.1 / ESP32 core 3.3.12 / GCC 14.2.0 tools,
+XIAO ESP32-S3 Plus OPI FQBN and explicit vendored Seeed_GFX2 1.0.0 (plus core
+SPI/Wire). The extended fixture invokes both operations inside existing scratch;
+new dependency records and the linked common `IcsTimezoneLocal::detail::validate`
+implementation establish inclusion/linkage, with primary inline wrappers inlined.
+Report sizeof/alignof is **24/8 host, 16/4 target** (target static assertion).
+Final flash/static globals are **533,967/24,720 bytes**, reported maxima
+3,342,336/327,680, not runtime memory measurements. The clean build emitted the
+three previously documented vendored Seeed_GFX.cpp warnings; no unrelated fixes
+or warning-free target claim is made. Core recipe `-w` suppression remains.
+
+Both commands use the existing README tool/config paths, `--verbose --warnings all
+--jobs 2`, explicit `--library`, and `/tmp/ee02-ics-timezone-local-build`; the initial
+also uses `--clean`. Logs: `/tmp/ee02-ics-timezone-local-compile.log` and
+`/tmp/ee02-ics-timezone-local-final-compile.log`. Official RFC 5545 3.6.5/3.8.3
+provided schema, local-onset and identity evidence. No dependencies were installed
+or upgraded, live calendars accessed, hardware flashed or product policy selected.
 
 ### Boot to sleep flow
 

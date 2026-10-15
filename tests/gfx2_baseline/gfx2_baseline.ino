@@ -7,6 +7,10 @@
 #include "../../application/ics_source_stage.h"
 #include "../../application/ics_typed_values.h"
 #include "../../application/ics_event_local.h"
+#include "../../application/ics_timezone_local.h"
+
+static_assert(sizeof(IcsTimezoneLocal::Report) == 16 && alignof(IcsTimezoneLocal::Report) == 4,
+              "target timezone local report layout");
 
 static_assert(sizeof(IcsEventLocal::Report) == 16 && alignof(IcsEventLocal::Report) == 4,
               "target VEVENT local report layout");
@@ -64,7 +68,10 @@ static GfxResult sourceStageScratch(uint8_t* storage, size_t bytes, void*) {
       "DTSTART;TZID=Later:20261012T090000\r\nSUMMARY:Typed\\, title\r\n"
       "RDATE;VALUE=DATE:20261013,20261014\r\n"
       "DTSTAMP:20261012T080000Z\r\n"
-      "END:VEVENT\r\nBEGIN:X-CUSTOM\r\nX-P:ignored\r\nEND:X-CUSTOM\r\nEND:VCALENDAR\r\n";
+      "END:VEVENT\r\nBEGIN:X-CUSTOM\r\nX-P:ignored\r\nEND:X-CUSTOM\r\n"
+      "BEGIN:VTIMEZONE\r\nTZID:Later\r\nBEGIN:STANDARD\r\nDTSTART:20261012T020000\r\n"
+      "TZOFFSETFROM:-0500\r\nTZOFFSETTO:-0400\r\nRDATE:20261013T020000,20261014T020000\r\n"
+      "END:STANDARD\r\nEND:VTIMEZONE\r\nEND:VCALENDAR\r\n";
   char header[96];
   const int n = snprintf(header, sizeof(header), "HTTP/1.1 200 OK\r\nContent-Length: %u\r\n\r\n", unsigned(sizeof(body) - 1));
   if (n <= 0 || size_t(n) >= sizeof(header) ||
@@ -99,6 +106,15 @@ static GfxResult sourceStageScratch(uint8_t* storage, size_t bytes, void*) {
       IcsEventLocal::RecurrenceValidationPending | IcsEventLocal::TimezoneResolutionPending;
   if (local.status != IcsEventLocal::Status::LocalChecksPassed || (local.deferred & pending) != pending)
     return GfxResult(GfxError::InvalidArgument, "VEVENT local checks");
+  const IcsTimezoneLocal::Limits zoneLimits = {1, 4, 64, 2, 31};
+  const auto zone = IcsTimezoneLocal::validateTimezone(stage, 0, 3, zoneLimits);
+  const auto onset = IcsTimezoneLocal::validateObservance(stage, 3, 4, zoneLimits);
+  const uint32_t zonePending = IcsTimezoneLocal::SourceValidationRequired | IcsTimezoneLocal::TransitionResolutionPending;
+  if (zone.status != IcsTimezoneLocal::Status::LocalChecksPassed ||
+      zone.deferred != (zonePending | IcsTimezoneLocal::TimezoneIdentityReconciliationPending) ||
+      onset.status != IcsTimezoneLocal::Status::LocalChecksPassed ||
+      onset.deferred != (zonePending | IcsTimezoneLocal::RecurrenceValidationPending))
+    return GfxResult(GfxError::InvalidArgument, "timezone local checks");
   return stage.value(2, value) == IcsSourceStage::Read::Ok && value.size == 5 &&
       stage.payload(2) == IcsSourceStage::Read::PayloadProjectedOut && stage.counts().ignoredOpaqueProperties == 1
       ? GfxResult::success() : GfxResult(GfxError::InvalidArgument, "stage inspection");

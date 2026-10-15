@@ -258,6 +258,21 @@ Run applicable typed/stage/structure/ingestion commands for their composed bound
 LocalChecksPassed is not complete event/source semantics or snapshot publication.
 No provider, timezone resolver, recurrence engine or production integration is tested.
 
+The timezone/observance-local regression uses actual staged component pairs,
+typed readers and complete RDATE iteration, with guarded corruption, explicit
+budgets, source immutability, release and zero audited validator allocations:
+
+```
+g++ -std=c++11 -Wall -Wextra -Werror -pedantic tests/ics_timezone_local_test.cpp -o /tmp/ee02-ics-timezone-local-test
+/tmp/ee02-ics-timezone-local-test
+g++ -std=c++11 -Wall -Wextra -Werror -pedantic -fsanitize=address,undefined -fno-omit-frame-pointer tests/ics_timezone_local_test.cpp -o /tmp/ee02-ics-timezone-local-sanitized
+/tmp/ee02-ics-timezone-local-sanitized
+```
+
+Run applicable typed/stage/structure/ingestion commands for the composed boundary.
+LocalChecksPassed retains identity/transition/source obligations; it does not
+resolve timezones, expand recurrence, convert events or publish snapshot records.
+
 Documentation: no dedicated lint/link-check command is committed; inspect Markdown
 references and affected claims directly, using available tools.
 Review: no automated review command exists; independent review inspects source/diff.

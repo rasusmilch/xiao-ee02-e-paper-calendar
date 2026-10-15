@@ -87,3 +87,8 @@ is historical evidence, not current architecture or requirements authority.
   endpoint/duration exclusion, selected typed values and decidable relationships.
   Return deterministic bounded failures and explicit unresolved obligations without
   event records, recurrence/revision resolution, source completeness or publication.
+- Validate selected VTIMEZONE and STANDARD/DAYLIGHT local schemas in read-only
+  staged data, with required fields, singleton cardinality, typed local onset/UTC
+  offsets, complete bounded RDATE lists and deterministic failures. Preserve
+  timezone identity, transition, recurrence, EXDATE and extension obligations;
+  add no resolution, conversion, source acceptance or snapshot publication.
