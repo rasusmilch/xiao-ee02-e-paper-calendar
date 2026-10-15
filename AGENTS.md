@@ -214,6 +214,20 @@ The workspace command also covers framing/structure within one `withScratch()`
 scope, disjoint slices, cleanup and poisoning. The isolated EE02 fixture now
 compiles synthetic structural parsing; production and hardware remain unverified.
 
+The selective source-stage regression composes actual ingestion/structure with
+borrowed descriptor/pool storage, explicit projections and review budgets:
+
+```
+g++ -std=c++11 -Wall -Wextra -Werror -pedantic tests/ics_source_stage_test.cpp -o /tmp/ee02-ics-source-stage-test
+/tmp/ee02-ics-source-stage-test
+g++ -std=c++11 -Wall -Wextra -Werror -pedantic -fsanitize=address,undefined -fno-omit-frame-pointer tests/ics_source_stage_test.cpp -o /tmp/ee02-ics-source-stage-sanitized
+/tmp/ee02-ics-source-stage-sanitized
+```
+
+The workspace command also covers staged-data independence from transient parser
+buffers, opaque accounting, release and poisoning inside one scratch lifetime.
+These checks establish retention, not semantic calendar or snapshot completeness.
+
 Documentation: no dedicated lint/link-check command is committed; inspect Markdown
 references and affected claims directly, using available tools.
 Review: no automated review command exists; independent review inspects source/diff.

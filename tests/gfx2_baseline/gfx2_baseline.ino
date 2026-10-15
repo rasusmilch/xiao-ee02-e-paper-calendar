@@ -4,6 +4,7 @@
 #include "../../application/psram_workspace.h"
 #include "../../application/five_day_snapshot.h"
 #include "../../application/ics_structure.h"
+#include "../../application/ics_source_stage.h"
 
 static bool structureEvent(const IcsStructure::Event& event, void* context) {
   if (event.type == IcsStructure::EventType::Property) {
@@ -30,6 +31,39 @@ static GfxResult structureScratch(uint8_t* storage, size_t bytes, void*) {
       return GfxResult(GfxError::InvalidArgument, "structural input failed");
   return parser.finish() == IcsStructure::Status::StructurallyComplete && properties == 3
       ? GfxResult::success() : GfxResult(GfxError::InvalidArgument, "structural finalization failed");
+}
+
+static_assert(sizeof(IcsSourceStage::Component) == 48 && alignof(IcsSourceStage::Component) == 8 &&
+              sizeof(IcsSourceStage::Property) == 40 && alignof(IcsSourceStage::Property) == 4, "target stage layout");
+static uint64_t stageClock(void*) { return 0; }
+static GfxResult sourceStageScratch(uint8_t* storage, size_t bytes, void*) {
+  const IcsSourceStage::Limits limits = {8,16,1024,4,128};
+  const IcsStructure::Limits syntax = {512,8,8,16,4,32,64,128,16,2};
+  const IcsIngestion::Limits transport = {4096,4096,1024,16,128,64,512,8,128,256,512,1000,100};
+  size_t stageBytes = 0, syntaxBytes = 0;
+  if (IcsSourceStage::requiredBytes(limits, stageBytes) != IcsSourceStage::Status::InProgress ||
+      IcsStructure::scratchBytes(syntax, syntaxBytes) != IcsStructure::Status::InProgress ||
+      stageBytes + syntaxBytes + 768 > bytes)
+    return GfxResult(GfxError::InvalidArgument, "stage scratch capacity");
+  IcsSourceStage stage; IcsStructure parser; IcsIngestion http;
+  if (stage.initialize(storage, stageBytes, limits) != IcsSourceStage::Status::InProgress ||
+      parser.initialize(storage + stageBytes, syntaxBytes, syntax, IcsSourceStage::sink, &stage) != IcsStructure::Status::InProgress ||
+      http.initialize(storage + stageBytes + syntaxBytes, 768, transport, IcsStructure::lineSink, &parser, stageClock, nullptr) != IcsIngestion::Status::InProgress)
+    return GfxResult(GfxError::InvalidArgument, "stage initialization");
+  const char body[] = "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:synthetic\r\nBEGIN:VEVENT\r\nUID:event\r\n"
+      "END:VEVENT\r\nBEGIN:X-CUSTOM\r\nX-P:ignored\r\nEND:X-CUSTOM\r\nEND:VCALENDAR\r\n";
+  char header[96];
+  const int n = snprintf(header, sizeof(header), "HTTP/1.1 200 OK\r\nContent-Length: %u\r\n\r\n", unsigned(sizeof(body) - 1));
+  if (n <= 0 || size_t(n) >= sizeof(header) ||
+      http.feed(reinterpret_cast<const uint8_t*>(header), size_t(n)) != IcsIngestion::Status::InProgress ||
+      http.feed(reinterpret_cast<const uint8_t*>(body), sizeof(body) - 1) != IcsIngestion::Status::InProgress ||
+      http.finish() != IcsIngestion::Status::Complete || parser.finish() != IcsStructure::Status::StructurallyComplete ||
+      stage.finish(http, parser) != IcsSourceStage::Status::StagedSuccessfully)
+    return GfxResult(GfxError::InvalidArgument, "stage completion");
+  IcsSourceStage::View value;
+  return stage.value(2, value) == IcsSourceStage::Read::Ok && value.size == 5 &&
+      stage.payload(2) == IcsSourceStage::Read::PayloadProjectedOut && stage.counts().ignoredOpaqueProperties == 1
+      ? GfxResult::success() : GfxResult(GfxError::InvalidArgument, "stage inspection");
 }
 
 static_assert(alignof(FiveDaySnapshot::Occurrence) == 8 &&
@@ -124,6 +158,7 @@ static void borrowedBufferCase() {
   Ee02PsramWorkspace workspace;
   if (!workspace.allocate(evaluationBytes).ok()) return;
   if (!workspace.withScratch(0, 1024, structureScratch).ok()) return;
+  if (!workspace.withScratch(0, 8192, sourceStageScratch).ok()) return;
   if (snapshot.beginSource(0) != FiveDaySnapshot::Result::Ok) return;
   if (!workspace.withScratch(0, 64, stageSynthetic, &snapshot).ok()) return;
   if (snapshot.completeSource(0) != FiveDaySnapshot::Result::Ok) return;

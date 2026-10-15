@@ -11,6 +11,7 @@
 #include "../application/five_day_snapshot.h"
 #include "../application/ics_ingestion.h"
 #include "../application/ics_structure.h"
+#include "../application/ics_source_stage.h"
 
 using Workspace = Ee02PsramWorkspace;
 namespace {
@@ -427,6 +428,64 @@ void structureScratchLifetime() {
     assert(factoryCalls==factories && panelAllocations==panels && psAttempts==before+1);
     expect(w.release(),GfxError::Ok); assert(workspaceFrees==freed+1);
 }
+GfxResult sourceStageScratch(uint8_t* storage,size_t capacity,void*) {
+    const IcsSourceStage::Limits limits={8,16,1024,4,128};
+    const IcsStructure::Limits syntax={512,8,8,16,4,32,64,128,16,2};
+    const IcsIngestion::Limits transport={4096,4096,1024,16,128,64,512,8,128,256,512,1000,100};
+    size_t stageBytes=0, syntaxBytes=0;
+    assert(IcsSourceStage::requiredBytes(limits,stageBytes)==IcsSourceStage::Status::InProgress);
+    assert(IcsStructure::scratchBytes(syntax,syntaxBytes)==IcsStructure::Status::InProgress);
+    uint8_t* stageStorage=storage+16;
+    uint8_t* httpStorage=stageStorage+stageBytes+16;
+    uint8_t* syntaxStorage=httpStorage+768+16;
+    uint8_t* receive=syntaxStorage+syntaxBytes+16;
+    assert(static_cast<size_t>(receive-storage)+1<capacity);
+    const char body[]="BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:synthetic\r\nBEGIN:VEVENT\r\n"
+        "UID:independent\r\nSUMMARY:retained\r\nEND:VEVENT\r\nBEGIN:X-CUSTOM\r\nUID:ignored\r\n"
+        "X-DATA:ignored payload\r\nEND:X-CUSTOM\r\nEND:VCALENDAR\r\n";
+    char header[96];
+    const int headerBytes=std::snprintf(header,sizeof(header),"HTTP/1.1 200 OK\r\nContent-Length: %zu\r\n\r\n",sizeof(body)-1);
+    assert(headerBytes>0 && static_cast<size_t>(headerBytes)<sizeof(header));
+    {
+        IcsSourceStage stage; IcsStructure parser; IcsIngestion http;
+        assert(stage.initialize(stageStorage,stageBytes,limits)==IcsSourceStage::Status::InProgress);
+        assert(parser.initialize(syntaxStorage,syntaxBytes,syntax,IcsSourceStage::sink,&stage)==IcsStructure::Status::InProgress);
+        assert(http.initialize(httpStorage,768,transport,IcsStructure::lineSink,&parser,structureClock,nullptr)==IcsIngestion::Status::InProgress);
+        for(size_t i=0;i<static_cast<size_t>(headerBytes)+sizeof(body)-1;++i) {
+            receive[0]=static_cast<uint8_t>(i<static_cast<size_t>(headerBytes)?header[i]:body[i-headerBytes]);
+            assert(http.feed(receive,1)==IcsIngestion::Status::InProgress);
+        }
+        assert(http.finish()==IcsIngestion::Status::Complete);
+        assert(parser.finish()==IcsStructure::Status::StructurallyComplete);
+        assert(stage.finish(http,parser)==IcsSourceStage::Status::StagedSuccessfully);
+        parser.release(); http.release();
+        std::memset(httpStorage,0xee,768); std::memset(syntaxStorage,0xee,syntaxBytes);
+        IcsSourceStage::View value;
+        assert(stage.value(2,value)==IcsSourceStage::Read::Ok && value.size==11 && !std::memcmp(value.data,"independent",11));
+        assert(stage.counts().observedProperties==6 && stage.counts().storedProperties==4 && stage.counts().ignoredOpaqueProperties==2);
+        assert(stage.payload(2)==IcsSourceStage::Read::PayloadProjectedOut);
+        stage.release(); std::memset(stageStorage,0xee,stageBytes);
+        assert(stage.value(2,value)==IcsSourceStage::Read::InvalidState && !value.data);
+    }
+    for(size_t i=0;i<16;++i) {
+        assert(storage[i]==0xa5 && stageStorage[stageBytes+i]==0xa5 && httpStorage[768+i]==0xa5 && syntaxStorage[syntaxBytes+i]==0xa5);
+    }
+    return GfxResult::success();
+}
+void sourceStageScratchLifetime() {
+    const size_t attempts=psAttempts, freed=workspaceFrees, panels=panelAllocations;
+    const int factories=factoryCalls;
+    Workspace workspace; expect(workspace.allocate(frameBytes),GfxError::Ok);
+    for(int cycle=0;cycle<3;++cycle) {
+        uint8_t initial=0xa5, poison=0x7f;
+        expect(workspace.withScratch(0,8192,fill,&initial),GfxError::Ok);
+        expect(workspace.withScratch(0,8192,sourceStageScratch),GfxError::Ok);
+        expect(workspace.withScratch(0,8192,fill,&poison),GfxError::Ok);
+        checkGuards(*latest);
+    }
+    assert(psAttempts==attempts+1 && panelAllocations==panels && factoryCalls==factories);
+    expect(workspace.release(),GfxError::Ok); assert(workspaceFrees==freed+1);
+}
 void failures() {
     const Fault faults[] = {Fault::Factory,Fault::Registration,Fault::BoardBegin,
         Fault::BusBegin,Fault::DriverBegin,Fault::InitBusy,Fault::Configuration,
@@ -475,10 +534,10 @@ void failures() {
 int main() {
     static_assert(!std::is_copy_constructible<Workspace>::value,"single owner");
     static_assert(!std::is_move_constructible<Workspace>::value,"stable owner");
-    allocationAndBounds(); patternsAndRepeatedRendering(); snapshotIndependence(); ingestionScratchLifetime(); structureScratchLifetime(); failures();
+    allocationAndBounds(); patternsAndRepeatedRendering(); snapshotIndependence(); ingestionScratchLifetime(); structureScratchLifetime(); sourceStageScratchLifetime(); failures();
     assert(panelAllocations==0 && components==0 && facades==0 && refreshes>0);
     // Dispose the fake process/PSRAM heap after assertions. This is test teardown,
     // not a workspace force-release method or hardware recovery implementation.
     for (auto& a : records) if (a.active) { checkGuards(a); __real_free(a.raw); }
-    std::puts("PASS: PSRAM workspace allocation, scratch, handoff, cleanup, retention, snapshot and ingestion");
+    std::puts("PASS: PSRAM workspace allocation, scratch, handoff, cleanup, retention, snapshot, ingestion and source stage");
 }

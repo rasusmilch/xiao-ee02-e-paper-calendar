@@ -69,3 +69,10 @@ is historical evidence, not current architecture or requirements authority.
   extensions, malformed nesting and exhaustion without false calendar completeness.
   Cover guarded workspace use and isolated EE02 compilation, retaining separate
   production staging, semantic normalization and snapshot publication boundaries.
+- Add selective source-local ICS dependency staging in borrowed workspace tables
+  and a bounded value/parameter pool, preserving full identities, recurrence,
+  cancellation/revision and timezone evidence without semantic interpretation.
+  Record explicit non-event/value omissions; project structurally accepted opaque
+  components out without discarding relevant unknown event/timezone properties.
+  Enforce review/storage limits, source completion and transient-view independence;
+  retain separate normalization, snapshot-publication and production-integration work.

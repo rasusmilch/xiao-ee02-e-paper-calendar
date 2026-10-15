@@ -105,7 +105,8 @@ described in the next sections. A roadmap is not implementation authorization.
 ### Selected GFX2, PSRAM and streaming-calendar architecture
 
 **Selected target; library borrowing, isolated workspace, normalized snapshot and
-standalone HTTP framing/line unfolding and property/component parsing implemented;
+standalone HTTP framing/line unfolding, property/component parsing and selective
+source-local dependency staging implemented;
 production integration and hardware validation pending.** The owner-selected architecture
 uses Seeed_GFX2 with a locally maintained external-framebuffer ownership extension,
 one application-owned PSRAM arena, and a separate fixed-capacity five-day occurrence
@@ -862,9 +863,9 @@ identity before independently authorized transactional snapshot publication.
 **Implemented isolated syntax/structure; not a calendar importer.**
 [application/ics_structure.h](../application/ics_structure.h) adds `IcsStructure`
 without changing accepted ingestion, workspace, snapshot or vendor implementations.
-Production remains on Apps Script JSON and legacy graphics. Source-local production
-staging, typed event validation, recurrence, timezone resolution and snapshot
-producer integration remain unimplemented.
+Production remains on Apps Script JSON and legacy graphics. Selective source-local
+staging now exists in isolation below; typed event validation, recurrence, timezone
+resolution and snapshot producer integration remain unimplemented.
 
 #### API, ownership and generic grammar
 
@@ -965,8 +966,8 @@ scratch bytes** (8 actual 40-byte frames, 512 name bytes, up to 7 alignment byte
 `sizeof(IcsStructure)` is **208 host bytes**. These are layout arithmetic, not
 measured stack/PSRAM headroom or selected product capacities. Work is bounded by
 line scans, iterator traversal and counters; callbacks are not preempted. Current
-oversized-line handling stays fail-closed upstream. Final capacities, staging
-schema, semantic extensions/provider policy and hardware memory limits remain Open.
+oversized-line handling stays fail-closed upstream. Final capacities, semantic extensions/provider policy and hardware memory limits
+remain Open; the implemented selective staging schema is documented below.
 
 Strict C++11 and ASan/UBSan [tests](../tests/ics_structure_test.cpp) passed **565**
 property/hierarchy/fragmentation scenarios, auditing zero parser `new` allocations.
@@ -1004,6 +1005,207 @@ EE02 refresh or runtime heap/PSRAM/stack measurements were performed. Host behav
 and compilation establish neither complete real-calendar semantics nor hardware
 capacity/correctness. Prior source-import, borrowing, snapshot and ingestion
 validation history remains distinct from this parser outcome.
+
+### Selective source-local ICS dependency staging
+
+**Implemented isolated retention; not a calendar importer or semantic producer.**
+[application/ics_source_stage.h](../application/ics_source_stage.h) composes the
+accepted ingestion/structure callbacks without changing their implementations.
+It retains a declared VEVENT projection, not a complete source document. Production
+Apps Script acquisition, graphics, workspace and independent snapshot are unchanged.
+
+#### Storage, API and lifetime
+
+`IcsSourceStage` is noncopyable/nonmovable and never allocates/frees memory.
+`requiredBytes(limits, bytes)` checks multiplication, alignment, offset widths and
+`PTRDIFF_MAX`; `initialize(storage, capacity, limits)` admits a readable/writable
+caller slice after address-span checks. These checks cannot prove real PSRAM or
+writability. The workspace supplies PSRAM without a new allocation owner/fallback.
+
+One naturally aligned component table, property table and append-only byte pool
+live within the admitted slice. Placement construction gives typed records their
+C++11 lifetime. Host and isolated-target assertions establish component **48/8**
+and property **40/4** sizeof/alignof. Component records retain full names, kind,
+structural/parent/calendar ordinals, first/last property links, directly observed
+property counts, flags and closure. Property records retain ownership, compact
+recognized codes or complete original unknown names, offsets/lengths, parameter
+count, next link, disposition and review flags. Recognized identifier spelling is
+canonical/case-insensitive; values and encoded parameters are copied exactly once.
+No full content lines, interning, compaction, UID index or decoded duplicates exist.
+
+Construct/use/release/destroy all source-local users inside **one `withScratch()`
+callback**, with disjoint receive/ingestion/structure/stage slices. Synchronous
+`consume(event)`/static `sink` accepts only validated `IcsStructure` callbacks;
+it is not another public property tokenizer. Check component association and input
+spans before copying. Never feed hand-built malformed encoded parameter views to
+its validated-span iterators. No reentrancy, concurrency, throws, pointer escape
+or owner destruction is supported. C++ cannot revoke aliases or prevent raw writes.
+
+`finish(ingestion, structure)` takes the corresponding source pipeline after both
+explicit finalizers. Counts detect association errors; they do not authenticate
+arbitrarily substituted objects. `cancel()` and `release()` preserve the first
+terminal failure. Release cancels unfinished work, destroys records, clears every
+storage binding and frees nothing. Sessions are single-use; construct a fresh stage
+for the next source. Successful terminal status/counters may survive release, but
+all readers fail after release. No source-local data survives deep sleep/reuse.
+
+#### Selective retention and dispositions
+
+Every non-opaque property has a descriptor, including omissions. The fixed
+context-sensitive table is a retention profile, not universal semantic support.
+
+| Component | Required retention | Conditional retention |
+| --- | --- | --- |
+| VEVENT | UID, DTSTART, DTEND, DURATION, RECURRENCE-ID, RRULE, every RDATE/EXDATE, STATUS, SEQUENCE, DTSTAMP, LAST-MODIFIED, SUMMARY | CREATED, DESCRIPTION, LOCATION, COMMENT, ORGANIZER, ATTENDEE, REQUEST-STATUS, RELATED-TO, TRANSP, CLASS, PRIORITY, CATEGORIES, CONTACT, RESOURCES, GEO, URL |
+| VCALENDAR | VERSION, PRODID, METHOD, CALSCALE | UID, NAME, DESCRIPTION |
+| VTIMEZONE | TZID, LAST-MODIFIED | TZURL |
+| STANDARD/DAYLIGHT | DTSTART, TZOFFSETFROM, TZOFFSETTO, RRULE, every RDATE/EXDATE | None initially |
+| Event-associated PARTICIPANT | UID | PARTICIPANT-TYPE, CALENDAR-ADDRESS, SUMMARY, DESCRIPTION, LOCATION, GEO, CREATED, DTSTAMP, LAST-MODIFIED, SEQUENCE, STATUS, PRIORITY, URL, CATEGORIES, COMMENT, CONTACT, RELATED-TO, RESOURCES, REQUEST-STATUS |
+| Event-associated VLOCATION | UID | NAME, DESCRIPTION, GEO, LOCATION-TYPE |
+| Event-associated VRESOURCE | UID | NAME, DESCRIPTION, GEO, RESOURCE-TYPE |
+
+All repetitions and input order remain available. No DTSTART/window filtering,
+revision choice, UID reconciliation, recurrence expansion or time conversion occurs.
+Structural ordinals are not UIDs and are monotonic across calendar objects within
+one source. Parent/calendar context prevents participant UID/SUMMARY contamination.
+Never automatically merge equal UIDs across sources/objects. METHOD and scheduling
+context remain raw; iTIP rules are not applied universally. A cancellation-only
+message without a suitable baseline cannot establish a complete schedule.
+
+`IgnoreByDeclaredProjection` stores encoded parameters and original value length,
+with no value bytes. `value()` returns `ValueOmitted`, distinct from a retained
+zero-length value and an absent descriptor. No empty original value is fabricated.
+Declared omissions are:
+
+- Context-specific RFC 5545 task/journal/free-busy payload fields; retain their
+  designated UID/RECURRENCE-ID identities where applicable.
+- Standard VALARM notification payload; never use it as enclosing event timing.
+- Recognized RFC 9073 child payload under projected-out non-event parents, while
+  retaining designated child UID identity.
+- Observance TZNAME/COMMENT and calendar COLOR/SOURCE/REFRESH-INTERVAL values,
+  outside this event projection. No external URI is followed.
+- ATTACH without parameters, or ATTACH/IMAGE with exactly VALUE=URI, or exactly
+  VALUE=BINARY plus ENCODING=BASE64, in declared standard scopes. Parameter order
+  and validated quoting are supported; duplicates/additional/ambiguous parameters
+  are ineligible. Other event/calendar forms retain complete values conditionally;
+  standard non-event payload follows its separate contextual projection.
+
+Unknown parameters on an omission candidate promote it to complete unreviewed
+retention. Required/conditional properties retain complete parameters and review
+flags. The implemented parameter recognition is deliberately conservative; typed
+parameter/value conformance remains later validation. Unknown properties, unexpected
+context and known unselected relevant extensions (including STRUCTURED-DATA,
+STYLED-DESCRIPTION and CONFERENCE) retain full values/parameters and unresolved flags.
+No broad X-property ignore rule exists. Conditional detail fields remain intact
+pending final presentation decisions. If a later selected feature needs omitted
+content, revise the contract through review or report incomplete; do not invent it.
+
+#### Opaque component projection and unknown-property distinction
+
+RFC 5545 section 3.6 requires ignoring unrecognized x-comp/iana-comp values.
+Accepted `Kind::Opaque` therefore gets one full-name component descriptor marked
+`OpaqueProjectedOut`, its exact parent/calendar context, checked property count and
+closure. Nested opaque components get their own records. Their property callbacks
+create **no property descriptors or copied name/parameter/value bytes** and charge
+no unresolved budget. `payload()` returns `PayloadProjectedOut`; empty property
+links are not evidence that the original opaque component had no properties.
+
+The parser still validates every logical line, count, depth and closure. Known
+VEVENT inside opaque context, unknown unsupported placement and RFC 7953 availability
+retain upstream UnsupportedProfile. Malformed nesting, UTF-8, incomplete framing
+and oversized lines remain fatal. Do not bypass parsing or skip raw subtrees.
+Opaque UID/SUMMARY/RRULE never becomes event data. Ignored-component presence alone
+is not a blanket semantic failure; it also does not imply extension understanding.
+
+By contrast, unknown properties within recognized VEVENT/timezone/observance and
+relevant RFC 9073 contexts remain complete and `RetainUnreviewed`. Later semantic
+processing must resolve relevant review flags or report unsupported/incomplete.
+
+#### Completion, readers and failures
+
+Normal const readers are available only for a bound `StagedSuccessfully` result:
+`component`, `componentName`, `payload`, `property`, `propertyName`, `parameters`
+and `value`. Values/parameters/unknown names reference stage-owned bytes; canonical
+recognized names have program lifetime. Views/iterators must not outlive release,
+destruction or workspace reuse. There is no snapshot or semantic publication API.
+
+Finalize only when the corresponding ingestion is Complete, structure is
+StructurallyComplete, all staged components are closed and component/calendar/
+observed-property counts match. Require:
+
+`observedProperties = storedProperties + ignoredOpaqueProperties`
+
+Named standard omissions count as stored descriptors; opaque properties do not.
+Successful staging proves the bounded retention contract only, not typed validity,
+recurrence/timezone completeness, normalized occurrences or FiveDaySnapshot Complete.
+Opaque-only structurally valid calendars can stage; they fabricate no VEVENT and
+need later source/semantic validation before any successful empty publication.
+
+Statuses distinguish invalid arguments/state/association, UnsupportedProfile,
+ResourceFailure, UpstreamFailure and cancellation. Bounded diagnostics contain
+ordinal/limit/disposition and upstream status codes, never payload/URLs/titles.
+Stage resource failure propagates through structure ConsumerFailure and ingestion
+CallbackFailure while preserving the specific stage cause. Later failures invalidate
+all normal readers, including earlier closed components. Release is logical discard,
+not secure erasure. The separate snapshot and earlier committed calendars are untouched.
+
+#### Evaluation limits and executed evidence
+
+All capacities are caller-specified with no permanent defaults. The reviewed
+candidate is 4,096 component slots, 8,192 stored-property slots, 1,048,576 pool bytes,
+256 review items and 65,536 review bytes **within the same pool**. A property with
+unknown parameters charges one review item and its complete encoded parameter span;
+a wholly unreviewed property charges all copied property bytes. Copying is never
+doubled. Zero review budgets intentionally refuse unreviewed information.
+
+This candidate requires **1,572,874 bytes** worst-case stage storage (48C + 40P +
+pool + 10 alignment bytes). Existing 21,504 receive/ingestion bytes and 839 structural
+bytes total **1,595,217**, leaving a calculated 501,935 in a candidate 2 MiB workspace.
+This excludes control-object stack/TLS/runtime costs. Later recurrence/timezone
+scratch remains unverified; even a hypothetical 256 KiB reserve proves no fit.
+The independent snapshot is a separate allocation. Source bytes may exceed retained
+storage when irrelevant payload is discarded; finite dependency storage cannot
+represent arbitrarily large relevant feeds. Explicit failure is required.
+
+Strict C++11 and ASan/UBSan stage tests passed **618** synthetic behavior/fragmentation
+scenarios with zero audited `new` allocations during stage/ingestion operations.
+Actual-workspace tests passed strict and sanitizer runs: guarded disjoint slices,
+one-byte delivery, retained UID after parser/ingestion poisoning, opaque accounting,
+release/poison/reuse over three cycles and no extra PSRAM owner/factory/framebuffer.
+Existing structure/ingestion regressions passed unchanged. Commands are in AGENTS.
+Early test development corrected strict formatting/type errors and a duplicate
+fixture END line. A regression caught overly broad ALTREP recognition on TZNAME;
+context-sensitive handling now retains that omitted-candidate value as unreviewed.
+Final behavior checks pass without relaxing accepted interfaces.
+
+The isolated fixture includes synthetic staging before the separate existing
+snapshot cases, without stage-driven transactions. One clean verbose final-source compile/link passed on 2026-10-15 using existing
+Arduino CLI 1.5.1, Arduino-ESP32 3.3.12 and Xtensa GCC 14.2.0. The board supplies
+ARDUINO_XIAO_ESP32S3_PLUS and OPI paths; layout assertions pass. Verbose discovery
+selects only vendored Seeed_GFX2 1.0.0 plus core SPI/Wire, with no legacy TFT_eSPI.
+Dependency output and ELF symbols establish actual stage inclusion/linkage. Reported
+flash/static globals are **523,495/24,720 bytes** (limits 3,342,336/327,680),
+not measured runtime heap/PSRAM headroom. CLI compiler recipes suppress warnings with `-w`; absence of diagnostics does not
+establish warning-free vendor source. Strict host checks do not suppress warnings.
+The preliminary build also passed; final review then switched raw table traversal
+to byte offsets for C++11 placement-object lifetimes and corrected/extended edge
+fixtures, followed by final strict/sanitizer and target revalidation.
+
+```sh
+env ARDUINO_DIRECTORIES_DATA=/tmp/ee02-gfx2-compat.qWyDXC/data \
+  /tmp/ee02-gfx2-compat.qWyDXC/bin/arduino-cli \
+  --config-file /tmp/ee02-gfx2-compat.qWyDXC/arduino-cli.yaml \
+  compile --clean --verbose \
+  --fqbn esp32:esp32:XIAO_ESP32S3_Plus:PSRAM=opi,CDCOnBoot=default,PartitionScheme=default_8MB \
+  --library /workspace/xiao-ee02-e-paper-calendar/third_party/Seeed_GFX2 \
+  --build-path /tmp/ee02-ics-source-stage-build tests/gfx2_baseline \
+  > /tmp/ee02-ics-source-stage-compile.log 2>&1
+```
+
+Build/config/cache outputs stay outside the checkout. No installation or upgrade
+occurred. No live providers, production firmware build, physical EE02 execution,
+measured headroom, recurrence or timezone correctness is established by host tests
+or compilation.
 
 ### Boot to sleep flow
 
@@ -1106,6 +1308,11 @@ Physical-access protection/flash encryption is not established.
 shared evidence; do not inspect secret inventories or manufacture credentials to
 force validation. Live service calls, deployment, flashing, or destructive recovery
 require specific authorization. Operator setup is in README.
+
+The isolated source stage holds calendar content only in volatile borrowed PSRAM;
+it adds no NVS/flash writes. Its diagnostics contain codes and ordinals rather than
+content. Release invalidates views but is not secure erasure; physical-access
+protection and runtime content handling still require the existing security review.
 
 **Recommendation, not yet implemented:** authenticated TLS for every endpoint and
 redirect, explicit clock/trust failure handling, bounded input validation and
@@ -1351,6 +1558,13 @@ with explicit RFC 9073 relationships. This supersedes unimplemented property/
 component parsing descriptions in isolated current-state authority, while retaining
 transient ownership, separate staging and deferred semantic normalization. It does
 not select provider access, semantic extension coverage or final operating limits.
+
+On 2026-10-15 the independently approved selective source-local retention outcome
+added descriptor/pool staging and explicit non-event/value projections. Its opaque
+component handling follows RFC 5545 section 3.6 while retaining relevant unknown
+properties separately. This supersedes isolated unimplemented-staging descriptions;
+semantic processing, production integration and final capacities remain unselected
+or unimplemented as described by their current owners.
 
 ## Historical validation evidence and hardware status
 
