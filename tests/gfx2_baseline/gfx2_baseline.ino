@@ -6,6 +6,10 @@
 #include "../../application/ics_structure.h"
 #include "../../application/ics_source_stage.h"
 #include "../../application/ics_typed_values.h"
+#include "../../application/ics_event_local.h"
+
+static_assert(sizeof(IcsEventLocal::Report) == 16 && alignof(IcsEventLocal::Report) == 4,
+              "target VEVENT local report layout");
 
 static_assert(sizeof(IcsTypedValues::Date) == 4 && sizeof(IcsTypedValues::DateTime) == 8 &&
               sizeof(IcsTypedValues::Duration) == 48 && sizeof(IcsTypedValues::Period) == 72 &&
@@ -59,6 +63,7 @@ static GfxResult sourceStageScratch(uint8_t* storage, size_t bytes, void*) {
   const char body[] = "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:synthetic\r\nBEGIN:VEVENT\r\nUID:event\r\n"
       "DTSTART;TZID=Later:20261012T090000\r\nSUMMARY:Typed\\, title\r\n"
       "RDATE;VALUE=DATE:20261013,20261014\r\n"
+      "DTSTAMP:20261012T080000Z\r\n"
       "END:VEVENT\r\nBEGIN:X-CUSTOM\r\nX-P:ignored\r\nEND:X-CUSTOM\r\nEND:VCALENDAR\r\n";
   char header[96];
   const int n = snprintf(header, sizeof(header), "HTTP/1.1 200 OK\r\nContent-Length: %u\r\n\r\n", unsigned(sizeof(body) - 1));
@@ -89,6 +94,11 @@ static GfxResult sourceStageScratch(uint8_t* storage, size_t bytes, void*) {
       IcsTypedValues::decodeInteger({reinterpret_cast<const uint8_t*>("1"), 1}, number).status != IcsTypedValues::Status::Ok ||
       IcsTypedValues::decodeUtcOffset({reinterpret_cast<const uint8_t*>("+0100"), 5}, number).status != IcsTypedValues::Status::Ok)
     return GfxResult(GfxError::InvalidArgument, "typed list/numeric value");
+  const IcsEventLocal::Report local = IcsEventLocal::validate(stage, 0, 1, {2, 8, 512});
+  const uint32_t pending = IcsEventLocal::SourceValidationRequired | IcsEventLocal::IdentityReconciliationPending |
+      IcsEventLocal::RecurrenceValidationPending | IcsEventLocal::TimezoneResolutionPending;
+  if (local.status != IcsEventLocal::Status::LocalChecksPassed || (local.deferred & pending) != pending)
+    return GfxResult(GfxError::InvalidArgument, "VEVENT local checks");
   return stage.value(2, value) == IcsSourceStage::Read::Ok && value.size == 5 &&
       stage.payload(2) == IcsSourceStage::Read::PayloadProjectedOut && stage.counts().ignoredOpaqueProperties == 1
       ? GfxResult::success() : GfxResult(GfxError::InvalidArgument, "stage inspection");

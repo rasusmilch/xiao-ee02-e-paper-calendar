@@ -106,7 +106,7 @@ described in the next sections. A roadmap is not implementation authorization.
 
 **Selected target; library borrowing, isolated workspace, normalized snapshot and
 standalone HTTP framing/line unfolding, property/component parsing, selective
-source-local dependency staging and typed primitive decoding implemented;
+source-local dependency staging, typed primitive decoding and VEVENT-local checks implemented;
 production integration and hardware validation pending.** The owner-selected architecture
 uses Seeed_GFX2 with a locally maintained external-framebuffer ownership extension,
 one application-owned PSRAM arena, and a separate fixed-capacity five-day occurrence
@@ -864,9 +864,9 @@ identity before independently authorized transactional snapshot publication.
 [application/ics_structure.h](../application/ics_structure.h) adds `IcsStructure`
 without changing accepted ingestion, workspace, snapshot or vendor implementations.
 Production remains on Apps Script JSON and legacy graphics. Selective source-local
-staging and typed primitive decoding now exist in isolation below; complete typed
-event validation, recurrence, timezone resolution and snapshot producer integration
-remain unimplemented.
+staging, typed primitive decoding and selected VEVENT-local checks now exist in
+isolation below; complete typed event validation, recurrence, timezone resolution
+and snapshot producer integration remain unimplemented.
 
 #### API, ownership and generic grammar
 
@@ -1352,6 +1352,129 @@ with build output `/tmp/ee02-ics-typed-values-build` and captured log
 live feed or production build occurred. Host tests and compilation establish no
 timezone/recurrence semantics, physical capacity, electrical correctness or complete
 event-calendar validity.
+
+### VEVENT-local validation
+
+**Implemented isolated selected checks, not a complete event/calendar validator.**
+[application/ics_event_local.h](../application/ics_event_local.h) adds stateless
+`IcsEventLocal::validate(stage, calendarIndex, eventIndex, limits)`. It uses accepted
+readers/typed decoders without changing ingestion, structure, stage, workspace,
+snapshot or production behavior. Report is copied status/deferred bits/property
+index/code, with no pointers, content, persistent cache or second event model.
+
+#### Admission, order and bounds
+
+Require successfully readable stage data, the supplied closed Calendar/Event kinds,
+their structural ordinal/index association, direct parent and matching calendar
+object ordinal. Preserved StagedSuccessfully after release does not admit readers.
+No source-wide parent search, UID map or calendar cache is used.
+
+Validate both direct property chains before semantic checks: index/owner bounds,
+terminal first/last links and observed count must agree. The accepted append-only
+stage's links strictly increase stored indices; rejecting a nonincreasing link also
+detects every possible cycle. Children are not part of a parent's direct list.
+Caller `maxCalendarProperties`/`maxEventProperties` bound traversal; zero is a bound,
+not a product default. Invalid associations and exhausted budgets fail explicitly.
+
+The fixed order is admission/association, traversal/cardinality, required presence,
+DTEND/DURATION exclusion, selected typed checks, then relationships. Duplicates
+identify the second occurrence in input order. Missing priority is UID, DTSTAMP,
+then DTSTART when required; missing indices use IcsSourceStage::None. The second
+DTEND/DURATION occurrence identifies a conflict. Typed checks traverse input order.
+Failures return no partial-success mask or raw content and cannot be overwritten
+by later checks. No source rollback/failure preservation machinery is added.
+
+#### Selected cardinality, METHOD and typed checks
+
+- UID and DTSTAMP are required exactly once. DTSTART is at most once, required
+  without an owning-calendar METHOD. METHOD presence, including empty/unsupported
+  content, sets MethodSemanticsPending without interpreting any scheduling token.
+  Metadata from another VCALENDAR is never substituted.
+- CLASS, CREATED, DESCRIPTION, GEO, LAST-MODIFIED, LOCATION, ORGANIZER, PRIORITY,
+  SEQUENCE, STATUS, SUMMARY, TRANSP, URL, RECURRENCE-ID, DTEND and DURATION are
+  optional singletons; DTEND/DURATION are mutually exclusive. Repeated RFC optional
+  fields retain their multiplicity. Repeated RRULE sets MultipleRrulePending and
+  RecurrenceValidationPending, not a fabricated last-rule-wins/union result or an
+  RFC MUST NOT cardinality error. Extensions get no invented singleton rules.
+- UID must be nonempty valid scalar TEXT. SUMMARY/DESCRIPTION/LOCATION use scalar
+  TEXT measurement, allowing original empty values where appropriate. No decoded
+  text/identity buffer, truncation, case folding or Unicode normalization occurs.
+  `maxTextBytes` bounds encoded bytes processed per checked TEXT value; exceeding
+  it is ResourceLimit, not truncation. UID equality/uniqueness is never checked.
+- DTSTAMP, DTSTART, DTEND, DURATION, RECURRENCE-ID, CREATED and LAST-MODIFIED use
+  the actual typed temporal reader and its VALUE/TZID rules. Revision stamps must
+  be UTC; second 60 remains pending. SEQUENCE receives only signed RFC INTEGER
+  lexical checks, without revision/monotonicity policy.
+- Other retained optional fields remain explicitly unvalidated. No URI/address,
+  GEO, STATUS enumeration, recurrence list or RECUR validation is introduced.
+  RSCALE/SKIP remains unexamined and is never reinterpreted as Gregorian recurrence.
+
+#### Local relationships and pending work
+
+DATE endpoints must have matching type and strictly increasing Gregorian fields.
+DATE-TIME endpoints must both be UTC or both use local interpretation (RFC 5545
+3.8.2.2). Ordinary UTC endpoints are compared as fields and must increase. Local
+floating/TZID ordering is deferred, without naive field ordering or same-TZID-string
+rules. Leap-second endpoints defer ordering. No epoch or offset conversion occurs.
+
+VEVENT DURATION must be positive/nonzero. A DATE start permits week/pure-day form
+only; an explicit time portion is rejected even when its magnitudes are zero, as
+in P1DT0H. DATE-TIME durations remain nominal components. Missing METHOD-context
+DTSTART causes no fabricated endpoint/default duration; dependent relationships
+remain pending. No recurrence master/override comparison or revision selection occurs.
+
+LocalChecksPassed always has SourceValidationRequired and IdentityReconciliationPending.
+The remaining distinct bits are MethodSemanticsPending, RecurrenceValidationPending,
+MultipleRrulePending, TimezoneResolutionPending, LocalTimeOrderingPending,
+LeapSecondPending, ExtensionReviewPending and OptionalPropertyValidationPending.
+Recurrence properties remain provisional; relevant unknown values/parameters and
+known extensions preserve review obligations. Unchecked retained optional values
+remain pending, while approved omitted payloads are never decoded as empty data
+or assigned a new extension-review obligation merely for their declared omission.
+RFC 9073 child properties and projected opaque components cannot supply event fields.
+
+These bits never establish semantic acceptance. METHOD-specific requirements,
+recurrence, timezones, identities/revisions, optional/extension schemas, source
+completeness and snapshot transactions remain later work. No new publication model
+or FiveDaySnapshot call exists. Source records and previously committed snapshots
+are not modified.
+
+#### Lifetime, complexity and evidence
+
+All views/processing stay inside the existing stage `withScratch()` lifetime.
+Report has no borrowed references; future validation after release is Unavailable.
+There are no allocations, recursion, persistent state or large scratch reservations.
+Constant linear passes over the two bounded lists preserve failure precedence;
+fixed singleton indices and selected temporary typed operands replace event copies.
+Existing workspace capacities remain provisional; stack/heap/PSRAM peaks are unmeasured.
+
+Strict C++11 and ASan/UBSan focused tests passed 150 deterministic scenarios with
+zero audited `new` allocations. The actual synthetic pipeline exercises METHOD
+scope, all selected singleton rules, missing/error precedence, typed relationships,
+deferred obligations, guarded corruption/limits, child isolation, source immutability,
+release/poisoning and Content-Length/chunked arbitrary fragmentation. Existing strict
+typed (400 assertions), stage (618 scenarios), structure (565) and ingestion (1,325)
+regressions pass; the typed sanitizer also passes. Exact commands are in AGENTS.md.
+No live feeds, production firmware, recurrence/timezone calculations or physical
+EE02 operation were exercised.
+
+An initial clean and final incremental isolated compile/link passed on 2026-10-15
+with the existing Arduino CLI 1.5.1, Arduino-ESP32 3.3.12, Xtensa GCC 14.2.0 and
+XIAO ESP32-S3 Plus/OPI FQBN from README. The fixture validates one staged pair with
+explicit pending bits inside the existing scratch scope, without new publication.
+An actual target assertion establishes Report **16/4 sizeof/alignof** (host 24/8).
+Dependency output includes this header and ELF symbols include `IcsEventLocal::validate`.
+Explicit `--library` selection uses vendored Seeed_GFX2 1.0.0 plus core SPI/Wire;
+legacy TFT_eSPI is not selected. Flash/static globals are **532,095/24,720 bytes**,
+against reported limits 3,342,336/327,680, not measured runtime memory/headroom.
+Core recipes retain their `-w` suppression; strict host checks suppress no warnings.
+
+Both invocations use the existing README tool/config paths and `--verbose --warnings
+all --jobs 2`, with build directory `/tmp/ee02-ics-event-local-build`; the first also
+uses `--clean`. Logs are `/tmp/ee02-ics-event-local-compile.log` and
+`/tmp/ee02-ics-event-local-final-compile.log`. No dependencies were installed/upgraded,
+hardware flashed or provider policies selected. These checks establish selected
+software behavior and isolated linkage, not complete calendar or hardware correctness.
 
 ### Boot to sleep flow
 

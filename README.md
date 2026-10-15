@@ -9,7 +9,7 @@ The [original prototype article](https://www.makerguides.com/e-paper-wall-calend
 - **Display:** 1600×1200 Spectra 6, rolling next five days starting today, fixed waking-hour window (exact hours configurable), timed grid the leading candidate versus a five-day agenda. The week view **replaces the 1024×1024 artwork area**. Display layout is not finally selected.
 - **Other panels:** retain weather, multi-day forecast, today's detailed events, battery indication, and their existing positions initially. Whether the legacy monthly calendar remains is Open.
 - **Calendars:** select multiple source calendars; support Google, iCloud/CalDAV and general ICS by source-independent internal event representation. Entirely on-device fetching/normalization; **no separate backend, hosted processor or update preprocessor**. Sequential streaming ICS processing is selected; provider-access scope, including ICS-only initial access and private iCloud versus public ICS, remains Open.
-- **Selected graphics/memory architecture:** Seeed_GFX2 with a locally maintained external-framebuffer ownership extension; one application-owned PSRAM workspace for sequential, one-source-at-a-time streaming ICS processing, then rendering. A separate fixed-capacity five-day PSRAM snapshot owns normalized occurrences, text and transactional source outcomes without references into the reused workspace. GFX2 borrows only the 960,000-byte framebuffer slice and must not free it or allocate an unnecessary second framebuffer. The 2 MiB workspace, 1,024 occurrences and 320 KiB snapshot are provisional evaluation budgets, not validated operating limits. Borrowing, a scoped workspace, synthetic snapshot publication, standalone HTTP framing/line unfolding, bounded property/component parsing, selective source-local dependency staging and typed primitive decoding are implemented in isolation; live calendar acquisition, complete component/source semantic validation and production phase reuse remain unimplemented, with hardware behavior unvalidated. Consult the [canonical architecture and validation contract](docs/ENGINEERING.md#selected-gfx2-psram-and-streaming-calendar-architecture).
+- **Selected graphics/memory architecture:** Seeed_GFX2 with a locally maintained external-framebuffer ownership extension; one application-owned PSRAM workspace for sequential, one-source-at-a-time streaming ICS processing, then rendering. A separate fixed-capacity five-day PSRAM snapshot owns normalized occurrences, text and transactional source outcomes without references into the reused workspace. GFX2 borrows only the 960,000-byte framebuffer slice and must not free it or allocate an unnecessary second framebuffer. The 2 MiB workspace, 1,024 occurrences and 320 KiB snapshot are provisional evaluation budgets, not validated operating limits. Borrowing, a scoped workspace, synthetic snapshot publication, standalone HTTP framing/line unfolding, bounded property/component parsing, selective source-local dependency staging, typed primitive decoding and VEVENT-local checks are implemented in isolation; live calendar acquisition, complete component/source semantic validation and production phase reuse remain unimplemented, with hardware behavior unvalidated. Consult the [canonical architecture and validation contract](docs/ENGINEERING.md#selected-gfx2-psram-and-streaming-calendar-architecture).
 - **Storage/time:** NVS stores changed persistent configuration only (Wi-Fi, timezone, calendar URLs/selection, refresh settings). No daily churn, events, weather or routine counters go to NVS. RTC-retained memory may hold validated compact sleep context; reconstruct after invalid RTC/reset. NTP on cold boot when required, then approximately daily; use internal RTC between syncs.
 - **Refresh/recovery:** battery-powered, single user-configurable coordinated data-acquisition/render cycle, independently validated per source. Successful calendars display even if another calendar fails, with a named error bar; a weather failure is shown in its own panel while previously valid forecast data may remain. Three consecutive complete acquisition failures cause a full error screen; cold boot tries Wi-Fi before presenting recovery instructions.
 - **Setup:** device-hosted Wi-Fi webpage (LAN while explicitly awake, or open/no-password AP). AP stops after 10 minutes without meaningful user activity or 30 minutes maximum, then sleeps. Entering a new password may show characters; after save it is masked and the saved value is never echoed. Calendar URL fields remain displayed. An operator-accessible hardware AP trigger is required; simultaneous Setup+Refresh hold for five seconds is a **proposed, unverified** factory-reset gesture, not yet a pin/wake contract.
@@ -210,7 +210,8 @@ exact Content-Length and HTTP/1.1 chunked framing with bounded extensions/traile
 [IcsLogicalLines](application/ics_logical_lines.h) independently unfolds strict
 CRLF plus one SPACE/HTAB, preserving other octets across arbitrary input chunks.
 This ingestion layer performs no property/component validation or whole-feed storage.
-The downstream structural parser below validates syntax and hierarchy; event semantics remain unimplemented.
+The downstream structural parser validates syntax/hierarchy; selected VEVENT-local
+checks now exist below, while complete event/source semantics remain unimplemented.
 
 Only HTTP 200 with complete supported framing and explicit successful logical-line
 finalization produces ingestion Complete. Empty framed bodies mean zero lines,
@@ -297,6 +298,23 @@ or snapshot publication occurs. Omitted payloads remain unavailable, not empty;
 all borrowed spans expire on source release or workspace reuse. See the
 [typed contract and executed evidence](docs/ENGINEERING.md#typed-ics-primitive-values)
 and [host commands](AGENTS.md#commands-and-validation).
+
+### VEVENT-local validation
+
+[IcsEventLocal](application/ics_event_local.h) performs bounded read-only checks on
+one explicit Calendar/Event pair in a readable stage. It checks association/property
+links, singleton cardinality, required UID/DTSTAMP, METHOD-dependent DTSTART,
+DTEND/DURATION exclusion, selected typed fields and locally decidable endpoint/
+duration relationships. METHOD is presence only; its tokens are not interpreted.
+
+`LocalChecksPassed` always retains source-validation and identity-reconciliation
+obligations. Recurrence, METHOD, timezone/local ordering, leap seconds, extensions
+and unchecked optional fields have explicit pending bits. No event object, revision
+selection, timezone conversion, normalized occurrence or snapshot transaction is
+created. Limits are caller-supplied evaluation controls. All borrowed processing
+ends before stage release/workspace reuse; Report contains no pointers.
+See the [local contract and evidence](docs/ENGINEERING.md#vevent-local-validation)
+and [focused host commands](AGENTS.md#commands-and-validation).
 
 ## Current implementation — Google Calendar Setup
 

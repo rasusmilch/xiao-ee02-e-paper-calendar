@@ -243,6 +243,21 @@ Typed results establish representations and stated local parameter checks, not
 component/source validity, resolved recurrence/timezones or snapshot completeness.
 No new bulk allocation or production integration is implied by the isolated fixture.
 
+The VEVENT-local regression validates actual staged component pairs, cardinality,
+typed relationships and deferred obligations, including guarded corruption/failure
+fixtures, source immutability, release and zero audited validator allocations:
+
+```
+g++ -std=c++11 -Wall -Wextra -Werror -pedantic tests/ics_event_local_test.cpp -o /tmp/ee02-ics-event-local-test
+/tmp/ee02-ics-event-local-test
+g++ -std=c++11 -Wall -Wextra -Werror -pedantic -fsanitize=address,undefined -fno-omit-frame-pointer tests/ics_event_local_test.cpp -o /tmp/ee02-ics-event-local-sanitized
+/tmp/ee02-ics-event-local-sanitized
+```
+
+Run applicable typed/stage/structure/ingestion commands for their composed boundary.
+LocalChecksPassed is not complete event/source semantics or snapshot publication.
+No provider, timezone resolver, recurrence engine or production integration is tested.
+
 Documentation: no dedicated lint/link-check command is committed; inspect Markdown
 references and affected claims directly, using available tools.
 Review: no automated review command exists; independent review inspects source/diff.

@@ -82,3 +82,8 @@ is historical evidence, not current architecture or requirements authority.
   temporal-list iteration with explicit errors and complete-consumption requirements.
   Preserve omissions/review obligations and defer RECUR, complete component/source
   validation, timezone conversion, normalization and snapshot publication.
+- Validate selected VEVENT-local invariants in bounded read-only staged data:
+  component/property association, singleton/required fields, METHOD-presence context,
+  endpoint/duration exclusion, selected typed values and decidable relationships.
+  Return deterministic bounded failures and explicit unresolved obligations without
+  event records, recurrence/revision resolution, source completeness or publication.
