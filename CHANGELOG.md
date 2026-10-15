@@ -76,3 +76,9 @@ is historical evidence, not current architecture or requirements authority.
   components out without discarding relevant unknown event/timezone properties.
   Enforce review/storage limits, source completion and transient-view independence;
   retain separate normalization, snapshot-publication and production-integration work.
+- Decode retained ICS primitive values without allocation or source mutation,
+  preserving calendar fields, duration components and unresolved temporal context.
+  Add bounded scalar TEXT/RFC 6868 writers, property-local VALUE/TZID checks and
+  temporal-list iteration with explicit errors and complete-consumption requirements.
+  Preserve omissions/review obligations and defer RECUR, complete component/source
+  validation, timezone conversion, normalization and snapshot publication.

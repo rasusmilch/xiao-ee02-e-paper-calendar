@@ -228,6 +228,21 @@ The workspace command also covers staged-data independence from transient parser
 buffers, opaque accounting, release and poisoning inside one scratch lifetime.
 These checks establish retention, not semantic calendar or snapshot completeness.
 
+The typed primitive regression uses actual staged readers and composed synthetic
+ingestion, guarded temporary outputs and audited allocation-free decoder calls:
+
+```
+g++ -std=c++11 -Wall -Wextra -Werror -pedantic tests/ics_typed_values_test.cpp -o /tmp/ee02-ics-typed-values-test
+/tmp/ee02-ics-typed-values-test
+g++ -std=c++11 -Wall -Wextra -Werror -pedantic -fsanitize=address,undefined -fno-omit-frame-pointer tests/ics_typed_values_test.cpp -o /tmp/ee02-ics-typed-values-sanitized
+/tmp/ee02-ics-typed-values-sanitized
+```
+
+Run stage/structure/ingestion regressions when their composition is affected.
+Typed results establish representations and stated local parameter checks, not
+component/source validity, resolved recurrence/timezones or snapshot completeness.
+No new bulk allocation or production integration is implied by the isolated fixture.
+
 Documentation: no dedicated lint/link-check command is committed; inspect Markdown
 references and affected claims directly, using available tools.
 Review: no automated review command exists; independent review inspects source/diff.

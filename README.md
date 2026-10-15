@@ -9,7 +9,7 @@ The [original prototype article](https://www.makerguides.com/e-paper-wall-calend
 - **Display:** 1600×1200 Spectra 6, rolling next five days starting today, fixed waking-hour window (exact hours configurable), timed grid the leading candidate versus a five-day agenda. The week view **replaces the 1024×1024 artwork area**. Display layout is not finally selected.
 - **Other panels:** retain weather, multi-day forecast, today's detailed events, battery indication, and their existing positions initially. Whether the legacy monthly calendar remains is Open.
 - **Calendars:** select multiple source calendars; support Google, iCloud/CalDAV and general ICS by source-independent internal event representation. Entirely on-device fetching/normalization; **no separate backend, hosted processor or update preprocessor**. Sequential streaming ICS processing is selected; provider-access scope, including ICS-only initial access and private iCloud versus public ICS, remains Open.
-- **Selected graphics/memory architecture:** Seeed_GFX2 with a locally maintained external-framebuffer ownership extension; one application-owned PSRAM workspace for sequential, one-source-at-a-time streaming ICS processing, then rendering. A separate fixed-capacity five-day PSRAM snapshot owns normalized occurrences, text and transactional source outcomes without references into the reused workspace. GFX2 borrows only the 960,000-byte framebuffer slice and must not free it or allocate an unnecessary second framebuffer. The 2 MiB workspace, 1,024 occurrences and 320 KiB snapshot are provisional evaluation budgets, not validated operating limits. Borrowing, a scoped workspace, synthetic snapshot publication, standalone HTTP framing/line unfolding, bounded property/component parsing and selective source-local dependency staging are implemented in isolation; live calendar acquisition, semantic processing and production phase reuse remain unimplemented, with hardware behavior unvalidated. Consult the [canonical architecture and validation contract](docs/ENGINEERING.md#selected-gfx2-psram-and-streaming-calendar-architecture).
+- **Selected graphics/memory architecture:** Seeed_GFX2 with a locally maintained external-framebuffer ownership extension; one application-owned PSRAM workspace for sequential, one-source-at-a-time streaming ICS processing, then rendering. A separate fixed-capacity five-day PSRAM snapshot owns normalized occurrences, text and transactional source outcomes without references into the reused workspace. GFX2 borrows only the 960,000-byte framebuffer slice and must not free it or allocate an unnecessary second framebuffer. The 2 MiB workspace, 1,024 occurrences and 320 KiB snapshot are provisional evaluation budgets, not validated operating limits. Borrowing, a scoped workspace, synthetic snapshot publication, standalone HTTP framing/line unfolding, bounded property/component parsing, selective source-local dependency staging and typed primitive decoding are implemented in isolation; live calendar acquisition, complete component/source semantic validation and production phase reuse remain unimplemented, with hardware behavior unvalidated. Consult the [canonical architecture and validation contract](docs/ENGINEERING.md#selected-gfx2-psram-and-streaming-calendar-architecture).
 - **Storage/time:** NVS stores changed persistent configuration only (Wi-Fi, timezone, calendar URLs/selection, refresh settings). No daily churn, events, weather or routine counters go to NVS. RTC-retained memory may hold validated compact sleep context; reconstruct after invalid RTC/reset. NTP on cold boot when required, then approximately daily; use internal RTC between syncs.
 - **Refresh/recovery:** battery-powered, single user-configurable coordinated data-acquisition/render cycle, independently validated per source. Successful calendars display even if another calendar fails, with a named error bar; a weather failure is shown in its own panel while previously valid forecast data may remain. Three consecutive complete acquisition failures cause a full error screen; cold boot tries Wi-Fi before presenting recovery instructions.
 - **Setup:** device-hosted Wi-Fi webpage (LAN while explicitly awake, or open/no-password AP). AP stops after 10 minutes without meaningful user activity or 30 minutes maximum, then sleeps. Entering a new password may show characters; after save it is masked and the saved value is never echoed. Calendar URL fields remain displayed. An operator-accessible hardware AP trigger is required; simultaneous Setup+Refresh hold for five seconds is a **proposed, unverified** factory-reset gesture, not yet a pin/wake contract.
@@ -278,7 +278,25 @@ exact retention/disposition/lifetime contract are in
 [ENGINEERING](docs/ENGINEERING.md#selective-source-local-ics-dependency-staging).
 The 4,096 components, 8,192 stored properties, 1 MiB pool, 256 review items and
 64 KiB review-byte allowance are evaluation inputs only. Production acquisition,
-semantic processing and physical runtime memory remain unvalidated/unintegrated.
+complete semantic processing and physical runtime memory remain unvalidated/unintegrated.
+
+### Typed ICS primitive values
+
+[IcsTypedValues](application/ics_typed_values.h) reads successfully staged properties
+without changing source bytes, dispositions or review flags. Allocation-free C++11
+functions decode DATE/DATE-TIME calendar fields, DURATION components, PERIOD,
+INTEGER and UTC-OFFSET. Bounded writers decode scalar TEXT and RFC 6868 parameter
+members into temporary caller storage, with explicit optional termination and no
+partial writes or truncation. Property-local VALUE/TZID checks and bounded RDATE/
+EXDATE cursors retain floating/UTC/TZID distinctions. Exhaust the cursor through End
+and check its final status; individual members are provisional.
+
+Leap-second confirmation and unresolved period ordering return NeedsContext.
+No timezone resolution, epoch conversion, RECUR interpretation, component acceptance
+or snapshot publication occurs. Omitted payloads remain unavailable, not empty;
+all borrowed spans expire on source release or workspace reuse. See the
+[typed contract and executed evidence](docs/ENGINEERING.md#typed-ics-primitive-values)
+and [host commands](AGENTS.md#commands-and-validation).
 
 ## Current implementation — Google Calendar Setup
 

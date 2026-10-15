@@ -105,8 +105,8 @@ described in the next sections. A roadmap is not implementation authorization.
 ### Selected GFX2, PSRAM and streaming-calendar architecture
 
 **Selected target; library borrowing, isolated workspace, normalized snapshot and
-standalone HTTP framing/line unfolding, property/component parsing and selective
-source-local dependency staging implemented;
+standalone HTTP framing/line unfolding, property/component parsing, selective
+source-local dependency staging and typed primitive decoding implemented;
 production integration and hardware validation pending.** The owner-selected architecture
 uses Seeed_GFX2 with a locally maintained external-framebuffer ownership extension,
 one application-owned PSRAM arena, and a separate fixed-capacity five-day occurrence
@@ -114,8 +114,8 @@ snapshot in PSRAM. Both allocations are volatile across deep sleep. Current firm
 still uses the global TFT_eSPI/EPaper object and ordinary event/weather storage;
 it uses none of the GFX2 borrowing extension, arena, normalized snapshot or streaming ICS pipeline.
 Contradictory engineering evidence must trigger explicit review and adjudication,
-not silent architectural substitution. Live transport and semantic ICS processing
-remain unimplemented; detailed parser limits remain Open.
+not silent architectural substitution. Live transport and complete component/source
+semantic validation remain unimplemented; detailed parser limits remain Open.
 
 #### Ownership and wake-cycle sequence
 
@@ -864,8 +864,9 @@ identity before independently authorized transactional snapshot publication.
 [application/ics_structure.h](../application/ics_structure.h) adds `IcsStructure`
 without changing accepted ingestion, workspace, snapshot or vendor implementations.
 Production remains on Apps Script JSON and legacy graphics. Selective source-local
-staging now exists in isolation below; typed event validation, recurrence, timezone
-resolution and snapshot producer integration remain unimplemented.
+staging and typed primitive decoding now exist in isolation below; complete typed
+event validation, recurrence, timezone resolution and snapshot producer integration
+remain unimplemented.
 
 #### API, ownership and generic grammar
 
@@ -880,8 +881,9 @@ resolution and snapshot producer integration remain unimplemented.
   comparison; original property values and parameter spelling remain unchanged.
 - Parameter names require equals; commas/semicolons/colons inside quoted values
   remain content. The first unquoted header colon begins the untouched value.
-  Empty property and generic parameter values/list members are accepted; typed
-  cardinality/meaning is later work. No truncation, Unicode normalization, generic
+  Empty property and generic parameter values/list members are accepted; property-local
+  VALUE/TZID checks now exist below; complete schema cardinality/meaning is later work.
+  No truncation, Unicode normalization, generic
   TEXT unescaping or RFC 6868 decoding occurs. Iterators expose encoded spans and
   quoted flags, preserving recognized/unknown caret sequences and trailing carets.
 - Synchronous BeginComponent/Property/EndComponent callbacks expose component
@@ -1092,8 +1094,9 @@ Declared omissions are:
 
 Unknown parameters on an omission candidate promote it to complete unreviewed
 retention. Required/conditional properties retain complete parameters and review
-flags. The implemented parameter recognition is deliberately conservative; typed
-parameter/value conformance remains later validation. Unknown properties, unexpected
+flags. The implemented parameter recognition is deliberately conservative; the typed
+layer below checks selected temporal parameters, while complete parameter/value
+conformance remains later validation. Unknown properties, unexpected
 context and known unselected relevant extensions (including STRUCTURED-DATA,
 STYLED-DESCRIPTION and CONFERENCE) retain full values/parameters and unresolved flags.
 No broad X-property ignore rule exists. Conditional detail fields remain intact
@@ -1206,6 +1209,149 @@ Build/config/cache outputs stay outside the checkout. No installation or upgrade
 occurred. No live providers, production firmware build, physical EE02 execution,
 measured headroom, recurrence or timezone correctness is established by host tests
 or compilation.
+
+### Typed ICS primitive values
+
+**Implemented isolated representations and property-local checks; not complete
+component/event/source validation.** [application/ics_typed_values.h](../application/ics_typed_values.h)
+adds the `IcsTypedValues` namespace without changing accepted ingestion, structure,
+stage, workspace, snapshot or graphics implementations. Production remains unchanged.
+
+#### API, representation and context
+
+Stateless `decodeDate`, `decodeDateTime`, `decodeDuration`, `decodePeriod`,
+`decodeInteger` and `decodeUtcOffset` consume complete length-delimited spans and
+return small copied POD fields. There is no allocation, recursion, decoded property
+database, epoch/civil-ordinal conversion or source-completion state machine.
+Temporal union members are activated by named trivial assignment from live local
+decoded objects, respecting C++11 object lifetimes without heap allocation.
+
+- DATE validates eight digits, Gregorian month/day and century leap rules across
+  the four-digit 0000–9999 field representation, not a permanent product date range.
+- DATE-TIME validates date plus HHMMSS with optional Z; RFC ABNF literal markers
+  are case-insensitive. Reject numeric offsets, missing seconds, fractions and 24:00.
+  UTC, floating and property-associated TZID modes remain distinct. Second 60 is
+  preserved with `NeedsContext`; no leap-second confirmation or rewrite occurs.
+- DURATION preserves sign, week/day/hour/minute/second magnitudes. Zero/negative
+  primitive durations are not acceptance of their use in an event. The strict
+  nested RFC grammar accepts PT1H0M2S and rejects PT1H2S; no compatibility relaxation
+  is selected. Checked uint64 magnitude overflow is ResourceLimit. Nominal days/
+  weeks are never converted to fixed elapsed seconds.
+- PERIOD accepts DATE-TIME/end or DATE-TIME/positive duration, including local
+  forms (RFC 5545 verified erratum 7332). Ordinary UTC endpoints must increase.
+  Leap-second or unresolved local endpoint ordering returns NeedsContext; civil
+  ordering around a timezone gap does not prove elapsed ordering. Positive-duration
+  forms establish their representation without calculating a resolved interval.
+- INTEGER enforces signed 32-bit RFC bounds; field-specific constraints remain
+  later work. UTC-OFFSET requires sign/HHMM[SS], rejects negative zero/second 60,
+  permits hours through 23 and returns signed seconds without transition arithmetic.
+
+`Ok` establishes only the requested representation and implemented local checks.
+`NeedsContext` carries parsed fields with a pending intrinsic/contextual condition.
+Neither resolves local-time ambiguity, TZID dependencies or complete calendar data.
+No device timezone substitution occurs. Calendar METHOD, revisions, recurrence,
+timezone transitions and normalized snapshot publication remain deferred.
+
+#### Stage access, parameters and temporal lists
+
+`readProperty(stage,index,out)` uses actual property/component/name/parameter/value/
+payload readers and supplies code, kind, disposition, review flags and structural/
+parent/calendar identities. It distinguishes unavailable/omitted data from original
+empty retained data. Stage terminal status survives release, so reader availability
+is checked instead. No descriptor, byte, flag or counter is changed.
+
+`selectTemporal`/`decodeTemporal` support event DTSTART/DTEND/RECURRENCE-ID,
+RDATE/EXDATE, CREATED/DTSTAMP/LAST-MODIFIED and DURATION, plus relevant timezone/
+observance fields. Defaults and permitted DATE/DATE-TIME/PERIOD alternatives follow
+their property context. VALUE/TZID must be singular with one member; unsupported
+VALUE tokens never fall back. An explicit default VALUE is accepted (RFC 5545
+3.2.20); fixed-type timestamp/DURATION properties cannot override it with another
+standard type. UTC revision stamps must be UTC. Observance DTSTART
+must be local without TZID. Reject TZID on DATE/UTC; an empty present TZID stays
+present and NeedsContext, never floating. Referenced definitions may appear later.
+
+Known inapplicable standard parameters fail locally; extension parameters preserve
+review obligations. RANGE on RECURRENCE-ID is retained for later interpretation.
+No generic parameter or primitive acceptance establishes component-schema legality.
+All RECUR access through the temporal selector returns UnsupportedFeature (deferred
+implementation), including ordinary RRULE and RSCALE/SKIP. This does not classify
+standards-valid recurrence extensions as malformed or interpret them as Gregorian.
+
+`TemporalList(stage,index,{members,bytes})` iterates RDATE/EXDATE with an explicit
+value-plus-parameter byte budget and member limit. Empty/mixed-invalid members,
+capacity exhaustion and unavailable stage reads fail explicitly. Members are
+provisional: exhaust `next()` through End, then require `complete()` and final
+Ok/NeedsContext. Before exhaustion status is InProgress. Errors are sticky.
+There is no recurrence application, deduplication, sorting or window selection.
+RDATE PERIOD representation success does not establish its semantic applicability.
+
+#### TEXT, parameter output and lifetime
+
+`measureText`/`writeText` implement scalar RFC 5545 TEXT escapes for backslash,
+comma, semicolon and n/N newline. Raw colon/quotes and valid Unicode are preserved;
+unknown/dangling escapes, escaped colon, unescaped scalar delimiters, invalid UTF-8,
+NUL and prohibited controls fail. CATEGORIES/RESOURCES and structured properties
+need later property-aware splitting; do not decode their whole lists as scalar TEXT.
+
+`measureParameter`/`writeParameter` take validated encoded members from existing
+iterators, excluding quotation delimiters. RFC 6868 ^n/^^/^' decode to LF/caret/
+quote; unknown ^N/^z and trailing caret remain unchanged. Parameter backslashes
+are not TEXT-decoded. Ordering, spelling and repeated source parameters stay intact.
+
+Writers fully validate/measure before writing, use explicit optional NUL termination
+and reject short destinations without partial output or truncation. Span/address
+arithmetic and detectable input/output overlap are checked. Callers must supply
+actually valid, disjoint storage, including no overlap with OTHER live stage/parser
+data; existing interfaces cannot prove ownership or revoke escaped aliases.
+
+Construct cursors and use all views inside the stage's one `withScratch()` lifetime.
+The stage object must remain alive; borrowed values/TZID references expire at release,
+destruction or workspace reuse. Numeric POD copies survive independently. Decoder
+results do not clear RetainUnreviewed/UnknownParameters or invent omitted values.
+Errors expose only categories/value-relative offsets and caller-held property context,
+never source payloads. No FiveDaySnapshot transaction is called.
+
+#### Resource and validation evidence
+
+Work is linear in bounded input; writers make validation/measurement then write
+passes. Fixed local state and optional caller-owned decoded buffers add no bulk
+allocation. A decoded 16 KiB value plus NUL needs 16 KiB + 1 bytes. Reclaim ingestion
+slices only after their users finish; no second typed array is reserved. Existing
+2 MiB/staging capacities remain provisional, with later recurrence/timezone scratch
+and runtime stack/heap/PSRAM headroom unmeasured.
+
+Strict C++11, ASan/UBSan and an additional `-O2` focused run passed 400 result assertions, with zero
+audited `new` allocations in decoder/composed calls. Guards cover exact/short buffers,
+UTF-8, limits, period context, parameter cardinality, omissions, source immutability,
+release/poisoning and arbitrary synthetic HTTP fragmentation/folding. Existing stage
+(618 scenarios), structure (565) and ingestion (1,325) regressions pass; the stage
+sanitizer also passes. Commands are in AGENTS.md. Initial strict compilation caught
+an unused test helper, removed without weakening checks. Final review distinguished
+an explicit default VALUE declaration from a forbidden fixed-type override, with
+separate tests for default, invalid and unsupported types.
+The optimized run initially exposed GCC 14's inlining diagnostic on the test-only
+replacement new/delete malloc/free implementation. Keeping those replacement entry
+points out of line resolved it without disabling warnings or changing production code.
+
+The isolated fixture composes actual staged decoding inside its existing workspace
+scope; it never publishes from the decoder. A clean verbose final-source compile/link
+passed on 2026-10-15 with the existing Arduino CLI 1.5.1, Arduino-ESP32 3.3.12,
+Xtensa GCC 14.2.0 and XIAO ESP32-S3 Plus/OPI configuration. Explicit library discovery
+selected vendored Seeed_GFX2 1.0.0 plus core SPI/Wire, without legacy TFT_eSPI.
+Dependency files and ELF symbols establish actual decoder/list inclusion and linkage.
+Target assertions verify Date/DateTime/Duration/Period/TemporalValue sizes
+**4/8/48/72/80 bytes** and cursor **56 bytes** (host cursor 104); these are layouts,
+not measured task-stack peaks. Flash/static globals are **529,663/24,720 bytes**,
+against reported limits 3,342,336/327,680. They do not measure runtime PSRAM/headroom.
+Core recipes suppress warnings with `-w`; strict host flags do not suppress them.
+
+The invocation uses the existing README tool/config paths, `compile --clean --verbose
+--warnings all --jobs 2`, the same XIAO Plus/OPI FQBN and explicit vendored `--library`,
+with build output `/tmp/ee02-ics-typed-values-build` and captured log
+`/tmp/ee02-ics-typed-values-compile.log`. No dependency installation/upgrade, flashing,
+live feed or production build occurred. Host tests and compilation establish no
+timezone/recurrence semantics, physical capacity, electrical correctness or complete
+event-calendar validity.
 
 ### Boot to sleep flow
 

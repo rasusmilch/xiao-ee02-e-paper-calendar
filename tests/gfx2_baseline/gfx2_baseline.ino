@@ -5,6 +5,12 @@
 #include "../../application/five_day_snapshot.h"
 #include "../../application/ics_structure.h"
 #include "../../application/ics_source_stage.h"
+#include "../../application/ics_typed_values.h"
+
+static_assert(sizeof(IcsTypedValues::Date) == 4 && sizeof(IcsTypedValues::DateTime) == 8 &&
+              sizeof(IcsTypedValues::Duration) == 48 && sizeof(IcsTypedValues::Period) == 72 &&
+              sizeof(IcsTypedValues::TemporalValue) == 80 && sizeof(IcsTypedValues::TemporalList) == 56,
+              "target typed POD/cursor layout");
 
 static bool structureEvent(const IcsStructure::Event& event, void* context) {
   if (event.type == IcsStructure::EventType::Property) {
@@ -51,6 +57,8 @@ static GfxResult sourceStageScratch(uint8_t* storage, size_t bytes, void*) {
       http.initialize(storage + stageBytes + syntaxBytes, 768, transport, IcsStructure::lineSink, &parser, stageClock, nullptr) != IcsIngestion::Status::InProgress)
     return GfxResult(GfxError::InvalidArgument, "stage initialization");
   const char body[] = "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:synthetic\r\nBEGIN:VEVENT\r\nUID:event\r\n"
+      "DTSTART;TZID=Later:20261012T090000\r\nSUMMARY:Typed\\, title\r\n"
+      "RDATE;VALUE=DATE:20261013,20261014\r\n"
       "END:VEVENT\r\nBEGIN:X-CUSTOM\r\nX-P:ignored\r\nEND:X-CUSTOM\r\nEND:VCALENDAR\r\n";
   char header[96];
   const int n = snprintf(header, sizeof(header), "HTTP/1.1 200 OK\r\nContent-Length: %u\r\n\r\n", unsigned(sizeof(body) - 1));
@@ -61,6 +69,26 @@ static GfxResult sourceStageScratch(uint8_t* storage, size_t bytes, void*) {
       stage.finish(http, parser) != IcsSourceStage::Status::StagedSuccessfully)
     return GfxResult(GfxError::InvalidArgument, "stage completion");
   IcsSourceStage::View value;
+  IcsTypedValues::TemporalValue temporal = {};
+  IcsTypedValues::Selection selection = {};
+  IcsTypedValues::PropertyView title = {};
+  uint8_t decoded[16]; size_t written = 0;
+  if (IcsTypedValues::decodeTemporal(stage, 3, temporal, selection).status != IcsTypedValues::Status::Ok ||
+      temporal.dateTime.mode != IcsTypedValues::TimeMode::Tzid ||
+      IcsTypedValues::readProperty(stage, 4, title).status != IcsTypedValues::Status::Ok ||
+      IcsTypedValues::writeText(title.value, decoded, sizeof(decoded), true, written).status != IcsTypedValues::Status::Ok ||
+      written != 12 || strcmp(reinterpret_cast<const char*>(decoded), "Typed, title"))
+    return GfxResult(GfxError::InvalidArgument, "typed staged value");
+  IcsTypedValues::TemporalList list(stage, 5, {2, 128});
+  int32_t number = 0;
+  if (list.next(temporal).status != IcsTypedValues::Status::Ok ||
+      list.next(temporal).status != IcsTypedValues::Status::Ok ||
+      list.next(temporal).status != IcsTypedValues::Status::End || !list.complete() ||
+      IcsTypedValues::writeParameter(selection.tzid, decoded, sizeof(decoded), true, written).status != IcsTypedValues::Status::Ok ||
+      written != 5 ||
+      IcsTypedValues::decodeInteger({reinterpret_cast<const uint8_t*>("1"), 1}, number).status != IcsTypedValues::Status::Ok ||
+      IcsTypedValues::decodeUtcOffset({reinterpret_cast<const uint8_t*>("+0100"), 5}, number).status != IcsTypedValues::Status::Ok)
+    return GfxResult(GfxError::InvalidArgument, "typed list/numeric value");
   return stage.value(2, value) == IcsSourceStage::Read::Ok && value.size == 5 &&
       stage.payload(2) == IcsSourceStage::Read::PayloadProjectedOut && stage.counts().ignoredOpaqueProperties == 1
       ? GfxResult::success() : GfxResult(GfxError::InvalidArgument, "stage inspection");
