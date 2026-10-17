@@ -107,8 +107,8 @@ described in the next sections. A roadmap is not implementation authorization.
 **Selected target; library borrowing, isolated workspace, normalized snapshot and
 standalone HTTP framing/line unfolding, property/component parsing, selective
 source-local dependency staging, typed primitive decoding, VEVENT-local checks and
-timezone/observance-local checks, source-local coverage and standalone core RECUR
-grammar validation implemented;
+timezone/observance-local checks, source-local coverage, standalone core RECUR
+grammar and contextual RRULE validation implemented;
 production integration and hardware validation pending.** The owner-selected architecture
 uses Seeed_GFX2 with a locally maintained external-framebuffer ownership extension,
 one application-owned PSRAM arena, and a separate fixed-capacity five-day occurrence
@@ -867,7 +867,7 @@ identity before independently authorized transactional snapshot publication.
 without changing accepted ingestion, workspace, snapshot or vendor implementations.
 Production remains on Apps Script JSON and legacy graphics. Selective source-local
 staging, typed primitive decoding, selected VEVENT-local and timezone/observance-local
-checks plus source-local coverage and standalone core RECUR grammar validation now
+checks plus source-local coverage, standalone core RECUR grammar and contextual RRULE validation now
 exist in isolation below; complete component/source semantic validation, recurrence
 application, timezone resolution and snapshot producer integration remain unimplemented.
 
@@ -1750,7 +1750,8 @@ Three bounded passes establish deterministic failure precedence:
    UNTIL uses accepted DATE/DATE-TIME primitives; DATE, floating and UTC forms are
    permitted here. [Verified erratum 4414](https://www.rfc-editor.org/errata/eid4414)
    removes the contradictory universal UTC sentence. Actual DTSTART/observance
-   compatibility is deferred. UNTIL second 60 or BYSECOND=60 records pending
+   compatibility is checked by the separate contextual wrapper below. UNTIL second
+   60 or BYSECOND=60 records pending
    leap-second confirmation, never instant validity.
 3. After core representations succeed and FREQ is known, examine cross-part
    constraints in input order. UNTIL/COUNT identifies the later conflicting name;
@@ -1779,10 +1780,12 @@ non-Gregorian subset or general extension registry is selected.
 Report is pointer-free status/offset, Frequency, core presence mask and a boolean
 leapSecondPending. Non-success clears frequency to Unknown, mask to zero and pending
 leap evidence to false. CoreGrammarValid establishes only these representation and
-local relationship checks. DTSTART-dependent time-part restrictions and UNTIL
-compatibility, multiple RRULE properties, RDATE/EXDATE application, revision/override
-reconciliation, timezone resolution, expansion profile and source completeness
-remain future work. No component/source status is modified or snapshot call made.
+local relationship checks. The separate contextual API below now checks DTSTART/
+UNTIL representations and reports DATE time-part ignores; the core grammar API
+remains context-free. Multiple-RRULE reconciliation, RDATE/EXDATE application,
+revision/override reconciliation, timezone resolution, expansion profile and source
+completeness remain future work. No component/source status is modified or snapshot
+call made.
 
 The implementation is allocation-free C++11, nonrecursive, linear in admitted
 bytes with a fixed number of passes and fixed-size local state. It retains no
@@ -1810,6 +1813,138 @@ call or hardware check ran; no graphics fixture or dependency changed. Earlier
 target/hardware evidence remains scoped to its original units. These fresh results
 do not establish an expansion profile, recurrence/timezone correctness or complete
 source semantics.
+
+### Contextual RRULE validation
+
+**Implemented locally determinable representation compatibility, not executable
+recurrence or source completeness.** [IcsRecurContext](../application/ics_recur_context.h)
+exposes stateless `validate(stage, parentIndex, componentIndex, rrulePropertyIndex,
+limits)`. Callers select one actual retained rule; there is no automatic rule choice,
+combination, source enumeration, UID/TZID index, cache or second recurrence/event
+representation. Existing grammar, typed, local/coverage, stage and snapshot
+implementations/interfaces remain unchanged. Source-local coverage does not call
+this new operation; complete coverage of contextual rules is a later responsibility.
+
+#### Admission, order and diagnostics
+
+Require StagedSuccessfully plus currently readable storage. Both supplied components
+must exist, be closed, match ordinal/index and calendar-object identities, have the
+correct direct parent association and remain outside projected/opaque contexts.
+Accept only Calendar/Event or Timezone/Standard-or-Daylight pairs; parents precede
+children. The selected property must exist, belong to the component, have Rrule code
+and an actually retained readable value. Root, task/journal/freebusy, alarm, opaque
+and RFC 9073 child content cannot supply recurrence context.
+
+Order is admission, applicable local validation, complete bounded direct-chain scan,
+core grammar, then selected context checks. Invoke IcsEventLocal::validate or
+IcsTimezoneLocal::validateObservance with exact supplied indices and unchanged local
+limits. A local failure returns LocalValidationFailed in EventLocal/ObservanceLocal
+domain, preserving original typed status and property diagnostics, without grammar
+interpretation. No source-local coverage call substitutes for this precondition.
+
+After local success, independently traverse the entire direct property chain within
+maxComponentProperties: owner/index bounds, increasing links/cycle protection,
+first/last terminal consistency and exact observed property count must agree. Record
+only DTSTART index, RRULE count and requested-rule membership; an existing property
+claiming ownership but absent from the chain fails association. The budget is exact,
+zero is a bound and counters are checked; limits select no permanent operating quota.
+
+Call the public core RECUR validator with unchanged rule limits. Preserve its typed
+diagnostic and rule-relative offset in RuleGrammar domain while mapping malformed,
+unsupported, resource and argument failures to corresponding contextual statuses.
+Grammar failures cannot become pending successes, including with missing DTSTART.
+Admission/chain/relationship errors use Context domain; success and missing-start
+outcomes use None. Invalid indices/non-RRULE arguments are InvalidArgument; wrong
+ownership/kinds/hierarchy are InvalidAssociation; unavailable/omitted values are
+Unavailable. A context scan budget is ResourceLimit; a local validator's resource
+failure remains LocalValidationFailed with its original local status.
+
+Report contains only status/domain, property index/code, rule-relative offset,
+separate original grammar/event/observance status types and two uint32_t masks.
+Inactive typed slots are placeholders and provide no validation evidence. Success/
+pending outcomes have no failing-property index/code. Component-only diagnostics use
+IcsSourceStage::None; an explicit invalid property index is reported as supplied.
+UNTIL relationship failures identify the selected RRULE and
+its UNTIL value's zero-based offset. Error reports zero both masks. No source text,
+UID/TZID, URL, borrowed view, durable failure, rollback or snapshot operation occurs.
+
+#### DTSTART, UNTIL and ignored evidence
+
+Use the accepted temporal decoder for direct DTSTART and retain DATE/floating/UTC/
+TZID distinctions without epoch conversion. A TZID-associated start sets
+TimezoneResolutionPending; its definition need not already exist or match an IANA
+name. Parsed DTSTART or rule leap-second evidence sets LeapSecondPending without
+confirmation or rewriting. These are representation observations, even if a valid
+time part is later reported ignored; no occurrence receives an applied leap second.
+
+After core grammar success, a bounded scan of validated part boundaries locates
+the complete UNTIL value and uses existing DATE/DATE-TIME primitives. This is not a
+second RECUR grammar parser. RFC 5545 3.3.10 with verified erratum 4414 requires:
+
+| Owning component / DTSTART | Required UNTIL when present |
+| --- | --- |
+| VEVENT DATE | DATE |
+| VEVENT floating DATE-TIME | Floating DATE-TIME, no Z |
+| VEVENT UTC DATE-TIME | UTC DATE-TIME with Z |
+| VEVENT TZID-associated DATE-TIME | UTC DATE-TIME with Z |
+| STANDARD/DAYLIGHT local DTSTART | UTC DATE-TIME with Z |
+
+Mismatch is InvalidRelationship. No universal UTC rule is imposed on events. UNTIL
+absence invents nothing, and chronological comparison with DTSTART is not performed.
+No pattern-membership test, gap/fold handling, offset application, inclusive filtering,
+five-day selection, candidate generation or expansion subset is chosen.
+
+The same RFC requires receivers to ignore BYSECOND/BYMINUTE/BYHOUR for DATE DTSTART.
+After full core grammar succeeds, copy exactly those presence bits into
+ignoredCoreParts and set IgnoredTimePartsPresent. Invalid core parts still fail;
+DATE-TIME starts ignore none under this rule. Original properties stay unchanged;
+there is no rewritten rule or expanded result.
+
+A METHOD-bearing VEVENT may locally pass without DTSTART. Validate grammar first,
+then return MissingStartContext with MissingDtstartPending and other already known
+obligations, without imposing DTSTART-dependent UNTIL or ignore rules. Ordinary
+missing starts and missing observance starts fail their existing local validators.
+METHOD tokens, scheduling support and source completeness are not adjudicated here.
+
+#### Pending obligations and lifetime
+
+ContextChecksPassed and MissingStartContext always retain RecurrenceExpansionPending
+and RecurrenceSetReconciliationPending. More than one direct RRULE adds
+MultipleRrulePending; only the requested property is validated, without union,
+precedence or validating siblings as a side effect. Any encoded RRULE parameters
+add ParameterReviewPending; VALUE/TZID/extension parameters do not change RECUR
+interpretation or UNTIL matching. Original parameters/review flags remain unchanged.
+Other selected bits are MissingDtstartPending, TimezoneResolutionPending,
+LeapSecondPending and IgnoredTimePartsPresent. No mask establishes executable
+recurrence, parameter support, resolved timezones or a complete calendar.
+
+All borrowed processing finishes inside the existing stage withScratch lifetime.
+Reports survive release without aliases; later validation is Unavailable even when
+the stage's success status survives release. Fixed local indices/counters and typed
+POD fields need no allocation, recursion, extra PSRAM slice, persistent storage or
+decoded recurrence array. Work is bounded by existing local validation, one direct
+component scan, core grammar work and at most one validated-rule UNTIL scan. Physical
+stack/CPU/heap/PSRAM headroom and production/target/hardware behavior remain unmeasured.
+
+Fresh strict C++11 and ASan/UBSan runs of tests/ics_recur_context_test.cpp passed
+**173 deterministic cases** with zero audited `new` allocations, guarded storage,
+byte-for-byte source immutability and unchanged stage status/counts. Synthetic
+Content-Length/chunked feeds exercise one-byte and other splits through actual
+ingestion, structure and staging. Cases cover both event/observance paths, the
+UNTIL matrix, independent repeated rules, parameters, missing starts, original
+failure diagnostics, exact/excess limits, corrupt associations/links, release and
+report survival after poisoning. Context checks leave existing source-local reports
+and pending obligations unchanged. Host Report sizeof/alignof is **56/8**, not a
+verified target layout or operating capacity.
+
+Fresh strict regressions also passed: **369** core RECUR cases, **150** VEVENT-local
+scenarios and **202** timezone/observance-local scenarios. These directly composed
+preconditions/results were checked without changing their implementations. Commands
+are in AGENTS.md. No shared defect or protected-interface change justified additional
+staging/structure suites. No unrelated snapshot/graphics/acquisition tests, target or
+production build, provider operation or physical hardware check ran. Previous target
+evidence remains scoped to its original units; these results establish no recurrence
+expansion, timezone resolution, source completeness or production compatibility.
 
 ### Boot to sleep flow
 
@@ -2003,7 +2138,8 @@ measurement or successful firmware build is available to support readiness.
   compatible revision proof; credentials/configuration, memory and partition fit
   remain prerequisites for a verified complete build. Host coverage is limited
   to acquisition orchestration and isolated panel/workspace/snapshot/ICS contracts,
-  including staged values, local coverage and core RECUR grammar; no CI is committed.
+  including staged values, local coverage, core RECUR grammar and contextual RRULE
+  checks; no CI is committed.
 - **Data reliability:** truncation before global sort,
   insufficient response-state distinctions, volatile events and unresolved timezone
   alignment limit confidence. The target calendar snapshot is wake-cycle-only;

@@ -324,6 +324,23 @@ Run additional regressions only for affected/shared guarantees. CoreGrammarValid
 does not establish recurrence applicability, extension support, expansion or source
 completeness; existing local validators do not invoke it yet.
 
+The contextual RRULE regression uses actual staged VEVENT/observance rules and
+accepted local/grammar validators, checking UNTIL compatibility, DATE time-part
+ignores, missing starts, independent repeated rules, diagnostics, limits and lifetimes:
+
+```
+g++ -std=c++11 -Wall -Wextra -Werror -pedantic tests/ics_recur_context_test.cpp -o /tmp/ee02-ics-recur-context-test
+/tmp/ee02-ics-recur-context-test
+g++ -std=c++11 -Wall -Wextra -Werror -pedantic -fsanitize=address,undefined -fno-omit-frame-pointer tests/ics_recur_context_test.cpp -o /tmp/ee02-ics-recur-context-sanitized
+/tmp/ee02-ics-recur-context-sanitized
+```
+
+Run the strict RECUR grammar regression for its directly composed result, and
+event/timezone focused regressions for materially affected local-precondition
+guarantees. Broaden only for shared risks or exposed defects. ContextChecksPassed
+and MissingStartContext retain recurrence-set/expansion obligations and never
+establish complete source semantics, resolved timezones or snapshot eligibility.
+
 Documentation: no dedicated lint/link-check command is committed; inspect Markdown
 references and affected claims directly, using available tools.
 Review: no automated review command exists; independent review inspects source/diff.
