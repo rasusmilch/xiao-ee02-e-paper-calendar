@@ -309,6 +309,21 @@ Broaden to staging/structure only for changed composition, exposed shared issues
 or material coupling. LocalCoveragePassed retains semantic obligations; it never
 establishes complete source semantics, normalization or snapshot publication.
 
+The standalone RECUR grammar regression uses guarded values and actual staged
+RRULE readers, checking complete core syntax, numeric/cross-part constraints,
+pass-ordered diagnostics, extension disposition, exact budgets and zero allocations:
+
+```
+g++ -std=c++11 -Wall -Wextra -Werror -pedantic tests/ics_recur_value_test.cpp -o /tmp/ee02-ics-recur-value-test
+/tmp/ee02-ics-recur-value-test
+g++ -std=c++11 -Wall -Wextra -Werror -pedantic -fsanitize=address,undefined -fno-omit-frame-pointer tests/ics_recur_value_test.cpp -o /tmp/ee02-ics-recur-value-sanitized
+/tmp/ee02-ics-recur-value-sanitized
+```
+
+Run additional regressions only for affected/shared guarantees. CoreGrammarValid
+does not establish recurrence applicability, extension support, expansion or source
+completeness; existing local validators do not invoke it yet.
+
 Documentation: no dedicated lint/link-check command is committed; inspect Markdown
 references and affected claims directly, using available tools.
 Review: no automated review command exists; independent review inspects source/diff.

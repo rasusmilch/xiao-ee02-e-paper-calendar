@@ -107,7 +107,8 @@ described in the next sections. A roadmap is not implementation authorization.
 **Selected target; library borrowing, isolated workspace, normalized snapshot and
 standalone HTTP framing/line unfolding, property/component parsing, selective
 source-local dependency staging, typed primitive decoding, VEVENT-local checks and
-timezone/observance-local checks and source-local coverage implemented;
+timezone/observance-local checks, source-local coverage and standalone core RECUR
+grammar validation implemented;
 production integration and hardware validation pending.** The owner-selected architecture
 uses Seeed_GFX2 with a locally maintained external-framebuffer ownership extension,
 one application-owned PSRAM arena, and a separate fixed-capacity five-day occurrence
@@ -866,9 +867,9 @@ identity before independently authorized transactional snapshot publication.
 without changing accepted ingestion, workspace, snapshot or vendor implementations.
 Production remains on Apps Script JSON and legacy graphics. Selective source-local
 staging, typed primitive decoding, selected VEVENT-local and timezone/observance-local
-checks plus source-local coverage now exist in isolation below; complete component/source
-semantic validation, recurrence, timezone resolution and snapshot producer integration
-remain unimplemented.
+checks plus source-local coverage and standalone core RECUR grammar validation now
+exist in isolation below; complete component/source semantic validation, recurrence
+application, timezone resolution and snapshot producer integration remain unimplemented.
 
 #### API, ownership and generic grammar
 
@@ -1275,8 +1276,9 @@ present and NeedsContext, never floating. Referenced definitions may appear late
 Known inapplicable standard parameters fail locally; extension parameters preserve
 review obligations. RANGE on RECURRENCE-ID is retained for later interpretation.
 No generic parameter or primitive acceptance establishes component-schema legality.
-All RECUR access through the temporal selector returns UnsupportedFeature (deferred
-implementation), including ordinary RRULE and RSCALE/SKIP. This does not classify
+All RECUR access through the unchanged temporal selector returns UnsupportedFeature
+(deferred integration), including ordinary RRULE and RSCALE/SKIP. A separate core
+grammar API now exists below; the selector does not invoke it. This does not classify
 standards-valid recurrence extensions as malformed or interpret them as Gregorian.
 
 `TemporalList(stage,index,{members,bytes})` iterates RDATE/EXDATE with an explicit
@@ -1408,8 +1410,9 @@ by later checks. No source rollback/failure preservation machinery is added.
   be UTC; second 60 remains pending. SEQUENCE receives only signed RFC INTEGER
   lexical checks, without revision/monotonicity policy.
 - Other retained optional fields remain explicitly unvalidated. No URI/address,
-  GEO, STATUS enumeration, recurrence list or RECUR validation is introduced.
-  RSCALE/SKIP remains unexamined and is never reinterpreted as Gregorian recurrence.
+  GEO, STATUS enumeration, recurrence list or RECUR validation is introduced by
+  this event-local API. It does not invoke the standalone grammar validator below;
+  RSCALE/SKIP remains unexamined here and is never reinterpreted as Gregorian recurrence.
 
 #### Local relationships and pending work
 
@@ -1540,7 +1543,8 @@ fields, modern regional offset limits or offset-difference requirements are adde
   Complete iteration through End and final Ok/NeedsContext are required. Members
   must be local DATE-TIME; DATE, PERIOD, UTC, TZID, empty/malformed members and an
   invalid suffix fail. No ordering, deduplication, exclusions or expansion occurs.
-- RRULE stays unparsed, including RSCALE/SKIP. EXDATE in observances is not a core
+- RRULE stays unparsed by this timezone-local API, including RSCALE/SKIP; the separate
+  grammar API below is not invoked here. EXDATE in observances is not a core
   tzprop under RFC 5545: preserve it with ObservanceExdateReviewPending and
   ExtensionReviewPending, without applying, dropping or inventing extension support.
 - Declared TZNAME/COMMENT payload omissions remain distinct from original empty
@@ -1709,6 +1713,103 @@ graphics/acquisition tests, new target/production build, live feed or physical
 hardware check ran. The GFX2 fixture was not extended without a material target
 concern. Recurrence/timezone correctness, complete source semantics, production
 integration and runtime memory/CPU fit remain unverified.
+
+### Bounded RECUR core grammar validation
+
+**Implemented standalone representation checks, not recurrence application or
+calendar completeness.** [IcsRecurValue](../application/ics_recur_value.h) exposes
+`validate(IcsStructure::View, Limits)`. The input is one complete, readable,
+length-delimited retained RRULE value; no NUL terminator or trimming is assumed.
+No decoder, local-validator, stage, workspace, snapshot or production interface
+changed. Existing event/timezone/source-local checks retain their recurrence
+obligations and do not call this API.
+
+#### Grammar, bounds and deterministic passes
+
+RFC 5545 [section 3.3.10](https://www.rfc-editor.org/rfc/rfc5545#section-3.3.10)
+owns the core grammar and local constraints. Rule names, frequency and weekday
+tokens are case-insensitive. Receivers accept parts in any order; the generating
+interoperability requirement to put FREQ first is not imposed on input. FREQ must
+appear exactly once; other recognized core names cannot repeat. UNTIL/COUNT are
+exclusive. BYMONTHDAY/WEEKLY, BYYEARDAY/DAILY-WEEKLY-MONTHLY, BYWEEKNO/non-YEARLY,
+numeric BYDAY/non-MONTHLY-YEARLY or YEARLY-with-BYWEEKNO, and BYSETPOS without
+another BY part fail locally. Repeated members within one list remain unchanged.
+
+Three bounded passes establish deterministic failure precedence:
+
+1. Check argument spans and the total byte budget. Scan complete NAME=VALUE
+   framing, token names, nonempty parts/values, duplicate core names, required
+   FREQ and structural part/aggregate BY-list-member budgets. Values remain opaque
+   at this stage apart from extra equals signs and empty BY-list members. Missing
+   FREQ is diagnosed at input end. Only after the complete framing scan succeeds,
+   return UnsupportedFeature at the first unknown/extension name, if any.
+2. For extension-free input, validate core values in input order. Numeric members
+   obey their exact RFC digit widths, sign permissions and ranges. COUNT/INTERVAL
+   require positive unsigned decimal uint64 magnitudes; overflow is ResourceLimit
+   at the overflowing digit, not malformed syntax or a permanent producer limit.
+   UNTIL uses accepted DATE/DATE-TIME primitives; DATE, floating and UTC forms are
+   permitted here. [Verified erratum 4414](https://www.rfc-editor.org/errata/eid4414)
+   removes the contradictory universal UTC sentence. Actual DTSTART/observance
+   compatibility is deferred. UNTIL second 60 or BYSECOND=60 records pending
+   leap-second confirmation, never instant validity.
+3. After core representations succeed and FREQ is known, examine cross-part
+   constraints in input order. UNTIL/COUNT identifies the later conflicting name;
+   other relationships identify the offending BY name, or first numeric BYDAY
+   member. No date/candidate generation, DTSTART inference or epoch conversion occurs.
+
+Framing errors use the offending byte, an expected missing byte at input end, or
+the second duplicate name. Numeric syntax/width errors use the offending byte;
+range/zero failures use the member start. Unsupported features use their first
+name offset. These are zero-based value-relative offsets without source text.
+maxRuleBytes diagnoses its first excess byte; part/member exhaustion diagnoses the
+next part/member start. Exact budgets pass; zero is not unlimited. Span arithmetic
+rejects null nonempty input, PTRDIFF_MAX excess and address wrap before reading;
+actual readable ownership remains the caller's responsibility.
+
+[RFC 7529 section 4](https://www.rfc-editor.org/rfc/rfc7529#section-4) changes
+numeric ranges and permits leap-month suffixes. RSCALE, including GREGORIAN, SKIP
+with or without RSCALE, and other well-framed unrecognized names therefore return
+UnsupportedFeature before Gregorian-specific value/range/relationship checks.
+Their grammar and semantics are not validated or ignored; malformed generic framing,
+missing FREQ, repeated core names and resource limits still fail explicitly. No
+non-Gregorian subset or general extension registry is selected.
+
+#### Results, lifetime and validation limits
+
+Report is pointer-free status/offset, Frequency, core presence mask and a boolean
+leapSecondPending. Non-success clears frequency to Unknown, mask to zero and pending
+leap evidence to false. CoreGrammarValid establishes only these representation and
+local relationship checks. DTSTART-dependent time-part restrictions and UNTIL
+compatibility, multiple RRULE properties, RDATE/EXDATE application, revision/override
+reconciliation, timezone resolution, expansion profile and source completeness
+remain future work. No component/source status is modified or snapshot call made.
+
+The implementation is allocation-free C++11, nonrecursive, linear in admitted
+bytes with a fixed number of passes and fixed-size local state. It retains no
+numeric/list database, separate byte pool, PSRAM slice or event record. Borrowed
+stage values must remain readable for the call and expire at release/reuse;
+Reports survive without them. maxRuleBytes/maxParts/maxListItems are caller-supplied
+evaluation controls, not final operating capacities. Physical stack/CPU/heap/PSRAM
+headroom and target/production compatibility remain unmeasured.
+
+Fresh strict C++11 and ASan/UBSan runs of tests/ics_recur_value_test.cpp passed
+**369 deterministic cases** with zero audited `new` allocations, unchanged guarded
+source bytes and pointer-free reports surviving input/stage poisoning. Coverage
+includes core values/relationships, rotated part order, pass-ordered offsets,
+extension-before/after behavior, exact/excess budgets and synthetic Content-Length/
+chunked one-byte ingestion through actual stage readers. Original local reports,
+stage bytes/counts and recurrence obligations remain unchanged. Host Report
+sizeof/alignof is **32/8**; this is not a target layout or operating-headroom claim.
+The accepted strict typed-value regression passed **400 result assertions**, covering
+the primitive decoders directly composed for UNTIL. Commands are in AGENTS.md.
+
+No protected implementation changed or shared boundary defect emerged, so additional
+local-validator/staging/structure regressions were not needed. No unrelated snapshot,
+graphics/acquisition tests, isolated target build, production build, live-provider
+call or hardware check ran; no graphics fixture or dependency changed. Earlier
+target/hardware evidence remains scoped to its original units. These fresh results
+do not establish an expansion profile, recurrence/timezone correctness or complete
+source semantics.
 
 ### Boot to sleep flow
 
@@ -1901,7 +2002,8 @@ measurement or successful firmware build is available to support readiness.
 - **No complete build/regression baseline:** documented library versions are not
   compatible revision proof; credentials/configuration, memory and partition fit
   remain prerequisites for a verified complete build. Host coverage is limited
-  to acquisition orchestration and isolated panel/workspace/snapshot/ingestion contracts; no CI is committed.
+  to acquisition orchestration and isolated panel/workspace/snapshot/ICS contracts,
+  including staged values, local coverage and core RECUR grammar; no CI is committed.
 - **Data reliability:** truncation before global sort,
   insufficient response-state distinctions, volatile events and unresolved timezone
   alignment limit confidence. The target calendar snapshot is wake-cycle-only;

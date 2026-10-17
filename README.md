@@ -9,7 +9,7 @@ The [original prototype article](https://www.makerguides.com/e-paper-wall-calend
 - **Display:** 1600×1200 Spectra 6, rolling next five days starting today, fixed waking-hour window (exact hours configurable), timed grid the leading candidate versus a five-day agenda. The week view **replaces the 1024×1024 artwork area**. Display layout is not finally selected.
 - **Other panels:** retain weather, multi-day forecast, today's detailed events, battery indication, and their existing positions initially. Whether the legacy monthly calendar remains is Open.
 - **Calendars:** select multiple source calendars; support Google, iCloud/CalDAV and general ICS by source-independent internal event representation. Entirely on-device fetching/normalization; **no separate backend, hosted processor or update preprocessor**. Sequential streaming ICS processing is selected; provider-access scope, including ICS-only initial access and private iCloud versus public ICS, remains Open.
-- **Selected graphics/memory architecture:** Seeed_GFX2 with a locally maintained external-framebuffer ownership extension; one application-owned PSRAM workspace for sequential, one-source-at-a-time streaming ICS processing, then rendering. A separate fixed-capacity five-day PSRAM snapshot owns normalized occurrences, text and transactional source outcomes without references into the reused workspace. GFX2 borrows only the 960,000-byte framebuffer slice and must not free it or allocate an unnecessary second framebuffer. The 2 MiB workspace, 1,024 occurrences and 320 KiB snapshot are provisional evaluation budgets, not validated operating limits. Borrowing, a scoped workspace, synthetic snapshot publication, standalone HTTP framing/line unfolding, bounded property/component parsing, selective source-local dependency staging, typed primitive decoding, VEVENT-local checks, timezone/observance-local checks and source-local coverage are implemented in isolation; live calendar acquisition, complete component/source semantic validation and production phase reuse remain unimplemented, with hardware behavior unvalidated. Consult the [canonical architecture and validation contract](docs/ENGINEERING.md#selected-gfx2-psram-and-streaming-calendar-architecture).
+- **Selected graphics/memory architecture:** Seeed_GFX2 with a locally maintained external-framebuffer ownership extension; one application-owned PSRAM workspace for sequential, one-source-at-a-time streaming ICS processing, then rendering. A separate fixed-capacity five-day PSRAM snapshot owns normalized occurrences, text and transactional source outcomes without references into the reused workspace. GFX2 borrows only the 960,000-byte framebuffer slice and must not free it or allocate an unnecessary second framebuffer. The 2 MiB workspace, 1,024 occurrences and 320 KiB snapshot are provisional evaluation budgets, not validated operating limits. Borrowing, a scoped workspace, synthetic snapshot publication, standalone HTTP framing/line unfolding, bounded property/component parsing, selective source-local dependency staging, typed primitive decoding, VEVENT-local checks, timezone/observance-local checks, source-local coverage and standalone core RECUR grammar validation are implemented in isolation; live calendar acquisition, complete component/source semantic validation and production phase reuse remain unimplemented, with hardware behavior unvalidated. Consult the [canonical architecture and validation contract](docs/ENGINEERING.md#selected-gfx2-psram-and-streaming-calendar-architecture).
 - **Storage/time:** NVS stores changed persistent configuration only (Wi-Fi, timezone, calendar URLs/selection, refresh settings). No daily churn, events, weather or routine counters go to NVS. RTC-retained memory may hold validated compact sleep context; reconstruct after invalid RTC/reset. NTP on cold boot when required, then approximately daily; use internal RTC between syncs.
 - **Refresh/recovery:** battery-powered, single user-configurable coordinated data-acquisition/render cycle, independently validated per source. Successful calendars display even if another calendar fails, with a named error bar; a weather failure is shown in its own panel while previously valid forecast data may remain. Three consecutive complete acquisition failures cause a full error screen; cold boot tries Wi-Fi before presenting recovery instructions.
 - **Setup:** device-hosted Wi-Fi webpage (LAN while explicitly awake, or open/no-password AP). AP stops after 10 minutes without meaningful user activity or 30 minutes maximum, then sleeps. Entering a new password may show characters; after save it is masked and the saved value is never echoed. Calendar URL fields remain displayed. An operator-accessible hardware AP trigger is required; simultaneous Setup+Refresh hold for five seconds is a **proposed, unverified** factory-reset gesture, not yet a pin/wake contract.
@@ -293,8 +293,8 @@ EXDATE cursors retain floating/UTC/TZID distinctions. Exhaust the cursor through
 and check its final status; individual members are provisional.
 
 Leap-second confirmation and unresolved period ordering return NeedsContext.
-No timezone resolution, epoch conversion, RECUR interpretation, component acceptance
-or snapshot publication occurs. Omitted payloads remain unavailable, not empty;
+No timezone resolution, epoch conversion, RECUR interpretation by this typed API,
+component acceptance or snapshot publication occurs. Omitted payloads remain unavailable, not empty;
 all borrowed spans expire on source release or workspace reuse. See the
 [typed contract and executed evidence](docs/ENGINEERING.md#typed-ics-primitive-values)
 and [host commands](AGENTS.md#commands-and-validation).
@@ -350,6 +350,24 @@ remain subject to later source-policy/semantic validation. There is no allocatio
 identity matching, recurrence/timezone processing, normalized event model, source
 transaction or snapshot call. Reports own no staged references; borrowed processing
 finishes before release/workspace reuse. See the [coverage contract and fresh evidence](docs/ENGINEERING.md#source-local-validation-coverage)
+and [focused commands](AGENTS.md#commands-and-validation).
+
+### Bounded RECUR core grammar
+
+[IcsRecurValue](application/ics_recur_value.h) validates one complete length-delimited
+RRULE value without allocation or mutation. It checks RFC 5545 core rule parts in
+any order, uniqueness, required FREQ, typed UNTIL, numeric/list bounds and locally
+decidable cross-part constraints. Caller limits bound bytes, parts and aggregate
+BY-list members. Reports contain only status, offset, frequency, presence bits and
+pending leap-second evidence; failed reports clear parsed fields.
+
+Well-framed unknown parts and RFC 7529 RSCALE/SKIP return UnsupportedFeature before
+Gregorian-specific value checks. CoreGrammarValid is representation evidence only:
+DTSTART/UNTIL compatibility, expansion support, multiple rules, exclusions, overrides,
+timezones and source completeness remain deferred. Existing component/source local
+validators do not invoke this API yet. Obtain a readable retained RRULE using stage
+readers and finish validation before stage release/workspace reuse. See the
+[grammar contract and evidence](docs/ENGINEERING.md#bounded-recur-core-grammar-validation)
 and [focused commands](AGENTS.md#commands-and-validation).
 
 ## Current implementation — Google Calendar Setup
