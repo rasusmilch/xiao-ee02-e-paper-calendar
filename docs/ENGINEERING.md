@@ -1888,6 +1888,15 @@ authorization of the next dependent implementation unit. The current policy is
 owned by [AGENTS.md](../AGENTS.md#authorized-feature-branch-publication); this record
 is decision provenance, not evidence of review or merge completion.
 
+On 2026-10-16, the owner made verified safe feature-branch publication mandatory
+for every completed authorized tracked Codex execution unit in the same run,
+after applicable local validation and commit. This supersedes the discretionary
+nature of the earlier publication permission, preserving repository/destination
+and ancestry verification, non-force publication and independent-review safeguards.
+Blocked publication still requires local preservation and an explicit incomplete
+publication report. [AGENTS.md](../AGENTS.md#authorized-feature-branch-publication)
+remains the current workflow and publication-procedure authority.
+
 On 2026-10-11, the owner supplied `ee02_selected_memory_architecture.md` and selected
 Seeed_GFX2 with a locally maintained external-framebuffer ownership extension,
 application-owned PSRAM phase reuse, a separate fixed-capacity five-day PSRAM

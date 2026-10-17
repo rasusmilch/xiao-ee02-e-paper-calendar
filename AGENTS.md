@@ -50,6 +50,13 @@ Work from the prepared local checkout. Remote Git operations are restricted to
 the authorized feature-branch publication and verification policy below unless
 separately authorized. Missing hosted access does not block local preservation.
 
+Before implementation, verify repository identity, local branch and HEAD against
+the task's expected reviewed baseline, plus working-tree and index state. A local
+branch named `work` does not establish correct history. Protect unrelated work;
+stop and report a stale or divergent baseline unless checkout realignment is
+specifically authorized and its safety checks succeed. This workflow grants no
+standing permission to fetch or realign an unexpected checkout.
+
 Use the lifecycle: Plan → ChatGPT Review → Execute → Validate → Commit → Publish
 → ChatGPT Review. Each published semantic unit must receive independent ChatGPT
 execution and intent review before the next dependent implementation unit is
@@ -78,11 +85,16 @@ completed work and report unavailable checks rather than inventing evidence.
 
 ## Authorized feature-branch publication
 
-Codex may publish a completed, validated and locally committed authorized semantic
-unit to the feature branch designated by the owner-approved workstream or task.
-This is standing permission within that scope; a separate publication exception
-is not needed for each unit. Do not infer authorization from an arbitrary branch
-name. Local durable preservation remains mandatory before publication.
+Codex MUST publish every completed, validated and locally committed authorized
+tracked execution unit to the feature branch designated by the owner-approved
+workstream or task, in the same execution run, after local preservation and the
+required publication preflight. Do not leave an eligible unit local-only merely
+because its local commit succeeded. This includes application implementation,
+repairs, tests, documentation, governance and other authorized tracked work units.
+Read-only and genuinely no-tracked-change tasks require neither commit nor
+publication. This is standing authorization within the approved scope; a separate
+user approval is not needed for each push when the publication conditions hold.
+Do not infer authorization from an arbitrary branch name.
 
 Before pushing, verify repository identity and sanitized origin fetch/push
 destinations, a clean working tree and index, the intended commit and feature
@@ -107,6 +119,14 @@ remote history or push directly to `main`. After publication, verify the remote
 branch SHA equals the intended commit and report the result accurately; preserve
 the local branch, HEAD, index and working tree. A successful push establishes
 publication, not independent review, merge authorization or merge readiness.
+
+Mandatory publication does not override safety. If repository identity, remote,
+destination, predecessor, ancestry or credentials cannot be verified sufficiently,
+or publication cannot be performed or verified safely, preserve the validated
+local commit and unrelated working-tree state, then stop without rewriting history
+or automatic reconciliation. Report the exact blocker, explicitly identify
+publication as incomplete, and give one next action to resolve it. Never describe
+an unpublished local commit as a completed published handoff.
 
 This permission does not authorize tags, unrelated branches or repositories,
 other hosted queries, PR creation/merging, PR metadata changes, or changes to
@@ -339,18 +359,24 @@ inventories, or sensitive calendar/API logs into receipts. Inspect only necessar
 non-secret configuration; use the engineering security boundary and operator
 instructions. Do not create substitute credentials to force a check.
 
-A completed tracked semantic execution unit that passes its applicable checks must
-be preserved durably before exit, normally by a local commit containing only that
-unit. Read-only/no-change tasks need no commit. If preservation fails, retain the
-validated working tree and report the exact blocker; do not discard/recreate it or
-describe uncommitted work as durable. Check and report final working-tree state.
+A completed authorized tracked execution unit that passes its applicable checks
+MUST be preserved in a focused local commit and safely published in the same run
+under the publication policy above. Local preservation remains mandatory even
+when publication is blocked; it does not complete an eligible execution handoff
+when safe publication is available. Read-only/no-tracked-change tasks require
+neither commit nor publication. If local preservation fails, retain the validated
+working tree and report the exact blocker; do not discard/recreate it or describe
+uncommitted work as durable. If publication is blocked, retain the validated local
+commit and working state and report publication as incomplete. Check and report
+final working-tree and index state.
 
 Require independent ChatGPT execution and intent review of planning/execution
 results. Integrated validation of the complete workstream, independent review GO,
 and cumulative changelog reconciliation are required before merge readiness.
-Local commits establish durability; feature-branch publication follows the policy
-above and does not establish independent review, merge authorization or merge
-completion. Governance readiness remains an independent review decision.
+Local commits establish durability; mandatory safe feature-branch publication
+follows the policy above and does not establish independent review, merge
+authorization or merge completion. Governance readiness remains an independent
+review decision.
 
 ## Compact receipt contract
 
