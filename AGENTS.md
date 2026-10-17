@@ -293,6 +293,22 @@ Run applicable typed/stage/structure/ingestion commands for the composed boundar
 LocalChecksPassed retains identity/transition/source obligations; it does not
 resolve timezones, expand recurrence, convert events or publish snapshot records.
 
+The source-local coverage regression composes actual staged multi-root sources
+and accepted local validators, checking first failures, separate deferred masks,
+root metadata, projections, exact/over budgets, guarded immutability and release:
+
+```
+g++ -std=c++11 -Wall -Wextra -Werror -pedantic tests/ics_source_local_test.cpp -o /tmp/ee02-ics-source-local-test
+/tmp/ee02-ics-source-local-test
+g++ -std=c++11 -Wall -Wextra -Werror -pedantic -fsanitize=address,undefined -fno-omit-frame-pointer tests/ics_source_local_test.cpp -o /tmp/ee02-ics-source-local-sanitized
+/tmp/ee02-ics-source-local-sanitized
+```
+
+Run the existing strict event/timezone focused commands for their composed outputs.
+Broaden to staging/structure only for changed composition, exposed shared issues
+or material coupling. LocalCoveragePassed retains semantic obligations; it never
+establishes complete source semantics, normalization or snapshot publication.
+
 Documentation: no dedicated lint/link-check command is committed; inspect Markdown
 references and affected claims directly, using available tools.
 Review: no automated review command exists; independent review inspects source/diff.

@@ -107,7 +107,7 @@ described in the next sections. A roadmap is not implementation authorization.
 **Selected target; library borrowing, isolated workspace, normalized snapshot and
 standalone HTTP framing/line unfolding, property/component parsing, selective
 source-local dependency staging, typed primitive decoding, VEVENT-local checks and
-timezone/observance-local checks implemented;
+timezone/observance-local checks and source-local coverage implemented;
 production integration and hardware validation pending.** The owner-selected architecture
 uses Seeed_GFX2 with a locally maintained external-framebuffer ownership extension,
 one application-owned PSRAM arena, and a separate fixed-capacity five-day occurrence
@@ -866,8 +866,9 @@ identity before independently authorized transactional snapshot publication.
 without changing accepted ingestion, workspace, snapshot or vendor implementations.
 Production remains on Apps Script JSON and legacy graphics. Selective source-local
 staging, typed primitive decoding, selected VEVENT-local and timezone/observance-local
-checks now exist in isolation below; complete typed event validation, recurrence, timezone resolution
-and snapshot producer integration remain unimplemented.
+checks plus source-local coverage now exist in isolation below; complete component/source
+semantic validation, recurrence, timezone resolution and snapshot producer integration
+remain unimplemented.
 
 #### API, ownership and generic grammar
 
@@ -1500,8 +1501,9 @@ Traverse only the target component's direct append-only property links. Check
 owners, stored indices, strictly increasing links (also detecting cycles), terminal
 last link and exact observed descriptor count. Explicit maxTimezoneProperties or
 maxObservanceProperties bounds every traversal; zero is not unlimited. Parent
-metadata is checked without scanning the parent's property list. Later source
-validation must visit every relevant component separately.
+metadata is checked without scanning the parent's property list. The source-local
+coverage pass below now visits every relevant component separately; complete source
+semantics remain later work.
 
 Failure precedence: admission/association, full property-chain integrity/budget,
 singleton cardinality, required presence, then selected typed checks in retained
@@ -1593,6 +1595,120 @@ also uses `--clean`. Logs: `/tmp/ee02-ics-timezone-local-compile.log` and
 `/tmp/ee02-ics-timezone-local-final-compile.log`. Official RFC 5545 3.6.5/3.8.3
 provided schema, local-onset and identity evidence. No dependencies were installed
 or upgraded, live calendars accessed, hardware flashed or product policy selected.
+
+### Source-local validation coverage
+
+**Implemented local-check coverage, not complete calendar/source semantics.**
+[application/ics_source_local.h](../application/ics_source_local.h) exposes stateless
+`IcsSourceLocal::inspect(stage, limits)`. It composes the accepted local validators
+without modifying parser, stage, typed values, event/timezone local checks,
+workspace, independent snapshot or production behavior. No source-completion state
+machine, persistent object, second event/component store, identity map or new
+allocation owner exists.
+
+#### Source-order enumeration and dispatch
+
+Require StagedSuccessfully plus actual readable component storage; terminal status
+surviving release is insufficient. Require a nonempty, size_t-representable component
+count within maxComponents. Walk every staged component index in order, checking
+ordinal == index + 1, closure, valid earlier parent, matching calendar-object
+ordinal and accepted parent kind. Track the active Calendar index explicitly:
+calendar ordinal is the successive root identity, not its structural ordinal or
+stored index. Each Calendar has no parent, advances that identity consistently,
+and the final inspected root count must match stage counts().calendars.
+
+Invoke IcsEventLocal::validate for each direct Calendar/Event pair,
+validateTimezone for each direct Calendar/Timezone pair, and validateObservance for
+each direct Timezone/Standard-or-Daylight pair. Pass supplied local limits unchanged.
+No source-wide parent search, UID/TZID lookup, component sorting or five-day filtering
+selects records. Caller budgets independently bound roots, events, timezones and
+observances; all descriptors, including nested/projected ones, count toward the
+source component budget. Checked count increments admit exact limits and reject
+exhaustion without wraparound; zero is never an unlimited budget.
+
+For each root, validate its entire direct stored-property chain within
+maxCalendarProperties before recording pending metadata. Check reader/index/owner,
+strictly increasing append-only links (including cycle protection), terminal
+first/last links and exact observed count. Observe METHOD, CALSCALE, retained
+relevant unknown/extension metadata, unreviewed/unknown-parameter flags and retained
+additional metadata lacking selected value semantics as CalendarMetadataPending.
+VERSION/PRODID requirements and root closure/component presence remain owned by
+IcsStructure; this pass adds no competing root schema, METHOD token, calendar-system,
+URI, source-fetch or scheduling interpretation. Omitted values remain unavailable,
+never fabricated empty originals. Structural requirements alone do not establish
+complete root semantics.
+
+Retained event-associated PARTICIPANT/VLOCATION/VRESOURCE components set
+NestedComponentReviewPending without validating or merging their UID/content into
+VEVENT. VTODO/VJOURNAL/VFREEBUSY, VALARM and their projected descendants respect the
+stage projection. Each ProjectedOut descriptor outside the calendar/event/timezone/
+observance groups counts once in projectedNonEventComponents and sets
+NonEventProjectionObserved. This includes accepted opaque and nested opaque
+components. Opaque observed properties have no stored property descriptors; their
+links are not traversed to enumerate omitted payload. No opaque UID/DTSTART/SUMMARY/
+RRULE is treated as event data. Inconsistent parent kinds/projection flags and
+unexpected kinds fail association checks; no new nesting relationships, structural
+ordering grammar or extension registry are introduced.
+
+#### Results, obligations and first failure
+
+Report contains only copied status, FailureKind, component/property indices/code,
+separate original event/timezone status types, three uint32_t masks and counts.
+Missing diagnostic indices use IcsSourceStage::None. Local-status slots are failure
+diagnostics only for the corresponding FailureKind; inactive LocalChecksPassed
+placeholders do not prove that a call occurred. No enum-domain casts or borrowed
+views escape in Report.
+
+Order is availability, source component capacity, then for each component:
+descriptor/association, relevant count budget, local validator or root property
+chain, then accumulation. The first failure wins. Child failures use
+EventLocalFailure, TimezoneLocalFailure or ObservanceLocalFailure with the original
+typed local status/property diagnostic. Local ResourceLimit remains a child failure,
+while source-budget/root-chain failures use source statuses. Failed reports zero
+all masks and successful-coverage counts; earlier successes never become partial
+published coverage. No staging mutation, durable error, rollback or snapshot call
+occurs.
+
+Success always sets SourceSemanticsPending; OR event-local masks into eventDeferred
+and timezone/observance masks into timezoneDeferred, preserving their distinct enum
+domains and every bit. Additional source observations are CalendarMetadataPending,
+NestedComponentReviewPending and NonEventProjectionObserved. Successful counts prove
+full enumeration/applicable local success only. Zero-event, projected-only and
+opaque-only sources may pass coverage while supported source policy and valid
+empty-schedule semantics remain unresolved. METHOD, recurrence, identities/revisions,
+TZID matching, transitions, nested/extension/detail semantics, normalization and
+source publication remain the later semantic producer's responsibility.
+
+#### Lifetime, resources and evidence limits
+
+All reads/calls finish inside the stage's existing withScratch source lifetime.
+Reports survive release without aliases; new inspection after release is Unavailable.
+The pass is C++11, read-only, nonrecursive and allocation-free, using fixed local
+counters, indices and small reports. No dedicated scratch slice or final operating
+capacity is selected. Work is one bounded component walk plus bounded root metadata
+and existing local-validator work. The accepted event validator also checks its
+owning root properties per event; no source-wide rescan or cache replaces that
+existing guarantee. Physical stack/heap/PSRAM/CPU headroom remains unmeasured.
+
+Fresh strict C++11 and ASan/UBSan coverage runs passed **106 deterministic
+scenarios** with zero audited `new` allocations, guarded byte-for-byte storage
+immutability and unchanged stage counters/status. Synthetic Content-Length/chunked
+responses exercise folds/fragmentation, distinct multi-root identities, complete
+component dispatch, later failures, full separate masks, metadata/projection rules,
+exact/over budgets, deliberate association/link corruption and failed/released
+storage. The copied Report remains readable after stage release/poisoning; host
+sizeof/alignof is **88/8**, not an established target layout or memory headroom.
+Fresh accepted strict VEVENT-local and timezone-local regressions passed **150/202
+scenarios**. Actual commands are in AGENTS.md.
+
+These results belong to this new implementation, not to the unavailable unpublished
+commit. Earlier compiler/target/hardware evidence remains scoped to its original
+units. No accepted staging/structural implementation changed or shared defect was
+exposed, so additional shared regressions were unnecessary. No unrelated snapshot,
+graphics/acquisition tests, new target/production build, live feed or physical
+hardware check ran. The GFX2 fixture was not extended without a material target
+concern. Recurrence/timezone correctness, complete source semantics, production
+integration and runtime memory/CPU fit remain unverified.
 
 ### Boot to sleep flow
 
@@ -1888,7 +2004,7 @@ authorization of the next dependent implementation unit. The current policy is
 owned by [AGENTS.md](../AGENTS.md#authorized-feature-branch-publication); this record
 is decision provenance, not evidence of review or merge completion.
 
-On 2026-10-16, the owner made verified safe feature-branch publication mandatory
+On 2026-10-17, the owner made verified safe feature-branch publication mandatory
 for every completed authorized tracked Codex execution unit in the same run,
 after applicable local validation and commit. This supersedes the discretionary
 nature of the earlier publication permission, preserving repository/destination
