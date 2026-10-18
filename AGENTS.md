@@ -322,7 +322,7 @@ g++ -std=c++11 -Wall -Wextra -Werror -pedantic -fsanitize=address,undefined -fno
 
 Run additional regressions only for affected/shared guarantees. CoreGrammarValid
 does not establish recurrence applicability, extension support, expansion or source
-completeness; existing local validators do not invoke it yet.
+completeness; IcsEventLocal, IcsTimezoneLocal and IcsSourceLocal do not invoke it.
 
 The contextual RRULE regression uses actual staged VEVENT/observance rules and
 accepted local/grammar validators, checking UNTIL compatibility, DATE time-part
@@ -340,6 +340,23 @@ event/timezone focused regressions for materially affected local-precondition
 guarantees. Broaden only for shared risks or exposed defects. ContextChecksPassed
 and MissingStartContext retain recurrence-set/expansion obligations and never
 establish complete source semantics, resolved timezones or snapshot eligibility.
+
+The VEVENT recurrence-property regression composes every direct contextual RRULE,
+complete RDATE/EXDATE iteration and accepted RECURRENCE-ID preconditions. It checks
+shared list budgets, first failures, separate pending masks, ownership and release:
+
+```
+g++ -std=c++11 -Wall -Wextra -Werror -pedantic tests/ics_event_recurrence_local_test.cpp -o /tmp/ee02-event-recurrence-local-test
+/tmp/ee02-event-recurrence-local-test
+g++ -std=c++11 -Wall -Wextra -Werror -pedantic -fsanitize=address,undefined -fno-omit-frame-pointer tests/ics_event_recurrence_local_test.cpp -o /tmp/ee02-event-recurrence-local-sanitized
+/tmp/ee02-event-recurrence-local-sanitized
+```
+
+Run the existing strict contextual RRULE, core RECUR, VEVENT-local and typed-value/
+list regressions for the composed guarantees. Broaden only for material shared risks
+or exposed defects. LocalCoveragePassed establishes complete local enumeration for
+one event, never a defined recurrence set, expansion or source/snapshot completeness.
+This does not alter observance EXDATE policy or automatically extend source coverage.
 
 Documentation: no dedicated lint/link-check command is committed; inspect Markdown
 references and affected claims directly, using available tools.

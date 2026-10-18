@@ -108,7 +108,7 @@ described in the next sections. A roadmap is not implementation authorization.
 standalone HTTP framing/line unfolding, property/component parsing, selective
 source-local dependency staging, typed primitive decoding, VEVENT-local checks and
 timezone/observance-local checks, source-local coverage, standalone core RECUR
-grammar and contextual RRULE validation implemented;
+grammar, contextual RRULE validation and VEVENT recurrence-property coverage implemented;
 production integration and hardware validation pending.** The owner-selected architecture
 uses Seeed_GFX2 with a locally maintained external-framebuffer ownership extension,
 one application-owned PSRAM arena, and a separate fixed-capacity five-day occurrence
@@ -867,7 +867,8 @@ identity before independently authorized transactional snapshot publication.
 without changing accepted ingestion, workspace, snapshot or vendor implementations.
 Production remains on Apps Script JSON and legacy graphics. Selective source-local
 staging, typed primitive decoding, selected VEVENT-local and timezone/observance-local
-checks plus source-local coverage, standalone core RECUR grammar and contextual RRULE validation now
+checks plus source-local coverage, standalone core RECUR grammar, contextual RRULE
+validation and VEVENT recurrence-property coverage now
 exist in isolation below; complete component/source semantic validation, recurrence
 application, timezone resolution and snapshot producer integration remain unimplemented.
 
@@ -1721,8 +1722,8 @@ calendar completeness.** [IcsRecurValue](../application/ics_recur_value.h) expos
 `validate(IcsStructure::View, Limits)`. The input is one complete, readable,
 length-delimited retained RRULE value; no NUL terminator or trimming is assumed.
 No decoder, local-validator, stage, workspace, snapshot or production interface
-changed. Existing event/timezone/source-local checks retain their recurrence
-obligations and do not call this API.
+changed. IcsEventLocal, IcsTimezoneLocal and IcsSourceLocal retain their recurrence
+obligations and do not call this API; the separate wrappers below compose it.
 
 #### Grammar, bounds and deterministic passes
 
@@ -1823,7 +1824,8 @@ limits)`. Callers select one actual retained rule; there is no automatic rule ch
 combination, source enumeration, UID/TZID index, cache or second recurrence/event
 representation. Existing grammar, typed, local/coverage, stage and snapshot
 implementations/interfaces remain unchanged. Source-local coverage does not call
-this new operation; complete coverage of contextual rules is a later responsibility.
+this operation. The separate VEVENT recurrence-property pass below now enumerates
+event rules; source-wide recurrence coverage, including observances, remains later work.
 
 #### Admission, order and diagnostics
 
@@ -1945,6 +1947,137 @@ staging/structure suites. No unrelated snapshot/graphics/acquisition tests, targ
 production build, provider operation or physical hardware check ran. Previous target
 evidence remains scoped to its original units; these results establish no recurrence
 expansion, timezone resolution, source completeness or production compatibility.
+
+### VEVENT recurrence-property local coverage
+
+**Implemented complete local enumeration within one VEVENT, not a defined recurrence
+set or complete calendar.** [IcsEventRecurrenceLocal](../application/ics_event_recurrence_local.h)
+exposes stateless `inspect(stage, calendarIndex, eventIndex, limits)`. It composes
+the accepted event-local precondition, every contextual RRULE check and complete
+typed RDATE/EXDATE iteration. It adds no new parser, recurrence database, UID/TZID
+index, persistent object, PSRAM allocation, source acceptance or snapshot transaction.
+Source-local coverage is unchanged and does not call this pass automatically.
+
+#### Admission, traversal and diagnostics
+
+Require StagedSuccessfully and readable storage; status surviving release is not
+sufficient. Validate supplied Calendar/Event kinds, root/direct-parent association,
+closed components, ordinal/index consistency, matching nonzero calendar ordinals,
+parent-before-child order and absence of projected/opaque flags. Invalid indices
+are InvalidArgument, unavailable stages are Unavailable, and association errors are
+InvalidAssociation, in Association domain. No source-wide component search occurs.
+
+Failure precedence is admission, IcsEventLocal::validate with limits.context.event
+unchanged, full direct-chain integrity/budget, then recurrence processing in stored
+property order. Event-local errors return EventLocalFailure with their original
+typed status/index/code; this includes corruption already detected by that required
+precondition. The independent chain preflight checks every owner/index, strictly
+increasing link, terminal first/last pair and exact observed descriptor count within
+maxComponentProperties. It completes before any recurrence-property interpretation.
+Children cannot supply their parent's recurrence fields.
+
+The second direct-chain pass handles every recurrence property. maxRruleProperties,
+maxRdateProperties and maxExdateProperties independently admit exact limits and
+reject excess. Zero is a real bound; no permanent capacities are selected.
+Checked counters and subtraction-based byte sums reject exhaustion without wrapping.
+No malformed later property can be hidden by earlier successful properties.
+
+Report contains copied status/domain, property index/code, value-relative offset,
+separate original event/context/typed statuses, original context failure domain,
+two uint32_t masks, property/member counts and recurrenceIdPresent. Diagnostic
+slots are meaningful only for their active domain; inactive slots are placeholders.
+Unavailable property indices use IcsSourceStage::None. Error reports zero both masks
+and all successful counts; no provisional member or earlier component result is
+published. No source text, title, UID, TZID or URL appears in diagnostics.
+
+#### Rules and aggregate date-list budgets
+
+Every RRULE invokes IcsRecurContext::validate with exact indices and unchanged
+context limits. ContextChecksPassed and MissingStartContext are pending outcomes;
+other results return RruleContextFailure with original context status/domain,
+property and offset. Multiple rules remain independent and unresolved, including
+when a later rule is malformed/unsupported. No first/last selection, union or
+Gregorian fallback for RSCALE/SKIP is introduced. Missing start context and original
+DATE time-part-ignore evidence survive in contextualRuleDeferred, which ORs all
+original contextual bits without conflating enum domains.
+
+For each direct RDATE/EXDATE, require a retained readable value and account for its
+complete value plus encoded parameters. One maxTotalListBytes and one
+maxTotalListMembers apply across BOTH property classes. Before each iterator,
+require positive remaining allowances and check the byte sum by subtraction; pass
+the remaining member/byte allowances unchanged to TemporalList. After every parsed
+member, decrement the shared remaining-member allowance and increment the owning
+class's member count. Complete through End and require complete() plus final
+Ok/NeedsContext before admitting that list. Exact last-member exhaustion succeeds;
+a further list/member fails explicitly. Only completed lists consume aggregate
+bytes; all intermediate accounting remains provisional until the whole pass succeeds.
+
+Use the accepted selector/iterator for RDATE DATE-TIME/DATE/PERIOD and EXDATE
+DATE-TIME/DATE. Preserve its parameter/cardinality, type, empty-member, malformed
+temporal and PERIOD behavior; EXDATE PERIOD remains invalid. No parallel splitter
+or decoded member array exists. Invalid/unavailable list values return
+TemporalListFailure in TemporalList domain, preserving the original typed status
+and offset. Iterator ResourceLimit uses outer ResourceLimit with TemporalList domain
+so its original diagnostic remains meaningful. Explicit wrapper budgets use
+ResourceLimit/Budget instead. A contextual validator's resource failure remains
+RruleContextFailure with its original contextual diagnostic.
+
+Every list sets DateListContextPending and recurrence-set reconciliation pending,
+even when its primitive values need no additional context. Valid mixed list types,
+floating/UTC representations or different TZIDs are not compared to DTSTART or one
+another. TZID members add TimezoneResolutionPending; parsed leap seconds add
+LeapSecondPending. PERIOD adds PeriodSemanticsPending; local PERIOD ordering and
+other NeedsContext conditions remain pending. Parameters requiring review retain
+ParameterReviewPending. No duration/end policy, instance generation, exclusion
+application, deduplication or recurrence-set compatibility is selected.
+
+#### Override evidence, obligations and lifetime
+
+RECURRENCE-ID cardinality/type/temporal checks remain exclusively in the accepted
+event-local validator. This pass detects presence and inspects existing parameter
+metadata only: set recurrenceIdPresent, OverrideIdentityPending and recurrence-set
+reconciliation; RANGE adds RangeReviewPending, and other unvalidated parameters
+retain ParameterReviewPending. No second temporal decoder, master lookup, revision
+selection, cancellation or moved-instance behavior is introduced. An override-shaped
+event without RRULE is not promoted into a recurrence master.
+
+Success always has SourceSemanticValidationPending. Any direct recurrence property
+adds RecurrenceSetReconciliationPending. Rules add RecurrenceExpansionPending and
+explicit mappings of their missing-start/multiple-rule/parameter/timezone/leap
+obligations, while their original mask stays separate. Lists and overrides retain
+their respective context/identity obligations without inventing a recurrence rule.
+A no-recurrence VEVENT may succeed with zero counts and only source validation
+pending. None of these outcomes establishes a valid empty source, defined executable
+set, resolved identity/timezone, expansion profile or snapshot eligibility.
+
+All borrowed processing ends inside the existing withScratch lifetime. Fixed-size
+indices/counters, reports and one temporary iterator/member require no allocation,
+recursion, bulk representation or new memory owner. Existing validators may repeat
+their own bounded checks; no decoder is duplicated to avoid those checks. Reports
+survive release/poisoning; subsequent reads are Unavailable. Final capacities and
+physical stack/heap/PSRAM/CPU headroom remain unmeasured. This unit is VEVENT-only;
+the observance EXDATE contract and other component/source policies are unchanged.
+
+Fresh strict C++11 and ASan/UBSan runs of tests/ics_event_recurrence_local_test.cpp
+passed **160 deterministic cases**, with zero audited `new` allocations, guarded
+byte-for-byte source immutability and unchanged stage status/counts. Real synthetic
+Content-Length/chunked responses use one-byte and fragmented delivery through
+ingestion, structure and staging; transient parser buffers are poisoned before
+coverage. Tests exercise complete rule/list enumeration, later failures clearing
+all provisional masks/counts, exact/excess combined budgets, checked byte arithmetic,
+unchanged mixed representations, RANGE/override evidence, association corruption,
+repeatability and copied reports surviving release/poisoning. Host Report
+sizeof/alignof is **104/8**, not a target-layout or measured headroom claim.
+
+Fresh accepted strict regressions passed: **173** contextual RRULE cases, **369** core
+RECUR cases, **150** VEVENT-local scenarios and **400** typed/list result assertions.
+Actual commands are in AGENTS.md. No accepted implementation/interface changed or
+shared defect emerged to justify additional staging/structure suites. No unrelated
+snapshot/graphics/weather/acquisition tests, target/production build, live-provider
+operation or hardware check ran; no target compatibility concern was exposed.
+Historical evidence remains scoped to its original units. These results do not
+establish recurrence-set semantics, expansion, resolved timezones, source completeness
+or production/hardware compatibility.
 
 ### Boot to sleep flow
 
@@ -2138,8 +2271,8 @@ measurement or successful firmware build is available to support readiness.
   compatible revision proof; credentials/configuration, memory and partition fit
   remain prerequisites for a verified complete build. Host coverage is limited
   to acquisition orchestration and isolated panel/workspace/snapshot/ICS contracts,
-  including staged values, local coverage, core RECUR grammar and contextual RRULE
-  checks; no CI is committed.
+  including staged values, local coverage, core RECUR grammar, contextual RRULE
+  checks and VEVENT recurrence-property coverage; no CI is committed.
 - **Data reliability:** truncation before global sort,
   insufficient response-state distinctions, volatile events and unresolved timezone
   alignment limit confidence. The target calendar snapshot is wake-cycle-only;
