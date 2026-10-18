@@ -96,6 +96,20 @@ publication. This is standing authorization within the approved scope; a separat
 user approval is not needed for each push when the publication conditions hold.
 Do not infer authorization from an arbitrary branch name.
 
+Safe GitHub publication under this section is a REQUIRED lifecycle operation.
+Generic task-template prohibitions on "hosted operations" must not be used to
+exclude this specifically authorized feature-branch publication. Future execution
+prompts must preserve mandatory publication explicitly or through an unambiguous
+reference to AGENTS.md. Only a subsequent explicit owner-approved policy change
+can supersede this standing requirement.
+
+If a task-specific prohibition genuinely conflicts with required publication,
+identify the conflict and resolve it with the owner before substantive execution.
+Do not silently convert a publish-required task into a local-only handoff. Generic
+hosted-operation restrictions still apply outside standing publication authorization,
+including PR creation/modification, review-state changes, merging, deployment,
+unrelated repositories or branches, tags and other unauthorized hosted changes.
+
 Before pushing, verify repository identity and sanitized origin fetch/push
 destinations, a clean working tree and index, the intended commit and feature
 branch, commit ancestry, and the expected remote branch state. Establish the

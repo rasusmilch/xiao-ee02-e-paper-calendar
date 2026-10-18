@@ -2473,6 +2473,15 @@ Blocked publication still requires local preservation and an explicit incomplete
 publication report. [AGENTS.md](../AGENTS.md#authorized-feature-branch-publication)
 remains the current workflow and publication-procedure authority.
 
+On 2026-10-18, the owner clarified the October 17 decision: generic hosted-operation
+restrictions do not exclude required, standing-authorized feature-branch publication.
+Future execution prompts must preserve that obligation; genuine task conflicts must
+be resolved before substantive execution rather than producing a silent local-only
+handoff. Only a subsequent explicit owner-approved change can supersede the policy.
+All publication safeguards and separate authorization for other hosted work remain
+intact. [AGENTS.md](../AGENTS.md#authorized-feature-branch-publication) owns the current
+workflow; this clarification adds no PR, merge or deployment permission.
+
 On 2026-10-11, the owner supplied `ee02_selected_memory_architecture.md` and selected
 Seeed_GFX2 with a locally maintained external-framebuffer ownership extension,
 application-owned PSRAM phase reuse, a separate fixed-capacity five-day PSRAM

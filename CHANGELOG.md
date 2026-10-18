@@ -22,9 +22,12 @@ is historical evidence, not current architecture or requirements authority.
   cumulative changelog reconciliation before merge readiness. Require local commit
   and verified safe non-force publication to the owner-designated feature branch
   in the same execution run for every completed, validated, authorized tracked
-  execution unit. Preserve expected-history checks, local commits when publication
-  is blocked, and independent review before dependent implementation; read-only
-  tasks remain exempt, and PR management and merging remain separately authorized.
+  execution unit, without separate approval for each qualifying push. Distinguish
+  that standing authorization from generic hosted-operation restrictions and resolve
+  genuine task conflicts before execution. Preserve expected-history checks, local
+  commits when publication is blocked, and independent review before dependent
+  implementation; read-only tasks remain exempt, and PR management and merging
+  remain separately authorized.
 - Clarify prototype configuration, service/data boundaries, unresolved dependency
   compatibility, and build/hardware evidence limits so developers can distinguish
   approved direction from implementation observations and unselected policies.
