@@ -9,7 +9,7 @@ The [original prototype article](https://www.makerguides.com/e-paper-wall-calend
 - **Display:** 1600×1200 Spectra 6, rolling next five days starting today, fixed waking-hour window (exact hours configurable), timed grid the leading candidate versus a five-day agenda. The week view **replaces the 1024×1024 artwork area**. Display layout is not finally selected.
 - **Other panels:** retain weather, multi-day forecast, today's detailed events, battery indication, and their existing positions initially. Whether the legacy monthly calendar remains is Open.
 - **Calendars:** select multiple source calendars; support Google, iCloud/CalDAV and general ICS by source-independent internal event representation. Entirely on-device fetching/normalization; **no separate backend, hosted processor or update preprocessor**. Sequential streaming ICS processing is selected; provider-access scope, including ICS-only initial access and private iCloud versus public ICS, remains Open.
-- **Selected graphics/memory architecture:** Seeed_GFX2 with a locally maintained external-framebuffer ownership extension; one application-owned PSRAM workspace for sequential, one-source-at-a-time streaming ICS processing, then rendering. A separate fixed-capacity five-day PSRAM snapshot owns normalized occurrences, text and transactional source outcomes without references into the reused workspace. GFX2 borrows only the 960,000-byte framebuffer slice and must not free it or allocate an unnecessary second framebuffer. The 2 MiB workspace, 1,024 occurrences and 320 KiB snapshot are provisional evaluation budgets, not validated operating limits. Borrowing, a scoped workspace, synthetic snapshot publication, standalone HTTP framing/line unfolding, bounded property/component parsing, selective source-local dependency staging, typed primitive decoding, VEVENT-local checks, timezone/observance-local checks, source-local coverage, standalone core RECUR grammar, contextual RRULE validation and VEVENT recurrence-property coverage are implemented in isolation; live calendar acquisition, complete component/source semantic validation and production phase reuse remain unimplemented, with hardware behavior unvalidated. Consult the [canonical architecture and validation contract](docs/ENGINEERING.md#selected-gfx2-psram-and-streaming-calendar-architecture).
+- **Selected graphics/memory architecture:** Seeed_GFX2 with a locally maintained external-framebuffer ownership extension; one application-owned PSRAM workspace for sequential, one-source-at-a-time streaming ICS processing, then rendering. A separate fixed-capacity five-day PSRAM snapshot owns normalized occurrences, text and transactional source outcomes without references into the reused workspace. GFX2 borrows only the 960,000-byte framebuffer slice and must not free it or allocate an unnecessary second framebuffer. The 2 MiB workspace, 1,024 occurrences and 320 KiB snapshot are provisional evaluation budgets, not validated operating limits. Borrowing, a scoped workspace, synthetic snapshot publication, standalone HTTP framing/line unfolding, bounded property/component parsing, selective source-local dependency staging, typed primitive decoding, VEVENT-local checks, timezone/observance-local checks, source-local coverage, standalone core RECUR grammar, contextual RRULE validation, VEVENT recurrence-property coverage and observance recurrence-local coverage are implemented in isolation; live calendar acquisition, complete component/source semantic validation and production phase reuse remain unimplemented, with hardware behavior unvalidated. Consult the [canonical architecture and validation contract](docs/ENGINEERING.md#selected-gfx2-psram-and-streaming-calendar-architecture).
 - **Storage/time:** NVS stores changed persistent configuration only (Wi-Fi, timezone, calendar URLs/selection, refresh settings). No daily churn, events, weather or routine counters go to NVS. RTC-retained memory may hold validated compact sleep context; reconstruct after invalid RTC/reset. NTP on cold boot when required, then approximately daily; use internal RTC between syncs.
 - **Refresh/recovery:** battery-powered, single user-configurable coordinated data-acquisition/render cycle, independently validated per source. Successful calendars display even if another calendar fails, with a named error bar; a weather failure is shown in its own panel while previously valid forecast data may remain. Three consecutive complete acquisition failures cause a full error screen; cold boot tries Wi-Fi before presenting recovery instructions.
 - **Setup:** device-hosted Wi-Fi webpage (LAN while explicitly awake, or open/no-password AP). AP stops after 10 minutes without meaningful user activity or 30 minutes maximum, then sleeps. Entering a new password may show characters; after save it is masked and the saved value is never echoed. Calendar URL fields remain displayed. An operator-accessible hardware AP trigger is required; simultaneous Setup+Refresh hold for five seconds is a **proposed, unverified** factory-reset gesture, not yet a pin/wake contract.
@@ -323,7 +323,7 @@ Calendar/Timezone or Timezone/Standard-or-Daylight pair in readable staged data.
 It checks association, direct property links, selected cardinality, nonempty TEXT
 TZID, UTC LAST-MODIFIED, local observance DTSTART and individual UTC offsets.
 Repeatable observance RDATE lists must finish completely within explicit member/
-byte limits. RRULE and observance EXDATE semantics remain deferred; approved
+byte limits. This local API leaves RRULE and observance EXDATE semantics deferred; approved
 TZNAME/COMMENT omissions are respected rather than decoded as empty values.
 
 `LocalChecksPassed` always retains source-validation and transition-resolution
@@ -409,6 +409,25 @@ lookup or normalized occurrence is produced. Reports retain no staged aliases, a
 all reads finish before release/workspace reuse. No observance EXDATE policy,
 production behavior or snapshot operation changes. See the
 [coverage contract and fresh evidence](docs/ENGINEERING.md#vevent-recurrence-property-local-coverage)
+and [focused commands](AGENTS.md#commands-and-validation).
+
+### Observance recurrence-local coverage
+
+[IcsObservanceRecurrenceLocal](application/ics_observance_recurrence_local.h)
+enumerates every direct RRULE, RDATE and EXDATE of one explicit staged STANDARD/
+DAYLIGHT under its VTIMEZONE. It requires accepted observance-local validation,
+then contextually validates every RRULE independently. Complete local core RRULE/
+RDATE coverage reuses existing validators; there is no separate RDATE decoder.
+For N RRULEs, the successful path invokes observance-local validation 1 + N times,
+so RDATE checks may repeat internally. Reports count each property once, preserve
+the two original deferred masks separately, and clear counts/masks on any failure.
+
+EXDATE payloads remain uninterpreted with explicit EXDATE/extension review pending.
+No recurrence-set reconciliation, expansion, transition generation, source acceptance
+or snapshot publication occurs. Caller limits bound repeated work; final operating
+budgets and ESP32 performance remain unmeasured, with no exactly-once guarantee.
+Reports own no staged references; reads finish before release/workspace reuse.
+See the [coverage contract and evidence](docs/ENGINEERING.md#observance-recurrence-local-coverage)
 and [focused commands](AGENTS.md#commands-and-validation).
 
 ## Current implementation — Google Calendar Setup

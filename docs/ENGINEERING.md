@@ -108,7 +108,8 @@ described in the next sections. A roadmap is not implementation authorization.
 standalone HTTP framing/line unfolding, property/component parsing, selective
 source-local dependency staging, typed primitive decoding, VEVENT-local checks and
 timezone/observance-local checks, source-local coverage, standalone core RECUR
-grammar, contextual RRULE validation and VEVENT recurrence-property coverage implemented;
+grammar, contextual RRULE validation, VEVENT recurrence-property coverage and observance
+recurrence-local coverage implemented;
 production integration and hardware validation pending.** The owner-selected architecture
 uses Seeed_GFX2 with a locally maintained external-framebuffer ownership extension,
 one application-owned PSRAM arena, and a separate fixed-capacity five-day occurrence
@@ -868,8 +869,8 @@ without changing accepted ingestion, workspace, snapshot or vendor implementatio
 Production remains on Apps Script JSON and legacy graphics. Selective source-local
 staging, typed primitive decoding, selected VEVENT-local and timezone/observance-local
 checks plus source-local coverage, standalone core RECUR grammar, contextual RRULE
-validation and VEVENT recurrence-property coverage now
-exist in isolation below; complete component/source semantic validation, recurrence
+validation, VEVENT recurrence-property coverage and observance recurrence-local coverage
+now exist in isolation below; complete component/source semantic validation, recurrence
 application, timezone resolution and snapshot producer integration remain unimplemented.
 
 #### API, ownership and generic grammar
@@ -1824,8 +1825,8 @@ limits)`. Callers select one actual retained rule; there is no automatic rule ch
 combination, source enumeration, UID/TZID index, cache or second recurrence/event
 representation. Existing grammar, typed, local/coverage, stage and snapshot
 implementations/interfaces remain unchanged. Source-local coverage does not call
-this operation. The separate VEVENT recurrence-property pass below now enumerates
-event rules; source-wide recurrence coverage, including observances, remains later work.
+this operation. The separate VEVENT and observance recurrence-property passes below
+now enumerate their direct rules; source-wide recurrence coverage remains later work.
 
 #### Admission, order and diagnostics
 
@@ -2079,6 +2080,93 @@ Historical evidence remains scoped to its original units. These results do not
 establish recurrence-set semantics, expansion, resolved timezones, source completeness
 or production/hardware compatibility.
 
+### Observance recurrence-local coverage
+
+**Implemented complete selected core local RRULE/RDATE coverage for one observance,
+not executable recurrence or transitions.**
+[IcsObservanceRecurrenceLocal](../application/ics_observance_recurrence_local.h)
+exposes stateless `inspect(stage, timezoneIndex, observanceIndex, limits)`. The
+explicit parent must be VTIMEZONE and the child STANDARD or DAYLIGHT. Require
+readable StagedSuccessfully storage, valid closed components, ordinal/index and
+direct-parent consistency, nonzero matching calendar ordinals, parent before child,
+and neither projected nor opaque component substitution. No source-wide lookup,
+identity matching, production integration or accepted interface is changed.
+
+#### Composition, property counts and diagnostics
+
+After admission, explicitly call IcsTimezoneLocal::validateObservance with unchanged
+limits.context.timezone. It owns full direct-chain integrity, required fields,
+selected typed checks and complete RDATE iteration with its existing per-property
+maxRdateMembers/maxRdateBytes. Any failure returns ObservanceLocalFailure with
+the original local status and property index/code, before interpreting any RRULE.
+
+Traverse the already verified direct chain once in stored order. Count every RRULE,
+RDATE and EXDATE property once with checked increments. For each RRULE, enforce
+maxRruleProperties, then invoke IcsRecurContext::validate with exact supplied indices,
+the actual property index and unchanged context limits. Only ContextChecksPassed is
+accepted; MissingStartContext is a failure because observance DTSTART was required.
+All rules are independently checked, including later malformed/unsupported rules;
+multiple RRULEs retain pending reconciliation, without selection, union or a new
+MUST NOT cardinality restriction.
+
+The contextual API internally repeats validateObservance. For N RRULEs, the normal
+successful wrapper path has 1 + N local invocations, each potentially traversing
+every RDATE. This repetition is selected; no independent RDATE decoder, cache,
+previous-validation flag, bypass or alternate API is added. The coverage counts
+describe properties, not validation passes. Existing per-property RDATE limits and
+caller RRULE/property limits bound repeated work; no new aggregate RDATE limit,
+permanent operating default or exactly-once performance guarantee is established.
+
+Failures are ordered admission, initial local precondition, then stored-order RRULE
+budget/context checks. Admission reports Unavailable, InvalidArgument or
+InvalidAssociation; wrapper count exhaustion reports ResourceLimit/Budget. Contextual
+errors, including their resource failures, return RruleContextFailure with original
+context status/domain, property index/code and rule-relative offset, plus the original
+grammar status in RuleGrammar domain. Original enum domains are distinct. Inactive
+diagnostic slots are placeholders, not proof a validator ran. Every failure clears
+all deferred masks and successful counts; later success cannot hide an earlier error.
+
+#### Deferred semantics, lifetime and evidence
+
+Success copies the complete initial observance-local mask into observanceLocalDeferred
+and ORs every accepted contextual mask separately into contextualRuleDeferred, without
+conflating bit meanings. Zero RRULEs may pass with maxRruleProperties zero. Complete
+RDATE checks are reused through local validation; representation, parameter, limit
+and leap-second outcomes retain that accepted contract.
+
+EXDATE is counted without decoding or applying its payload. Preserve the original
+ObservanceExdateReviewPending and ExtensionReviewPending bits, staged bytes and
+parameters. Local coverage does not assert universal observance EXDATE support or
+prohibition, resolve the tzprop/EXDATE standards boundary or reported erratum 8398,
+or permit exclusions/transition exceptions. The review obligation remains explicit.
+
+Fixed counters and copied pointer-free reports add no allocation, recursion, cache,
+transition table, recurrence store, PSRAM owner or persistence. All borrowed reads
+finish inside the existing withScratch lifetime. Reports survive release/poisoning;
+future inspection is Unavailable. For P direct properties, N RRULEs and W per-local-call
+RDATE/typed work, composition costs bounded O((N + 1) * (P + W) + total rule work).
+Stack/heap/PSRAM headroom, ESP32 CPU/energy costs and final operating capacities
+remain unmeasured. No recurrence-set execution, timezone identity/transition
+resolution, calendar/source acceptance or FiveDaySnapshot call is introduced.
+
+Fresh strict C++11 and ASan/UBSan runs of tests/ics_observance_recurrence_local_test.cpp
+passed **116 deterministic cases** with zero audited `new` allocations. Composed
+Content-Length/chunked ingestion, structure and staging cover fragmented delivery,
+both observance kinds, late rule failures, per-property RDATE limits, uninterpreted
+EXDATE, corrupted associations/links, source-byte/status/count immutability and copied
+reports surviving release/poisoning. The explicit RDATE-plus-two-RRULE regression
+passes while counting the RDATE property once. Original observance-local reports
+remain unchanged before/after coverage. Host Report sizeof/alignof is **80/8**,
+not target layout or physical resource evidence.
+
+Fresh strict composed regressions passed **173** contextual RRULE cases and **202**
+timezone/observance-local scenarios. Commands are in AGENTS.md. No accepted source
+or shared contract changed and no shared defect emerged to require standalone
+grammar, typed, staging/structure, source-local, snapshot, graphics or acquisition
+regressions. No target/production build, live-provider or hardware test ran; earlier
+isolated target evidence remains historical and does not establish this unit's
+target compatibility, performance or runtime memory headroom.
+
 ### Boot to sleep flow
 
 1. Start Serial. No filesystem mount, formatting or artwork initialization occurs.
@@ -2272,7 +2360,8 @@ measurement or successful firmware build is available to support readiness.
   remain prerequisites for a verified complete build. Host coverage is limited
   to acquisition orchestration and isolated panel/workspace/snapshot/ICS contracts,
   including staged values, local coverage, core RECUR grammar, contextual RRULE
-  checks and VEVENT recurrence-property coverage; no CI is committed.
+  checks, VEVENT recurrence-property coverage and observance recurrence-local coverage;
+  no CI is committed.
 - **Data reliability:** truncation before global sort,
   insufficient response-state distinctions, volatile events and unresolved timezone
   alignment limit confidence. The target calendar snapshot is wake-cycle-only;
