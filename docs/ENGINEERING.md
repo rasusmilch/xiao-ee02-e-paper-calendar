@@ -109,8 +109,8 @@ standalone HTTP framing/line unfolding, property/component parsing, selective
 source-local dependency staging, typed primitive decoding, VEVENT-local checks and
 timezone/observance-local checks, source-local coverage, standalone core RECUR
 grammar, contextual RRULE validation, VEVENT recurrence-property coverage and observance
-recurrence-local coverage, source-wide recurrence-local composition and selected TZID
-reference-local identity matching implemented;
+recurrence-local coverage, source-wide recurrence-local composition, selected TZID
+reference-local identity matching and source-wide VEVENT TZID identity coverage implemented;
 production integration and hardware validation pending.** The owner-selected architecture
 uses Seeed_GFX2 with a locally maintained external-framebuffer ownership extension,
 one application-owned PSRAM arena, and a separate fixed-capacity five-day occurrence
@@ -871,8 +871,9 @@ Production remains on Apps Script JSON and legacy graphics. Selective source-loc
 staging, typed primitive decoding, selected VEVENT-local and timezone/observance-local
 checks plus source-local coverage, standalone core RECUR grammar, contextual RRULE
 validation, VEVENT/observance recurrence-local coverage and source-wide recurrence-local
-composition plus selected TZID reference-local identity matching now exist in isolation
-below; complete component/source semantic validation, recurrence application, timezone
+composition, selected TZID reference-local identity matching and source-wide VEVENT
+TZID identity coverage now exist in isolation below; complete component/source
+semantic validation, recurrence application, timezone
 resolution and snapshot producer integration remain unimplemented.
 
 #### API, ownership and generic grammar
@@ -2276,8 +2277,9 @@ these host results establish local coverage only, never semantic source complete
 not temporal-value validity or timezone resolution.**
 [IcsTzidReferenceLocal](../application/ics_tzid_reference_local.h) exposes stateless
 `inspect(stage, calendarIndex, eventIndex, temporalPropertyIndex, limits)`. It does
-not run automatically from source/event/recurrence coverage or examine every source
-reference. Existing validators, parser, stage, workspace and snapshot remain unchanged.
+not run automatically from the accepted source/event/recurrence validators. The
+separate source-wide VEVENT TZID identity wrapper below explicitly enumerates eligible
+references. Existing validators, parser, stage, workspace and snapshot remain unchanged.
 
 #### Admission and responsibility boundary
 
@@ -2350,9 +2352,10 @@ Report. Copied scalar evidence survives release/poisoning; a copied matching ind
 is not a durable reference and must not be dereferenced after release/reuse.
 Work is bounded by the event/scan/local limits and admitted encoded identity lengths;
 comparison can repeat the reference cursor for each eligible definition. Final ESP32
-CPU/stack/heap/PSRAM capacities remain unmeasured. No complete source policy, source-wide
-TZID coverage, transition/UTC resolution, recurrence execution or FiveDaySnapshot
-publication eligibility is established.
+CPU/stack/heap/PSRAM capacities remain unmeasured. Source-wide identity enumeration
+is implemented by the separate wrapper below; neither operation establishes complete
+source policy, transition/UTC resolution, recurrence execution or FiveDaySnapshot
+publication eligibility.
 
 Fresh strict C++11 and ASan/UBSan runs of tests/ics_tzid_reference_local_test.cpp
 passed **125 deterministic cases**, with zero audited `new` allocations, guarded
@@ -2372,6 +2375,106 @@ recurrence/source coverage, snapshot, graphics or acquisition suites. No target/
 production build, provider access or physical hardware validation ran. Historical
 evidence remains scoped to its original units; these results establish no temporal
 payload validity, timezone resolution, production compatibility or source completeness.
+
+### Source-wide VEVENT TZID identity coverage
+
+**Implemented complete identity enumeration, not temporal-value validation or source
+acceptance.** [IcsSourceTzidLocal](../application/ics_source_tzid_local.h) exposes
+stateless inspect(stage, limits). Its caller supplies independent source-local and
+reference-local limits, passed unchanged, plus maxTemporalProperties. Zero is a real
+bound, exact limits pass and the next eligible property fails ResourceLimit. These
+are evaluation bounds, not permanent operating capacities. No accepted validator,
+staging, memory-owner, recurrence or snapshot interface changes.
+
+#### Two-phase coverage and diagnostics
+
+Phase 1 explicitly calls IcsSourceLocal::inspect exactly once. Its complete preflight
+owns source readability, component/root associations, component-local checks, direct
+VEVENT property-chain integrity, metadata, projection handling and source budgets.
+A failure returns SourceLocalFailure with the entire original source Report. No
+identity enumeration starts, so a later source-local failure outranks an earlier
+identity error. This is not a single global first-failure ordering across phases.
+
+Phase 2 considers every staged component in increasing index order across all roots.
+For each VEVENT, derive the direct calendar index from validated parentOrdinal,
+checking bounds, the parent reader and association before dispatch. Traverse its
+complete direct stored-property chain in increasing index order with checked readers
+and link/owner consistency. Dispatch every DTSTART, DTEND, RECURRENCE-ID, RDATE and
+EXDATE occurrence, including repeated lists and properties without TZID, to
+IcsTzidReferenceLocal::inspect with exact calendar/event/property indices. Enforce
+maxTemporalProperties before each call. No date-window/UID/TZID filter, sorting,
+cross-calendar merging or fabricated absent property is used.
+
+RRULE, DURATION, revision stamps, unknown properties, timezone/observance fields,
+projected tasks/journals/freebusy/alarms, RFC 9073 children and opaque payloads receive
+no identity dispatch. Their original source-local obligations remain intact.
+Require Inspected from every selected matcher. The first wrapper budget exhaustion
+or child failure in component/property order wins. TzidReferenceFailure preserves
+the complete original matcher Report, including its definition-local/typed status,
+property, component and offset diagnostics; outer indices identify the owning event
+and selected property. An inconsistent dispatch association returns
+InvalidAssociation without alternate parent discovery or repair.
+
+Report contains only scalar status/indices, the two typed diagnostic slots, six
+coverage counts and three booleans. Only the active child failure slot is
+authoritative; on success sourceReport retains original successful source counts
+and deferred domains without duplicating them. All failures zero wrapper counts and
+flags and expose no provisional match; only the original failing child Report is
+retained. No enum reinterpretation or raw content logging occurs.
+
+#### Identity evidence and temporal boundary
+
+Successful coverage counts each eligible property exactly once in one of
+NoReference, EmptyReference, NoLocalDefinition, UniqueLocalDefinition or
+MultipleLocalDefinitions. A checked sum must equal temporalPropertiesChecked. OR
+globalRegistrySemanticsPending, definitionParameterReviewPending and
+timezoneResolutionPending from the original matcher reports. Empty, missing and
+ambiguous identities are observations, not automatic rejection or an identity
+acceptance policy. Unique identity matches are not resolved timezones. No device
+default, global registry, TZDB alias or cross-calendar fallback exists.
+
+The wrapper does not call decodeTemporal or TemporalList or inspect payload bytes.
+The accepted matcher uses selectTemporal for parameter selection only. Phase 1
+independently validates selected scalar VEVENT fields, so invalid scalar UTC/TZID
+combinations fail before identity coverage. RDATE/EXDATE completeness is not supplied
+by that preflight: a malformed or UTC/TZID list member can have a unique identity
+match while its independent complete TemporalList decoder rejects it. Source-wide
+recurrence-local coverage remains separate and is not implicitly invoked.
+
+LocalCoveragePassed proves exhaustive local identity enumeration only. Sources with
+no eligible properties retain zero wrapper counts/flags, including accepted opaque
+or non-event-only sources; valid empty schedules are not established. Recurrence
+sets, UID/revision/cancellation reconciliation, METHOD interpretation, complete
+source semantics and FiveDaySnapshot eligibility remain deferred.
+
+#### Bounded lifetime and validation scope
+
+The wrapper uses fixed counters and copied Reports, one explicit preflight and one
+component/property-order dispatch pass, without allocation, recursion, mutation,
+cache, index, persistence or a second identity/event representation. Each reference
+may repeat complete bounded definition scanning/local validation. No exactly-once
+validation or verified device performance/energy guarantee is selected. All borrowed
+reads finish within withScratch before stage release or workspace reuse. Reports
+retain no source aliases and survive release/poisoning. Final ESP32 CPU/stack/heap/
+PSRAM operating headroom remains unmeasured; no production integration is added.
+
+Fresh strict C++11 and ASan/UBSan runs of tests/ics_source_tzid_local_test.cpp passed
+**69 deterministic cases**, with zero audited `new` allocations, guarded byte-for-byte
+stage immutability, unchanged counters/status, repeatability and reports surviving
+release/poisoning. Real Content-Length/chunked ingestion, one-byte/fragmented delivery,
+structure and staging exercise multi-root enumeration, all five match classes,
+independent exact/over/zero budgets, complete child diagnostics and both failure
+phases. Independent TemporalList checks reject malformed/UTC-TZID list members even
+when identity coverage counts unique matches; invalid scalar UTC/TZID fields fail
+the source preflight. Host Report sizeof/alignof is **256/8**, not target layout.
+
+Fresh strict directly composed regressions passed **106** source-local scenarios
+and **125** selected TZID reference-local cases; exact commands are in AGENTS.md.
+No shared defect or changed accepted interface required broader typed, staging,
+recurrence, snapshot, graphics or acquisition suites. No target/production build,
+live-provider access or hardware test ran. Historical evidence above keeps its
+original applicability; these new host results prove no timezone resolution,
+complete temporal conformance, source acceptance or ESP32 runtime performance.
 
 ### Boot to sleep flow
 
@@ -2567,7 +2670,8 @@ measurement or successful firmware build is available to support readiness.
   to acquisition orchestration and isolated panel/workspace/snapshot/ICS contracts,
   including staged values, local coverage, core RECUR grammar, contextual RRULE
   checks, VEVENT/observance recurrence-local coverage and source-wide recurrence-local
-  composition plus selected TZID reference-local identity matching; no CI is committed.
+  composition, selected TZID reference-local identity matching and source-wide VEVENT
+  TZID identity coverage; no CI is committed.
 - **Data reliability:** truncation before global sort,
   insufficient response-state distinctions, volatile events and unresolved timezone
   alignment limit confidence. The target calendar snapshot is wake-cycle-only;

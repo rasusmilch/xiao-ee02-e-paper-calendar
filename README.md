@@ -9,7 +9,7 @@ The [original prototype article](https://www.makerguides.com/e-paper-wall-calend
 - **Display:** 1600×1200 Spectra 6, rolling next five days starting today, fixed waking-hour window (exact hours configurable), timed grid the leading candidate versus a five-day agenda. The week view **replaces the 1024×1024 artwork area**. Display layout is not finally selected.
 - **Other panels:** retain weather, multi-day forecast, today's detailed events, battery indication, and their existing positions initially. Whether the legacy monthly calendar remains is Open.
 - **Calendars:** select multiple source calendars; support Google, iCloud/CalDAV and general ICS by source-independent internal event representation. Entirely on-device fetching/normalization; **no separate backend, hosted processor or update preprocessor**. Sequential streaming ICS processing is selected; provider-access scope, including ICS-only initial access and private iCloud versus public ICS, remains Open.
-- **Selected graphics/memory architecture:** Seeed_GFX2 with a locally maintained external-framebuffer ownership extension; one application-owned PSRAM workspace for sequential, one-source-at-a-time streaming ICS processing, then rendering. A separate fixed-capacity five-day PSRAM snapshot owns normalized occurrences, text and transactional source outcomes without references into the reused workspace. GFX2 borrows only the 960,000-byte framebuffer slice and must not free it or allocate an unnecessary second framebuffer. The 2 MiB workspace, 1,024 occurrences and 320 KiB snapshot are provisional evaluation budgets, not validated operating limits. Borrowing, a scoped workspace, synthetic snapshot publication, standalone HTTP framing/line unfolding, bounded property/component parsing, selective source-local dependency staging, typed primitive decoding, VEVENT-local checks, timezone/observance-local checks, source-local coverage, standalone core RECUR grammar, contextual RRULE validation, VEVENT recurrence-property coverage, observance recurrence-local coverage, source-wide recurrence-local coverage and selected TZID reference-local identity matching are implemented in isolation; live calendar acquisition, complete component/source semantic validation and production phase reuse remain unimplemented, with hardware behavior unvalidated. Consult the [canonical architecture and validation contract](docs/ENGINEERING.md#selected-gfx2-psram-and-streaming-calendar-architecture).
+- **Selected graphics/memory architecture:** Seeed_GFX2 with a locally maintained external-framebuffer ownership extension; one application-owned PSRAM workspace for sequential, one-source-at-a-time streaming ICS processing, then rendering. A separate fixed-capacity five-day PSRAM snapshot owns normalized occurrences, text and transactional source outcomes without references into the reused workspace. GFX2 borrows only the 960,000-byte framebuffer slice and must not free it or allocate an unnecessary second framebuffer. The 2 MiB workspace, 1,024 occurrences and 320 KiB snapshot are provisional evaluation budgets, not validated operating limits. Borrowing, a scoped workspace, synthetic snapshot publication, standalone HTTP framing/line unfolding, bounded property/component parsing, selective source-local dependency staging, typed primitive decoding, VEVENT-local checks, timezone/observance-local checks, source-local coverage, standalone core RECUR grammar, contextual RRULE validation, VEVENT recurrence-property coverage, observance recurrence-local coverage, source-wide recurrence-local coverage, selected TZID reference-local identity matching and source-wide VEVENT TZID identity coverage are implemented in isolation; live calendar acquisition, complete component/source semantic validation and production phase reuse remain unimplemented, with hardware behavior unvalidated. Consult the [canonical architecture and validation contract](docs/ENGINEERING.md#selected-gfx2-psram-and-streaming-calendar-architecture).
 - **Storage/time:** NVS stores changed persistent configuration only (Wi-Fi, timezone, calendar URLs/selection, refresh settings). No daily churn, events, weather or routine counters go to NVS. RTC-retained memory may hold validated compact sleep context; reconstruct after invalid RTC/reset. NTP on cold boot when required, then approximately daily; use internal RTC between syncs.
 - **Refresh/recovery:** battery-powered, single user-configurable coordinated data-acquisition/render cycle, independently validated per source. Successful calendars display even if another calendar fails, with a named error bar; a weather failure is shown in its own panel while previously valid forecast data may remain. Three consecutive complete acquisition failures cause a full error screen; cold boot tries Wi-Fi before presenting recovery instructions.
 - **Setup:** device-hosted Wi-Fi webpage (LAN while explicitly awake, or open/no-password AP). AP stops after 10 minutes without meaningful user activity or 30 minutes maximum, then sleeps. Entering a new password may show characters; after save it is masked and the saved value is never echoed. Calendar URL fields remain displayed. An operator-accessible hardware AP trigger is required; simultaneous Setup+Refresh hold for five seconds is a **proposed, unverified** factory-reset gesture, not yet a pin/wake contract.
@@ -478,10 +478,40 @@ global-registry/definition-parameter review and timezone-resolution obligations.
 Inspected and UniqueLocalDefinition are identity evidence only. The matcher does
 not call decodeTemporal or TemporalList: even an invalid UTC/TZID temporal payload
 may have a unique matching identity while its independent value decoder rejects it.
-No automatic source-wide TZID coverage, transition/UTC resolution, recurrence
-execution, source acceptance or snapshot publication is added. Reports own no staged
-aliases; matching indices are temporary source-local evidence, unusable as durable
+The selected-property matcher performs no automatic source enumeration; the separate
+source-wide identity wrapper below composes it. No transition/UTC resolution,
+recurrence execution, source acceptance or snapshot publication is added. Reports
+own no staged aliases; matching indices are temporary source-local evidence, unusable as durable
 references after release/reuse. See the [identity contract and evidence](docs/ENGINEERING.md#selected-tzid-reference-local-identity-matching)
+and [focused commands](AGENTS.md#commands-and-validation).
+
+### Source-wide VEVENT TZID identity coverage
+
+[IcsSourceTzidLocal](application/ics_source_tzid_local.h) runs one complete
+IcsSourceLocal preflight, then examines every direct VEVENT DTSTART, DTEND,
+RECURRENCE-ID, RDATE and EXDATE across all staged VCALENDAR roots. Each occurrence,
+including repeated lists and properties without TZID, is sent to the accepted
+identity matcher with unchanged independent caller limits. Projected, opaque,
+observance and RFC 9073 child payloads receive no identity dispatch.
+
+The report counts NoReference, EmptyReference, NoLocalDefinition,
+UniqueLocalDefinition and MultipleLocalDefinitions separately, and ORs the original
+global-registry, definition-parameter and timezone-resolution pending flags. Missing,
+empty and ambiguous identities remain observations; they do not reject the source.
+Any source-local failure precedes identity dispatch. Thereafter the first property
+budget or matcher failure in component/property order wins, preserving the complete
+original child Report and clearing all aggregate coverage counts and flags.
+
+LocalCoveragePassed establishes complete identity enumeration, not temporal-value
+validity or source acceptance. The preflight independently checks selected scalar
+fields; this wrapper adds no decodeTemporal or TemporalList calls. A malformed or
+UTC/TZID RDATE/EXDATE member may still have a unique identity match while its separate
+complete list decoder rejects it. Recurrence coverage remains a separate operation.
+Repeated bounded definition scans are permitted without a cache or exactly-once
+performance guarantee. Reports retain no staged aliases; all borrowed processing
+finishes before scratch release/reuse. Device CPU/energy costs, timezone resolution,
+missing/ambiguous-reference policy and snapshot eligibility remain unresolved. See
+the [coverage contract and evidence](docs/ENGINEERING.md#source-wide-vevent-tzid-identity-coverage)
 and [focused commands](AGENTS.md#commands-and-validation).
 
 ## Current implementation — Google Calendar Setup

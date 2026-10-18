@@ -426,6 +426,26 @@ composed contracts. Broaden only for material coupling or exposed shared issues.
 Inspected and a unique local match never establish temporal-value validity, global
 registry semantics, resolved timezones, source completeness or snapshot eligibility.
 
+The source-wide VEVENT TZID regression composes exactly one explicit source-local
+preflight and property-order identity matching across every calendar root. It covers
+all five match classifications, independent nested/total-property bounds, original
+child diagnostics, preflight-first failure precedence and scalar/list responsibility
+boundaries, including rejected list payloads with unique identity matches:
+
+```
+g++ -std=c++11 -Wall -Wextra -Werror -pedantic tests/ics_source_tzid_local_test.cpp -o /tmp/ee02-source-tzid-local-test
+/tmp/ee02-source-tzid-local-test
+g++ -std=c++11 -Wall -Wextra -Werror -pedantic -fsanitize=address,undefined -fno-omit-frame-pointer tests/ics_source_tzid_local_test.cpp -o /tmp/ee02-source-tzid-local-sanitized
+/tmp/ee02-source-tzid-local-sanitized
+```
+
+Run the existing strict source-local and selected TZID reference-local commands for
+their directly composed contracts. Broaden only for material coupling or exposed
+shared issues. LocalCoveragePassed counts identity observations, not complete
+temporal conformance, timezone resolution, source acceptance or snapshot eligibility.
+Repeated bounded definition scans are permitted; no exactly-once performance claim
+or final device CPU/energy budget is established.
+
 Documentation: no dedicated lint/link-check command is committed; inspect Markdown
 references and affected claims directly, using available tools.
 Review: no automated review command exists; independent review inspects source/diff.
