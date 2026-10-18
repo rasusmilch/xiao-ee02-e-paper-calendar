@@ -52,7 +52,7 @@ is historical evidence, not current architecture or requirements authority.
   Preserve operation/shutdown results, prohibit memory reuse/free after uncertain
   hardware shutdown, and validate bounded prefix/tail handling and repeated healthy
   lifecycle operations. Exercise 2 MiB only as an isolated provisional evaluation;
-  retain production graphics and defer the calendar pipeline.
+  retain production graphics and defer production calendar integration.
 - Add an independently allocated, capacity-parameterized PSRAM five-day snapshot
   owning normalized UTC intervals/points, civil-date all-day occurrences, complete
   UTF-8 text and source outcomes. Hide staged records until complete publication;
@@ -61,6 +61,15 @@ is historical evidence, not current architecture or requirements authority.
   without truncation or false completeness. Validate synthetic transactions and
   independence through scratch-to-framebuffer reuse; preserve production acquisition,
   keep capacities provisional and leave timezone/provider normalization unimplemented.
+- Connect staged ICS to transactional five-day snapshot publication for a closed
+  nonrecurring VEVENT profile: exact decoded UID uniqueness, UTC timestamps,
+  civil-date all-day ranges and decoded titles. Validate every event, including
+  outside-window input; reject unsupported recurrence/timezone/revision/extension
+  semantics and roll back failed sources without harming earlier calendars. Reuse
+  two bounded caller-owned decoding buffers without another event store. Drive the
+  deterministic EE02 preview through actual HTTP/ICS ingestion and normalization;
+  retain explicit incomplete-source warnings, independent scratch/snapshot ownership,
+  deferred live acquisition and unverified target/hardware compatibility.
 - Add a reusable read-only five-day snapshot renderer and dedicated EE02 example
   preview using the application workspace's borrowed GFX2 framebuffer. Show timed,
   point, all-day and spanning events with explicit local-time conversion, stable

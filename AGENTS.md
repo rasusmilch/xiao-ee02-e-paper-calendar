@@ -234,8 +234,29 @@ Run the existing snapshot, workspace and GFX2 ownership regressions for their
 composed storage/lifecycle guarantees. This trace facade verifies application bounds,
 not vendor rasterization. Attempt the dedicated preview with the already available
 [documented target configuration](README.md#five-day-snapshot-renderer-and-ee02-example-preview);
-report missing tooling without installing dependencies. Do not substitute historical
+report missing tooling without installing dependencies, unless the owner explicitly
+defers target validation for the unit (as for the nonrecurring producer/updated preview).
+Do not substitute historical
 fixture compilation or host syntax checks for new target/physical evidence.
+
+The restricted nonrecurring producer regression exercises the actual raw HTTP →
+structure → stage → supported-profile publication → snapshot → renderer pipeline.
+Use the same renderer facade include order and guarded snapshot free interception:
+
+```
+g++ -std=c++11 -Wall -Wextra -Werror -pedantic -Itests/renderer_host -Itests/gfx2_host -Ithird_party/Seeed_GFX2/src tests/ics_nonrecurring_snapshot_test.cpp -Wl,--wrap=free -o /tmp/ee02-ics-nonrecurring-snapshot-test
+/tmp/ee02-ics-nonrecurring-snapshot-test
+g++ -std=c++11 -Wall -Wextra -Werror -pedantic -fsanitize=address,undefined -fno-omit-frame-pointer -Itests/renderer_host -Itests/gfx2_host -Ithird_party/Seeed_GFX2/src tests/ics_nonrecurring_snapshot_test.cpp -Wl,--wrap=free -o /tmp/ee02-ics-nonrecurring-snapshot-sanitized
+/tmp/ee02-ics-nonrecurring-snapshot-sanitized
+```
+
+Compose source-local, typed, staging, structural/ingestion, snapshot, renderer and
+workspace regressions for this pipeline's changed guarantees. No live acquisition,
+recurrence, timezone-definition engine or production graphics is involved. Its closed
+profile and caller-owned scratch/lifetime contract are in
+[ENGINEERING](docs/ENGINEERING.md#restricted-nonrecurring-ics-to-snapshot-producer).
+Arduino compilation and physical testing are owner-deferred for this host-only unit;
+passing host tests do not establish target compatibility.
 
 The standalone raw HTTP/ICS-unfolding regression uses allocation-free production
 headers with synthetic byte reads, a monotonic clock and guarded caller storage:

@@ -113,7 +113,8 @@ timezone/observance-local checks, source-local coverage, standalone core RECUR
 grammar, contextual RRULE validation, VEVENT recurrence-property coverage and observance
 recurrence-local coverage, source-wide recurrence-local composition, selected TZID
 reference-local identity matching, source-wide VEVENT TZID identity coverage and a
-reusable snapshot renderer/deterministic EE02 preview implemented;
+reusable snapshot renderer/deterministic EE02 preview and restricted nonrecurring
+ICS-to-snapshot producer implemented;
 production integration and hardware validation pending.** The owner-selected architecture
 uses Seeed_GFX2 with a locally maintained external-framebuffer ownership extension,
 one application-owned PSRAM arena, and a separate fixed-capacity five-day occurrence
@@ -121,7 +122,7 @@ snapshot in PSRAM. Both allocations are volatile across deep sleep. Current firm
 still uses the global TFT_eSPI/EPaper object and ordinary event/weather storage;
 it uses none of the GFX2 borrowing extension, arena, normalized snapshot or streaming ICS pipeline.
 Contradictory engineering evidence must trigger explicit review and adjudication,
-not silent architectural substitution. Live transport and complete component/source
+not silent architectural substitution. Live transport and general component/source
 semantic validation remain unimplemented; detailed parser limits remain Open.
 
 #### Ownership and wake-cycle sequence
@@ -597,8 +598,9 @@ and cannot independently certify those electrical operations.
 
 [application/five_day_snapshot.h](../application/five_day_snapshot.h) implements
 `FiveDaySnapshot` independently from `Ee02PsramWorkspace`. Production still uses
-the legacy six-event array; this snapshot accepts synthetic/already-normalized
-inputs only. One noncopyable/nonmovable owner allocates the window, occurrence
+the legacy six-event array; this snapshot accepts normalized inputs, now also
+produced by the restricted staged-ICS producer below. One noncopyable/nonmovable
+owner allocates the window, occurrence
 slots, complete source catalogue and shared text pool in **one PSRAM-only block**.
 `psramFound()` and the inspected core's `ps_malloc()` provide no internal-RAM
 fallback. There are no per-event allocations, second event array, persistent cache,
@@ -628,7 +630,9 @@ Fixed capacity means fixed for this initialization, not a permanent product limi
   and occurrence-identity reconciliation. It must distinguish legitimate point
   occurrences from malformed explicitly supplied source intervals. The snapshot
   cannot verify these assertions or UID uniqueness; duplicate-looking records are
-  retained within/across sources. Provider and normalizer implementations remain Open.
+  retained within/across sources. The restricted producer below rejects unsupported
+  semantics and reconciles within-source UID uniqueness before publication. Broader
+  provider/recurrence/timezone support remains Open or unimplemented.
 
 #### API, transactions and storage limits
 
@@ -706,7 +710,113 @@ No physical execution, runtime allocation/headroom, timezone resolution, calenda
 feed completeness, UID reconciliation, electrical shutdown or production firmware
 build is established. The smoke fixture uses synthetic UTC boundaries and evaluates
 snapshot/workspace coexistence only if later executed; compilation does not run it.
-No ICS/provider/recurrence or three-consecutive-failures policy is implemented.
+That fixture implements no ICS/provider/recurrence or three-consecutive-failures policy.
+
+### Restricted nonrecurring ICS-to-snapshot producer
+
+**Implemented host-side supported-profile publication; no live acquisition or general
+ICS interoperability.** [IcsNonrecurringSnapshot](../application/ics_nonrecurring_snapshot.h)
+is a small stateless producer, not another local-coverage wrapper. It uses existing
+stage readers, IcsSourceLocal, typed TEXT/temporal decoding and snapshot transactions.
+It introduces no event representation, UID registry, cache, allocation owner or
+source-acceptance framework. Accepted components/interfaces remain unchanged.
+
+#### Closed profile and deferred obligations
+
+Exactly one root VCALENDAR and one or more direct VEVENTs are supported. Root
+properties are singleton VERSION (parser-supported 2.0 / 2.0;2.0), nonempty valid
+TEXT PRODID, optional case-insensitive CALSCALE:GREGORIAN; root parameters are rejected.
+VEVENT permits required singleton UID, DTSTAMP, DTSTART and optional singleton
+DTEND, SUMMARY. UID is nonempty decoded TEXT; DTSTAMP is UTC DATE-TIME. SUMMARY is
+validated/copied decoded TEXT, absent/empty stays empty. Only DTSTART/DTEND may carry
+one VALUE=DATE or VALUE=DATE-TIME parameter. Every other parameter/property is
+UnsupportedProfile, including METHOD, recurrence, RECURRENCE-ID, DURATION, STATUS,
+SEQUENCE, CREATED/LAST-MODIFIED, DESCRIPTION/LOCATION, scheduling and unknown extensions.
+All non-event, timezone, nested and opaque/projected components are unsupported.
+These are this producer's initial limits, not permanent interoperability policy.
+
+SourceValidationRequired / SourceSemanticsPending are discharged by complete profile
+inspection, never by local success alone. IdentityReconciliationPending is discharged
+only by decoded within-source UID uniqueness plus exclusion of revision/override
+semantics. CalendarMetadataPending is discharged only for the explicit root profile.
+Recurrence, timezones, local-time ordering, leap seconds, extensions, unchecked optional
+fields, nesting and projections either fail explicit profile/value checks or the final
+exact expected-deferred-mask check. Child masks are never cleared or rewritten. New
+unexpected deferred conditions fail closed. No cross-source identity reconciliation.
+
+Childless VCALENDAR still fails upstream structural parsing. Structurally valid
+non-event-only calendars are unsupported, never fabricated empty success. Every event,
+including outside-window events, receives complete semantic and duplicate-identity
+inspection. Only then may an admitted source with no in-window records become Complete.
+
+#### Transaction, normalization and ownership
+
+publish(stage, snapshot, sourceIndex, limits, scratch, scratchBytes, liveStorage)
+requires an initialized snapshot, existing Pending source, valid spans and disjoint
+scratch. beginSource detects another active transaction without modifying it. Exactly
+one IcsSourceLocal precondition runs after acquiring the selected source transaction.
+Failures after begin terminate that source as Incomplete through existing snapshot
+APIs. If addOccurrence already aborted, its precise terminal reason is retained and
+no second rollback is attempted. ProducerFailure covers failures without a more
+specific snapshot reason. Reports preserve original applicable local/typed diagnostics;
+all successful counts are zero until completeSource succeeds. Previous Complete sources
+are unchanged; no partial inserted records become visible.
+
+The caller supplies two reusable buffers of maxDecodedTextBytes each and a maximum
+UID-pair-comparison count. Checked pairwise comparison decodes full UIDs into those
+buffers, case-sensitively, without truncation/Unicode normalization or per-event copies.
+One buffer is reused for title decoding; snapshot insertion copies actual decoded
+length. No decoded ICS document or persistent layout/identity store exists. Bounds
+include nested source-local budgets, text capacity, comparisons and scratch bytes.
+
+liveStorage declares the complete live source backing span: in the workspace it
+covers staging, structural parser and ingestion slices. Public staged descriptor/name/
+parameter/value spans are checked for containment before scratch writes. Scratch
+must not overlap that region, the snapshot block or live caller objects. The accepted
+stage API exposes no full allocation extent; the caller remains responsible for
+truthful complete spans, actual readability and absence of concurrent mutation.
+Parser/ingestion objects and all borrowed views end inside the same withScratch scope.
+The returned scalar Report and snapshot-owned text/records survive release/poisoning.
+
+Checked proleptic Gregorian arithmetic converts DATE to signed civil days from
+1970-01-01 and UTC DATE-TIME to signed 64-bit POSIX seconds. No localtime, time_t,
+environment timezone, fixed display offset or renderer/GFX dependency is involved.
+Floating/TZID values and NeedsContext/leap-second results fail. Explicit end must
+match the start representation and be strictly later (accepted local checks). Missing
+DATE end adds one civil day; missing timed end creates a point. DATE is never UTC
+midnight. Original ranges are unchanged; addOccurrence uses the supplied snapshot
+window for overlap and OutsideWindow is a successful exclusion. Display-day length
+and timezone conversion remain the renderer/window owner's responsibility.
+
+#### Deterministic pipeline and evidence limits
+
+The dedicated preview now replays synthetic HTTP/ICS through production ingestion,
+structure, staging and this producer inside one workspace callback. Checked disjoint
+slices hold all transient users. The first example source completes; a second source
+with unsupported STATUS:CANCELLED becomes Incomplete. Deliberately unordered events
+include five dates, DATE/all-day/multiday ranges, cross-midnight and point occurrences,
+and distinct UTC instants at the repeated fall hour. All source users release before
+scratch poisoning and borrowed-framebuffer rendering. EXAMPLE DATA remains explicit;
+this is not a live client or production firmware integration.
+
+Fresh strict C++11 and ASan/UBSan runs passed 88 checked producer scenarios plus
+the shared-workspace pipeline case. Host regression commands in AGENTS exercise actual
+raw Content-Length/chunked responses, unfolding/fragmentation, staging, local checks,
+producer transactions, snapshot and renderer traces. They assert exact normalized
+values, supported-profile rejection, decoded duplicate UIDs (also outside the window),
+resource rollback, earlier-source preservation, source-byte immutability, audited
+zero new allocations during production calls, and independent titles after workspace
+reuse. The separate snapshot, renderer, workspace, typed, staging, structure, ingestion
+and source-local regressions also passed strict and sanitizer runs, retaining their
+scoped evidence limits. No Python/pytest tests are present in the tracked source.
+
+Arduino compilation and physical EE02 testing for this producer/updated preview are
+explicitly owner-deferred and NOT RUN. Historical fixture/renderer evidence does not
+prove compatibility of this delta. Host facades do not establish physical glyphs,
+refresh, runtime headroom, energy or ESP32 performance. Live transport/authentication,
+recurrence, timezone definitions, revisions/cancellations, broader metadata support,
+production GFX2 migration and final presentation policy remain separate work. No live
+wall-calendar or physical-display milestone is claimed.
 
 ### Five-day snapshot renderer and EE02 preview
 
@@ -771,8 +881,9 @@ schedule. Two affected labels/reasons fit dedicated lines, with an additional co
 when necessary. Labels are snapshot-owned views; no provider registry is added.
 
 [Dedicated preview](../previews/five_day_calendar/five_day_calendar.ino) is outside
-production auto-compilation. It uses the public snapshot transactions with fixed
-EXAMPLE DATA for October 23–27, 2026, including an incomplete example source, all-day,
+production auto-compilation. It feeds deterministic HTTP/ICS through the restricted
+producer and public snapshot transactions with fixed EXAMPLE DATA for October
+23–27, 2026, including an incomplete example source, all-day,
 multiday, cross-midnight, point and repeated-hour entries. It allocates a separate
 32-record/4 KiB-text snapshot and one 2 MiB workspace as evaluation arguments, poisons
 scratch, then calls the actual renderer through Ee02PsramWorkspace::render(). Only
@@ -787,13 +898,15 @@ The 1600×1200 rotation places the agenda at inclusive x/y 10..1034, inside the 
 
 The [README preview command](../README.md#five-day-snapshot-renderer-and-ee02-example-preview)
 selects the documented XIAO ESP32-S3 Plus/OPI FQBN and explicit vendored GFX2, with all
-build output outside the checkout. The current attempt exited 127: the historical
+build output outside the checkout. The historical renderer-only attempt exited 127:
+the former
 /tmp/ee02-gfx2-compat.qWyDXC/bin/arduino-cli executable is missing; no CLI was found
 on PATH or in inspected existing project/tool locations. No install/upgrade occurred.
 Board/core/library resolution, actual target renderer linkage, flash/RAM totals and
 hardware behavior are therefore unverified for this preview. Historical fixture
 compile evidence above is not carried forward as new renderer compilation evidence.
-A strict host syntax-only check of the sketch with disposable platform/facade stand-ins
+A historical renderer-only strict host syntax-only check of the sketch with
+disposable platform/facade stand-ins
 passed; that is neither target compilation nor linkage. Host renderer tests trace
 actual production formatting/selection/drawing calls against a narrow graphics
 stand-in and guarded real snapshot/workspace storage. They do not rasterize vendor
@@ -811,7 +924,7 @@ no new physical evidence follows from these runs. Commands are in AGENTS.md.
 
 The final grid/agenda and waking-hour decisions remain Open. This example preview
 is a controlled intermediate display path, not a separate permanent application or
-the first live wall-calendar milestone. Live ICS-to-snapshot production,
+the first live wall-calendar milestone. Live acquisition and broader ICS-to-snapshot support,
 recurrence/timezone normalization, production GFX2 migration and physical validation
 remain separate independently authorized outcomes.
 
@@ -982,9 +1095,9 @@ staging, typed primitive decoding, selected VEVENT-local and timezone/observance
 checks plus source-local coverage, standalone core RECUR grammar, contextual RRULE
 validation, VEVENT/observance recurrence-local coverage and source-wide recurrence-local
 composition, selected TZID reference-local identity matching and source-wide VEVENT
-TZID identity coverage now exist in isolation below; complete component/source
-semantic validation, recurrence application, timezone
-resolution and snapshot producer integration remain unimplemented.
+TZID identity coverage now exist below, along with a separate restricted nonrecurring
+semantic producer. General source-semantic validation, recurrence application, timezone
+resolution and production integration remain unimplemented.
 
 #### API, ownership and generic grammar
 
@@ -1067,7 +1180,7 @@ sessions are single-use, with fresh construction for another source.
 
 Structural success proves the declared generic text/hierarchy profile only. It is
 not ingestion success, full property/extension semantics, a complete event schedule,
-normalized occurrences or FiveDaySnapshot Complete. A later producer must finish
+normalized occurrences or FiveDaySnapshot Complete. A semantic producer must finish
 transport, semantic validation, identity/recurrence/timezone reconciliation and
 normalization before transactional publication. Unsupported potentially relevant
 semantics must not be silently dropped while claiming complete calendar results.
@@ -1558,8 +1671,9 @@ RFC 9073 child properties and projected opaque components cannot supply event fi
 
 These bits never establish semantic acceptance. METHOD-specific requirements,
 recurrence, timezones, identities/revisions, optional/extension schemas, source
-completeness and snapshot transactions remain later work. No new publication model
-or FiveDaySnapshot call exists. Source records and previously committed snapshots
+completeness beyond the closed nonrecurring profile remain later work. The separate
+restricted producer handles that profile; this local validator adds no publication model
+or FiveDaySnapshot call. Source records and previously committed snapshots
 are not modified.
 
 #### Lifetime, complexity and evidence
@@ -1799,7 +1913,9 @@ full enumeration/applicable local success only. Zero-event, projected-only and
 opaque-only sources may pass coverage while supported source policy and valid
 empty-schedule semantics remain unresolved. METHOD, recurrence, identities/revisions,
 whole-source TZID reconciliation, transitions, nested/extension/detail semantics,
-normalization and source publication remain the later semantic producer's responsibility.
+normalization and source publication remain a semantic producer's responsibility. The
+restricted nonrecurring producer above admits only its explicit closed subset, not
+these broader source semantics.
 
 #### Lifetime, resources and evidence limits
 

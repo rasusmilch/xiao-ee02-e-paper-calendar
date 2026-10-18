@@ -2,6 +2,7 @@
 #include <Seeed_GFX.h>
 #include "../../application/psram_workspace.h"
 #include "../../application/five_day_posix_time.h"
+#include "../../application/ics_nonrecurring_snapshot.h"
 
 #if !defined(ARDUINO_ARCH_ESP32) || !defined(CONFIG_IDF_TARGET_ESP32S3) || !defined(ARDUINO_XIAO_ESP32S3_PLUS)
 #error "Select XIAO ESP32-S3 Plus with OPI PSRAM"
@@ -14,17 +15,70 @@ static FiveDayPosixTime::Context previewZone = {"CET-1CEST,M3.5.0,M10.5.0/3"};
 static FiveDayRenderer::Report rendering;
 static bool renderingAttempted = false;
 
-static bool addTimed(int64_t start, int64_t end, const char* title) {
-  FiveDaySnapshot::Input event = {};
-  event.kind = FiveDaySnapshot::Kind::Timed; event.range.timed = {start, end};
-  event.title = {title, strlen(title)};
-  return snapshot.addOccurrence(0, event) == FiveDaySnapshot::Result::Ok;
-}
-static bool addAllDay(int32_t start, int32_t end, const char* title) {
-  FiveDaySnapshot::Input event = {};
-  event.kind = FiveDaySnapshot::Kind::AllDay; event.range.civil = {start, end};
-  event.title = {title, strlen(title)};
-  return snapshot.addOccurrence(0, event) == FiveDaySnapshot::Result::Ok;
+// Provisional preview budgets, not final device operating capacities.
+static uint64_t sourceClock(void*) { return 0; } // No elapsed time during deterministic replay.
+static const char exampleIcs[] =
+  "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:EE02 deterministic example\r\nCALSCALE:GREGORIAN\r\n"
+  // Deliberately unordered; the repeated 02:30 labels refer to distinct UTC instants.
+  "BEGIN:VEVENT\r\nUID:second\r\nDTSTAMP:20261017T120000Z\r\nDTSTART:20261025T013000Z\r\nDTEND:20261025T014500Z\r\nSUMMARY:Second 02:30 - standard time\r\nEND:VEVENT\r\n"
+  "BEGIN:VEVENT\r\nUID:first\r\nDTSTAMP:20261017T120000Z\r\nDTSTART:20261025T003000Z\r\nDTEND:20261025T004500Z\r\nSUMMARY:First 02:30 - summer time\r\nEND:VEVENT\r\n"
+  "BEGIN:VEVENT\r\nUID:midnight\r\nDTSTAMP:20261017T120000Z\r\nDTSTART:20261023T210000Z\r\nDTEND:20261023T230000Z\r\nSUMMARY:Cross-midnight handover\r\nEND:VEVENT\r\n"
+  "BEGIN:VEVENT\r\nUID:appointment\r\nDTSTAMP:20261017T120000Z\r\nDTSTART:20261023T090000Z\r\nDTEND:20261023T100000Z\r\nSUMMARY:Example appointment\r\nEND:VEVENT\r\n"
+  "BEGIN:VEVENT\r\nUID:point\r\nDTSTAMP:20261017T120000Z\r\nDTSTART:20261026T150000Z\r\nSUMMARY:Point reminder\r\nEND:VEVENT\r\n"
+  "BEGIN:VEVENT\r\nUID:last\r\nDTSTAMP:20261017T120000Z\r\nDTSTART:20261027T160000Z\r\nDTEND:20261027T170000Z\r\nSUMMARY:Last-day review\r\nEND:VEVENT\r\n"
+  "BEGIN:VEVENT\r\nUID:holiday\r\nDTSTAMP:20261017T120000Z\r\nDTSTART;VALUE=DATE:20261023\r\nSUMMARY:All day: example holiday\r\nEND:VEVENT\r\n"
+  "BEGIN:VEVENT\r\nUID:visit\r\nDTSTAMP:20261017T120000Z\r\nDTSTART;VALUE=DATE:20261024\r\nDTEND;VALUE=DATE:20261027\r\nSUMMARY:Multiday example visit\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n";
+static const char incompleteIcs[] =
+  "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:EE02 incomplete example\r\n"
+  "BEGIN:VEVENT\r\nUID:unsupported\r\nDTSTAMP:20261017T120000Z\r\nDTSTART:20261023T090000Z\r\n"
+  "STATUS:CANCELLED\r\nSUMMARY:Unsupported cancellation example\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n";
+
+static GfxResult populateFromIcs(uint8_t* bytes, size_t capacity, void*) {
+  const IcsSourceStage::Limits stagingLimits = {32,128,16384,32,4096};
+  const IcsStructure::Limits syntaxLimits = {4096,32,32,64,8,64,128,512,32,1};
+  const IcsIngestion::Limits inputLimits = {32768,16384,4096,32,1024,256,1024,16,1024,4096,4096,10000,1000};
+  const IcsNonrecurringSnapshot::Limits producerLimits = {
+    {32,1,16,0,0,8,{8,8,4096},{8,8,4096,32,4096}},4096,120};
+  size_t stageBytes = 0, parserBytes = 0;
+  if (IcsSourceStage::requiredBytes(stagingLimits, stageBytes) != IcsSourceStage::Status::InProgress ||
+      IcsStructure::scratchBytes(syntaxLimits, parserBytes) != IcsStructure::Status::InProgress ||
+      stageBytes > capacity || parserBytes > capacity - stageBytes ||
+      6144 > capacity - stageBytes - parserBytes || 8192 > capacity - stageBytes - parserBytes - 6144)
+    return GfxResult(GfxError::InvalidArgument, "preview scratch capacity");
+  // Each accepted initializer owns alignment within its checked slice.
+  uint8_t* parserStorage = bytes + stageBytes;
+  uint8_t* inputStorage = parserStorage + parserBytes;
+  uint8_t* textStorage = inputStorage + 6144;
+  const size_t liveBytes = stageBytes + parserBytes + 6144;
+  for (size_t source = 0; source < 2; ++source) {
+    IcsSourceStage stage; IcsStructure structure; IcsIngestion input;
+    if (stage.initialize(bytes, stageBytes, stagingLimits) != IcsSourceStage::Status::InProgress ||
+        structure.initialize(parserStorage, parserBytes, syntaxLimits, IcsSourceStage::sink, &stage) != IcsStructure::Status::InProgress ||
+        input.initialize(inputStorage, 6144, inputLimits, IcsStructure::lineSink, &structure, sourceClock, nullptr) != IcsIngestion::Status::InProgress)
+      return GfxResult(GfxError::InvalidArgument, "preview ICS initialization");
+    const char* body = source == 0 ? exampleIcs : incompleteIcs;
+    const size_t length = strlen(body);
+    char header[96];
+    const int n = snprintf(header, sizeof(header), "HTTP/1.1 200 OK\r\nContent-Length: %u\r\n\r\n", unsigned(length));
+    if (n < 0 || size_t(n) >= sizeof(header)) return GfxResult(GfxError::InvalidArgument, "preview HTTP header");
+    auto fed = input.feed(reinterpret_cast<const uint8_t*>(header), size_t(n));
+    for (size_t i = 0; i < length && fed == IcsIngestion::Status::InProgress; ++i)
+      fed = input.feed(reinterpret_cast<const uint8_t*>(body + i), 1);
+    const auto httpStatus = input.finish();
+    const auto structureStatus = structure.finish();
+    const auto staged = stage.finish(input, structure);
+    const auto produced = IcsNonrecurringSnapshot::publish(stage, snapshot, source, producerLimits,
+        textStorage, 8192, {bytes, liveBytes});
+    Serial.printf("Example source=%u HTTP=%u structure=%u stage=%u producer=%u records=%u outside=%u\n",
+        unsigned(source), unsigned(httpStatus), unsigned(structureStatus), unsigned(staged), unsigned(produced.status),
+        unsigned(produced.publishedOccurrences), unsigned(produced.outsideWindowOccurrences));
+    input.release(); structure.release(); stage.release(); // All borrowed users end before slice reuse.
+    if ((source == 0 && produced.status != IcsNonrecurringSnapshot::Status::SourceCommitted) ||
+        (source == 1 && (produced.status != IcsNonrecurringSnapshot::Status::UnsupportedProfile ||
+         snapshot.source(1)->outcome != FiveDaySnapshot::Outcome::Incomplete)))
+      return GfxResult(GfxError::InvalidArgument, "unexpected example source outcome");
+  }
+  return GfxResult::success();
 }
 static GfxResult poisonScratch(uint8_t* bytes, size_t size, void*) {
   memset(bytes, 0xa5, size); return GfxResult::success();
@@ -53,21 +107,10 @@ void setup() {
   const FiveDaySnapshot::Text labels[] = {{"Example personal",16},{"Example team",12}};
   if (snapshot.initialize(window, 32, 4096, labels, 2) != FiveDaySnapshot::Result::Ok ||
       !workspace.allocate(2097152).ok()) { Serial.println("Preview PSRAM allocation failed"); return; }
-  if (snapshot.beginSource(0) != FiveDaySnapshot::Result::Ok) return;
-  // Deliberately unordered. Identical repeated local times remain separate UTC instants.
-  bool populated = addTimed(1792891800,1792892700,"Second 02:30 - standard time") &&
-      addTimed(1792888200,1792889100,"First 02:30 - summer time") &&
-      addTimed(1792789200,1792796400,"Cross-midnight handover") &&
-      addTimed(1792746000,1792749600,"Example appointment") &&
-      addTimed(1793026800,1793026800,"Point reminder") &&
-      addTimed(1793116800,1793120400,"Last-day review") &&
-      addAllDay(20749,20750,"All day: example holiday") &&
-      addAllDay(20750,20753,"Multiday example visit");
-  if (!populated || snapshot.completeSource(0) != FiveDaySnapshot::Result::Ok) {
-    Serial.println("Preview population failed"); return;
+  if (!workspace.withScratch(0, workspace.capacity(), populateFromIcs).ok()) {
+    Serial.println("Example ICS pipeline failed"); return;
   }
-  if (snapshot.beginSource(1) != FiveDaySnapshot::Result::Ok ||
-      snapshot.failSource(1, FiveDaySnapshot::Reason::ProducerFailure) != FiveDaySnapshot::Result::Ok) return;
+  // Demonstrate independent snapshot text/records before borrowing the framebuffer.
   if (!workspace.withScratch(0, workspace.capacity(), poisonScratch).ok()) return;
   const auto result = workspace.render(drawCalendar);
   Serial.printf("Renderer called=%u status=%u entries=%u overflow=%u\n", unsigned(renderingAttempted), unsigned(rendering.status),

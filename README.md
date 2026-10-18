@@ -9,7 +9,7 @@ The [original prototype article](https://www.makerguides.com/e-paper-wall-calend
 - **Display:** 1600×1200 Spectra 6, rolling next five days starting today, fixed waking-hour window (exact hours configurable), timed grid the leading candidate versus a five-day agenda. The week view **replaces the 1024×1024 artwork area**. Display layout is not finally selected.
 - **Other panels:** retain weather, multi-day forecast, today's detailed events, battery indication, and their existing positions initially. Whether the legacy monthly calendar remains is Open.
 - **Calendars:** select multiple source calendars; support Google, iCloud/CalDAV and general ICS by source-independent internal event representation. Entirely on-device fetching/normalization; **no separate backend, hosted processor or update preprocessor**. Sequential streaming ICS processing is selected; provider-access scope, including ICS-only initial access and private iCloud versus public ICS, remains Open.
-- **Selected graphics/memory architecture:** Seeed_GFX2 with a locally maintained external-framebuffer ownership extension; one application-owned PSRAM workspace for sequential, one-source-at-a-time streaming ICS processing, then rendering. A separate fixed-capacity five-day PSRAM snapshot owns normalized occurrences, text and transactional source outcomes without references into the reused workspace. GFX2 borrows only the 960,000-byte framebuffer slice and must not free it or allocate an unnecessary second framebuffer. The 2 MiB workspace, 1,024 occurrences and 320 KiB snapshot are provisional evaluation budgets, not validated operating limits. Borrowing, a scoped workspace, synthetic snapshot publication, standalone HTTP framing/line unfolding, bounded property/component parsing, selective source-local dependency staging, typed primitive decoding, VEVENT-local checks, timezone/observance-local checks, source-local coverage, standalone core RECUR grammar, contextual RRULE validation, VEVENT recurrence-property coverage, observance recurrence-local coverage, source-wide recurrence-local coverage, selected TZID reference-local identity matching, source-wide VEVENT TZID identity coverage and a reusable snapshot renderer with a dedicated deterministic EE02 preview are implemented in isolation; live calendar acquisition, complete component/source semantic validation and production phase reuse remain unimplemented, with hardware behavior unvalidated. Consult the [canonical architecture and validation contract](docs/ENGINEERING.md#selected-gfx2-psram-and-streaming-calendar-architecture).
+- **Selected graphics/memory architecture:** Seeed_GFX2 with a locally maintained external-framebuffer ownership extension; one application-owned PSRAM workspace for sequential, one-source-at-a-time streaming ICS processing, then rendering. A separate fixed-capacity five-day PSRAM snapshot owns normalized occurrences, text and transactional source outcomes without references into the reused workspace. GFX2 borrows only the 960,000-byte framebuffer slice and must not free it or allocate an unnecessary second framebuffer. The 2 MiB workspace, 1,024 occurrences and 320 KiB snapshot are provisional evaluation budgets, not validated operating limits. Borrowing, a scoped workspace, synthetic snapshot publication, standalone HTTP framing/line unfolding, bounded property/component parsing, selective source-local dependency staging, typed primitive decoding, VEVENT-local checks, timezone/observance-local checks, source-local coverage, standalone core RECUR grammar, contextual RRULE validation, VEVENT recurrence-property coverage, observance recurrence-local coverage, source-wide recurrence-local coverage, selected TZID reference-local identity matching, source-wide VEVENT TZID identity coverage, a restricted nonrecurring ICS-to-snapshot producer and a reusable snapshot renderer with a dedicated deterministic EE02 preview are implemented in isolation; live calendar acquisition, general component/source semantic validation and production phase reuse remain unimplemented, with hardware behavior unvalidated. Consult the [canonical architecture and validation contract](docs/ENGINEERING.md#selected-gfx2-psram-and-streaming-calendar-architecture).
 - **Storage/time:** NVS stores changed persistent configuration only (Wi-Fi, timezone, calendar URLs/selection, refresh settings). No daily churn, events, weather or routine counters go to NVS. RTC-retained memory may hold validated compact sleep context; reconstruct after invalid RTC/reset. NTP on cold boot when required, then approximately daily; use internal RTC between syncs.
 - **Refresh/recovery:** battery-powered, single user-configurable coordinated data-acquisition/render cycle, independently validated per source. Successful calendars display even if another calendar fails, with a named error bar; a weather failure is shown in its own panel while previously valid forecast data may remain. Three consecutive complete acquisition failures cause a full error screen; cold boot tries Wi-Fi before presenting recovery instructions.
 - **Setup:** device-hosted Wi-Fi webpage (LAN while explicitly awake, or open/no-password AP). AP stops after 10 minutes without meaningful user activity or 30 minutes maximum, then sleeps. Entering a new password may show characters; after save it is masked and the saved value is never echoed. Calendar URL fields remain displayed. An operator-accessible hardware AP trigger is required; simultaneous Setup+Refresh hold for five seconds is a **proposed, unverified** factory-reset gesture, not yet a pin/wake contract.
@@ -155,6 +155,51 @@ source-local ICS stage is described below; this snapshot provides no timezone
 resolver, persistent identity or production integration. See the
 [canonical snapshot contract](docs/ENGINEERING.md#normalized-five-day-occurrence-snapshot).
 
+### Restricted nonrecurring ICS-to-snapshot producer
+
+[IcsNonrecurringSnapshot](application/ics_nonrecurring_snapshot.h) connects the
+accepted staged ICS path to a selected Pending snapshot source. It calls
+IcsSourceLocal once, then validates the complete closed profile, checks all decoded
+UID pairs, normalizes occurrences and completes one source transaction. Local
+coverage alone never establishes source completion. Unsupported input or exhaustion
+ends the selected transaction as Incomplete; tentative records disappear and earlier
+Complete sources survive. Snapshot insertion's automatic rollback is respected.
+
+The initial profile admits exactly one VCALENDAR with one or more direct VEVENTs:
+
+- Root: singleton VERSION (2.0 or 2.0;2.0), nonempty decoded PRODID and optional
+  CALSCALE:GREGORIAN (case-insensitive). No parameters or other root properties.
+- Event: required singleton decoded nonempty UID, UTC DTSTAMP, and DTSTART
+  (DATE or UTC DATE-TIME); optional singleton DTEND and SUMMARY. Only DTSTART/DTEND allow singular VALUE=DATE or
+  VALUE=DATE-TIME; every other parameter/property is unsupported. Missing/empty
+  SUMMARY copies an empty title. TEXT uses the accepted UTF-8/escape decoder.
+- DTSTART/DTEND are UTC DATE-TIME or DATE, with matching types and a strictly later
+  explicit end. Missing timed end creates a point; missing DATE end adds one civil
+  day. Gregorian conversion uses checked integer arithmetic, independent of TZ,
+  localtime and time_t. DATE stays a civil-day range with exclusive end. Original
+  ranges are not clipped; snapshot window admission excludes OutsideWindow values.
+
+Recurrence, overrides, cancellation/revision fields, floating/TZID times, leap seconds,
+DURATION, DESCRIPTION/LOCATION, scheduling, unknown metadata/extensions and all nested,
+non-event or timezone components are unsupported in this first producer. This is
+an initial compatibility restriction, not universal RFC behavior or final provider
+policy. Childless VCALENDAR remains rejected by the unchanged structural parser;
+structurally valid sources without VEVENTs are unsupported here. Supported sources
+whose events all fall outside the window can complete with zero records.
+
+Caller limits bound source validation, decoded text size and pairwise UID comparison
+work. Two reusable caller-owned decoding buffers retain no per-event UID catalogue;
+identical decoded identities fail even outside the window. Scratch must be disjoint
+from the complete caller-declared live source-storage span (including any live parser/
+ingestion storage), snapshot allocation and other live caller objects. The producer
+checks spans and readable stage contents before writing scratch; callers still own
+actual readable-span and lifetime guarantees. No allocation or capacity defaults
+are introduced. Snapshot-owned titles and records survive release/poisoning of all
+source scratch. Unexpected deferred bits fail closed; existing validator masks
+remain unchanged. This does not select cross-source identity, timezone or recurrence
+policy. See the [producer contract](docs/ENGINEERING.md#restricted-nonrecurring-ics-to-snapshot-producer)
+and [host commands](AGENTS.md#commands-and-validation).
+
 ### Five-day snapshot renderer and EE02 example preview
 
 [FiveDayRenderer](application/five_day_renderer.h) renders the existing read-only
@@ -191,8 +236,13 @@ operator to check sources/retry instead of presenting an empty calendar.
 The dedicated [preview sketch](previews/five_day_calendar/five_day_calendar.ino)
 is outside production auto-compilation. It marks EXAMPLE DATA, explicitly configures
 CET/CEST for October 23–27, 2026 (including the 25-hour DST day), and transactionally
-populates the actual independent snapshot with timed, point, all-day, multiday and
-cross-midnight examples plus an incomplete source. Its 32 records, 4 KiB text and
+feeds deterministic synthetic HTTP/ICS through IcsIngestion → IcsStructure →
+IcsSourceStage → IcsNonrecurringSnapshot, producing timed, point, all-day, multiday
+and cross-midnight examples. A second ICS source with unsupported cancellation
+evidence becomes Incomplete. No occurrence records are inserted directly by the
+sketch. Both sources finish inside one withScratch callback using checked, disjoint
+stage/parser/ingestion/text slices; all borrowed users end before reuse. Its 32
+records, 4 KiB text and
 2 MiB workspace are demonstration arguments, not operating defaults. It poisons
 scratch before Ee02PsramWorkspace::render(), checks render/refresh and shutdown
 separately, and retains restricted workspace storage after uncertain shutdown.
@@ -215,14 +265,16 @@ env ARDUINO_DIRECTORIES_DATA=/tmp/ee02-gfx2-compat.qWyDXC/data \
   > /tmp/ee02-calendar-preview-compile.log 2>&1
 ```
 
-**Current preview target attempt: unavailable.** The historical temporary CLI path
+**Historical renderer-only preview target attempt: unavailable.** The temporary CLI path
 no longer exists and no Arduino CLI is on PATH in this environment. No dependencies
 were installed; no target board/library resolution or renderer linkage is claimed.
 Historical fixture compile evidence below applies only to that fixture. Host tests
 exercise renderer decisions with graphics-call traces, not physical glyphs/pixels.
-No physical EE02 was tested or flashed. See the [renderer contract and evidence](docs/ENGINEERING.md#five-day-snapshot-renderer-and-ee02-preview)
-and [focused commands](AGENTS.md#commands-and-validation). Live ICS-to-snapshot
-normalization, production GFX2 migration, hardware/runtime validation and final
+For the restricted producer and updated ICS preview, Arduino compilation and physical
+EE02 testing are explicitly owner-deferred; neither was attempted. Device compatibility
+is unverified. No physical EE02 was tested or flashed. See the [renderer contract and evidence](docs/ENGINEERING.md#five-day-snapshot-renderer-and-ee02-preview)
+and [focused commands](AGENTS.md#commands-and-validation). Live acquisition, broader
+ICS normalization, production GFX2 migration, hardware/runtime validation and final
 presentation policy remain separate work.
 
 The separate [compile/link fixture](tests/gfx2_baseline/gfx2_baseline.ino) selects
@@ -281,7 +333,8 @@ exact Content-Length and HTTP/1.1 chunked framing with bounded extensions/traile
 CRLF plus one SPACE/HTAB, preserving other octets across arbitrary input chunks.
 This ingestion layer performs no property/component validation or whole-feed storage.
 The downstream structural parser validates syntax/hierarchy; selected VEVENT-local
-checks now exist below, while complete event/source semantics remain unimplemented.
+checks and a closed-profile semantic producer now exist below. General ICS event/source
+semantics remain incomplete; this ingestion layer itself never accepts a source.
 
 Only HTTP 200 with complete supported framing and explicit successful logical-line
 finalization produces ingestion Complete. Empty framed bodies mean zero lines,
@@ -321,8 +374,9 @@ Malformed nesting, invalid text, exhaustion and consumer failure are terminal.
 Strict C++11 and ASan/UBSan host checks passed, including guarded actual-workspace
 use. The extended isolated EE02 fixture compiled/linked using the existing CLI
 1.5.1/core 3.3.12/OPI toolchain; this does not establish production compatibility
-or runtime hardware behavior. No live feed, production ICS integration, recurrence/timezone
-normalization or parser-driven snapshot publication is implemented. See the
+or runtime hardware behavior. No live feed, production ICS integration or recurrence/timezone resolution is
+implemented. The separate restricted producer now consumes staged parser output for
+transactional snapshot publication; structural success alone never publishes it. See the
 [canonical contract](docs/ENGINEERING.md#bounded-ics-propertycomponent-parser)
 and [host commands](AGENTS.md#commands-and-validation).
 
@@ -333,16 +387,19 @@ tables and an append-only byte pool within one workspace `withScratch()` lifetim
 It owns no allocation. Complete selected event, recurrence, revision, cancellation,
 detail and timezone values/encoded parameters survive transient parser callbacks.
 Known identifiers use compact codes; unknown names remain complete. No full-feed
-String/document, UID index, decoded duplicate, normalization or publication exists.
+String/document, UID index, decoded duplicate, normalization or publication is
+created by this staging layer.
 
 Declared non-event values are explicitly projected out. Unknown opaque components
 already accepted by `IcsStructure` keep a descriptor/name and checked property
-count, with no payload/property descriptors; they do not invalidate supported events.
+count, with no payload/property descriptors; staging alone does not invalidate events
+for that presence. The restricted producer rejects such components as unsupported.
 Relevant unknown properties/parameters remain bounded, copied and marked for review.
 Exhaustion fails the source. Missing, original empty and omitted values are distinct.
 `finish(ingestion, structure)` requires corresponding complete framing/structure and
 matching counts. `StagedSuccessfully` means retention completed, not a semantically
-complete schedule. No parser-driven `FiveDaySnapshot` transaction is invoked.
+complete schedule. The staging layer itself invokes no `FiveDaySnapshot` transaction;
+the separate restricted producer owns supported-profile publication.
 
 Strict C++11 and ASan/UBSan staging/workspace checks passed; target evidence and the
 exact retention/disposition/lifetime contract are in
