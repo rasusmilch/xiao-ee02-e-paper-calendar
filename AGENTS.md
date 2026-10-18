@@ -218,6 +218,25 @@ Its ASan/UBSan variant uses the same sanitizer flags above. These tests cover su
 window semantics, ownership and source transactions, not real calendar completeness,
 timezone resolution or physical PSRAM capacity.
 
+The reusable five-day renderer regression exercises actual snapshot records,
+explicit POSIX timezone conversion, selection/ordering, source outcomes and bounded
+GLCD graphics-call traces. Its test-local facade is separate from the existing
+workspace facade; include order below is intentional:
+
+```
+g++ -std=c++11 -Wall -Wextra -Werror -pedantic -Itests/renderer_host -Itests/gfx2_host -Ithird_party/Seeed_GFX2/src tests/five_day_renderer_test.cpp -Wl,--wrap=free -o /tmp/ee02-five-day-renderer-test
+/tmp/ee02-five-day-renderer-test
+g++ -std=c++11 -Wall -Wextra -Werror -pedantic -fsanitize=address,undefined -fno-omit-frame-pointer -Itests/renderer_host -Itests/gfx2_host -Ithird_party/Seeed_GFX2/src tests/five_day_renderer_test.cpp -Wl,--wrap=free -o /tmp/ee02-five-day-renderer-sanitized
+/tmp/ee02-five-day-renderer-sanitized
+```
+
+Run the existing snapshot, workspace and GFX2 ownership regressions for their
+composed storage/lifecycle guarantees. This trace facade verifies application bounds,
+not vendor rasterization. Attempt the dedicated preview with the already available
+[documented target configuration](README.md#five-day-snapshot-renderer-and-ee02-example-preview);
+report missing tooling without installing dependencies. Do not substitute historical
+fixture compilation or host syntax checks for new target/physical evidence.
+
 The standalone raw HTTP/ICS-unfolding regression uses allocation-free production
 headers with synthetic byte reads, a monotonic clock and guarded caller storage:
 

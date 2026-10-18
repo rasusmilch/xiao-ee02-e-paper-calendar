@@ -39,9 +39,11 @@ Seeed_GFX2 with a local external-framebuffer ownership extension is Selected for
 the target; the current Seeed_GFX/TFT_eSPI integration has not migrated. Other
 library upgrades or framework migrations are not assumed prerequisites. Resolve
 compatibility through evidence. The five-day UI redesign and device-side multi-calendar
-support are approved target scope, not implemented behavior. Artwork retirement is
-implemented; the empty former artwork region is only an intermediate development
-state, not a completed display design or independently releasable product outcome.
+support remain incomplete in production. A reusable snapshot renderer and dedicated
+deterministic preview now implement the isolated display path below, without final
+presentation policy or live normalization. Artwork retirement is implemented; the
+production sketch still leaves that region empty. Neither this intermediate state
+nor the example preview is the completed live calendar product.
 Legacy defaults establish no target policy; exact GFX2/core/board integration
 remains unverified and this selection alone does not authorize implementation.
 
@@ -110,7 +112,8 @@ source-local dependency staging, typed primitive decoding, VEVENT-local checks a
 timezone/observance-local checks, source-local coverage, standalone core RECUR
 grammar, contextual RRULE validation, VEVENT recurrence-property coverage and observance
 recurrence-local coverage, source-wide recurrence-local composition, selected TZID
-reference-local identity matching and source-wide VEVENT TZID identity coverage implemented;
+reference-local identity matching, source-wide VEVENT TZID identity coverage and a
+reusable snapshot renderer/deterministic EE02 preview implemented;
 production integration and hardware validation pending.** The owner-selected architecture
 uses Seeed_GFX2 with a locally maintained external-framebuffer ownership extension,
 one application-owned PSRAM arena, and a separate fixed-capacity five-day occurrence
@@ -471,8 +474,8 @@ failure behavior on physical EE02. Production rendering and memory remain unchan
 ### Application-owned PSRAM workspace
 
 [application/psram_workspace.h](../application/psram_workspace.h) implements
-`Ee02PsramWorkspace`, used only by the isolated smoke fixture. Production still
-uses legacy `EPaper` and the six-event array; it invokes neither the isolated
+`Ee02PsramWorkspace`, used by the isolated smoke fixture and dedicated calendar
+preview. Production still uses legacy `EPaper` and the six-event array; it invokes neither the isolated
 ingestion layer nor the structural parser.
 The independently allocated snapshot below is isolated from production.
 The header is outside root/`src` auto-compilation, has no global allocation and
@@ -704,6 +707,113 @@ feed completeness, UID reconciliation, electrical shutdown or production firmwar
 build is established. The smoke fixture uses synthetic UTC boundaries and evaluates
 snapshot/workspace coexistence only if later executed; compilation does not run it.
 No ICS/provider/recurrence or three-consecutive-failures policy is implemented.
+
+### Five-day snapshot renderer and EE02 preview
+
+**Reusable isolated rendering path implemented; live calendar/production migration
+and final presentation remain unimplemented.**
+[FiveDayRenderer](../application/five_day_renderer.h) accepts a const FiveDaySnapshot,
+Seeed_GFX, a half-open rectangular region, an explicit local-time conversion context
+and a preview GLCD scale (1–3). It returns Drawn, InvalidSnapshot, InvalidRegion or
+InvalidTimeContext with day-entry drawn/omitted counts, title shortening/glyph
+replacement counts and source outcome counts. These are presentation diagnostics,
+not source acceptance or physical panel success. Ee02PsramWorkspace separately owns
+refresh/shutdown outcomes. An error declines refresh in the preview; conversion
+callbacks must be deterministic and remain valid throughout the render call.
+
+#### Day selection, ordering and time meaning
+
+Use the stored civil first date and six resolved UTC boundaries. Before drawing,
+require explicit conversion, five corresponding local dates and midnight boundaries,
+correct preceding local dates, and coherent local date/time/offset representations.
+Every timed endpoint is checked, even if its row will not fit. Boundary lengths may
+be 23/25 hours; overlap never adds 86,400 seconds to a UTC boundary. The constant
+86,400 in the conversion consistency check encodes civil fields, not elapsed local
+day length. The producer still owns valid window/normalization context.
+
+[Narrow POSIX conversion](../application/five_day_posix_time.h) requires an explicit
+caller-owned expected TZ string matching the configured TZ, after caller setenv/tzset.
+It uses checked time_t conversion and localtime_r, deriving numeric offsets from the
+converted civil fields. There is no implicit device-timezone choice, fixed offset,
+ICS VTIMEZONE resolver or mutation of TZ inside rendering. No concurrent timezone
+changes are allowed. The preview uses known CET/CEST rules; tests explicitly set TZ
+and exercise spring gaps and both fall repeated-hour instants. Numeric offsets are
+always shown; nonzero seconds and offset seconds are preserved when present.
+
+For each consecutive day, count overlapping original records, then repeatedly find
+the next minimum directly in the snapshot. All-day entries precede timed entries;
+within each group order by original start, then immutable record index. There is no
+ordering allocation, copied event store or snapshot mutation. Work is bounded by five
+snapshot scans plus one scan per visible row, rather than sorting/retaining all
+records; display row capacity bounds repeated selection. Equal wall-clock times and
+overlapping records stay distinct. Points use half-open day membership. Original
+endpoints/dates are printed on each appearance, with Continued when the occurrence
+began before that day. All-day end dates are explicitly marked exclusive. No waking
+hours filter, deduplication or recurrence interpretation occurs.
+
+#### Bounds, source outcomes and preview ownership
+
+The provisional five-column agenda uses inspected GLCD 6×8 cells and disables a
+custom free font. Titles have at most two lines, read by stored byte length. Whole
+unsupported UTF-8 codepoints map to one ?; controls map to spaces. Shortened titles
+and labels show ...; full snapshot text is unchanged. A reserved +N more events line
+reports day-entry overflow without downgrading a Complete source. Region admission
+requires room for complete temporal labels, headers, status and at least one row.
+All graphics calls fit the region. A scoped absolute GFX2 viewport also guards it
+and restores the caller viewport/origin; font selection is left at GLCD. There is
+no full-display clear, second framebuffer, cache, persistent layout or allocation in
+the application renderer.
+
+Inspect every source: all Complete plus zero occurrences is an empty schedule;
+Complete plus Incomplete/Pending shows available entries with an incomplete warning.
+No Complete sources yields a check-sources/retry indication, never a fabricated empty
+schedule. Two affected labels/reasons fit dedicated lines, with an additional count
+when necessary. Labels are snapshot-owned views; no provider registry is added.
+
+[Dedicated preview](../previews/five_day_calendar/five_day_calendar.ino) is outside
+production auto-compilation. It uses the public snapshot transactions with fixed
+EXAMPLE DATA for October 23–27, 2026, including an incomplete example source, all-day,
+multiday, cross-midnight, point and repeated-hour entries. It allocates a separate
+32-record/4 KiB-text snapshot and one 2 MiB workspace as evaluation arguments, poisons
+scratch, then calls the actual renderer through Ee02PsramWorkspace::render(). Only
+the preview clears the full framebuffer. It checks rendering/refresh and panel end
+separately, retains restricted storage after uncertain shutdown and releases healthy
+storage through the existing APIs. The validated 960,000-byte borrowed prefix and
+independent snapshot remain the only large owners; no owned-panel case is added.
+The 1600×1200 rotation places the agenda at inclusive x/y 10..1034, inside the existing
+1044 dividers. Production panels, acquisition, legacy event array and sleep are untouched.
+
+#### Validation and limitations
+
+The [README preview command](../README.md#five-day-snapshot-renderer-and-ee02-example-preview)
+selects the documented XIAO ESP32-S3 Plus/OPI FQBN and explicit vendored GFX2, with all
+build output outside the checkout. The current attempt exited 127: the historical
+/tmp/ee02-gfx2-compat.qWyDXC/bin/arduino-cli executable is missing; no CLI was found
+on PATH or in inspected existing project/tool locations. No install/upgrade occurred.
+Board/core/library resolution, actual target renderer linkage, flash/RAM totals and
+hardware behavior are therefore unverified for this preview. Historical fixture
+compile evidence above is not carried forward as new renderer compilation evidence.
+A strict host syntax-only check of the sketch with disposable platform/facade stand-ins
+passed; that is neither target compilation nor linkage. Host renderer tests trace
+actual production formatting/selection/drawing calls against a narrow graphics
+stand-in and guarded real snapshot/workspace storage. They do not rasterize vendor
+fonts or establish physical EE02 appearance, refresh, energy or memory headroom.
+
+Fresh strict C++11 and ASan/UBSan runs passed **24 composed renderer checks** covering
+five date headers, unsorted/overlapping and point entries, unclipped spanning ranges,
+exclusive all-day ends, all source outcomes, missing/mismatched conversion context,
+23/25-hour DST days and repeated times, long/UTF-8 titles, row overflow, three text
+scales/regions, viewport/origin restoration and guarded workspace reuse. The tests
+use actual snapshot transactions and verify immutable records/text. Fresh existing
+snapshot, workspace and GFX2 framebuffer ownership regressions also passed strict
+and ASan/UBSan builds. Their hardware/facade stand-ins keep their original limits;
+no new physical evidence follows from these runs. Commands are in AGENTS.md.
+
+The final grid/agenda and waking-hour decisions remain Open. This example preview
+is a controlled intermediate display path, not a separate permanent application or
+the first live wall-calendar milestone. Live ICS-to-snapshot production,
+recurrence/timezone normalization, production GFX2 migration and physical validation
+remain separate independently authorized outcomes.
 
 ### Bounded streaming ICS ingestion
 
@@ -2670,8 +2780,8 @@ measurement or successful firmware build is available to support readiness.
   to acquisition orchestration and isolated panel/workspace/snapshot/ICS contracts,
   including staged values, local coverage, core RECUR grammar, contextual RRULE
   checks, VEVENT/observance recurrence-local coverage and source-wide recurrence-local
-  composition, selected TZID reference-local identity matching and source-wide VEVENT
-  TZID identity coverage; no CI is committed.
+  composition, selected TZID reference-local identity matching, source-wide VEVENT
+  TZID identity coverage and snapshot-renderer call-trace tests; no CI is committed.
 - **Data reliability:** truncation before global sort,
   insufficient response-state distinctions, volatile events and unresolved timezone
   alignment limit confidence. The target calendar snapshot is wake-cycle-only;

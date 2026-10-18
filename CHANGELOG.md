@@ -61,6 +61,12 @@ is historical evidence, not current architecture or requirements authority.
   without truncation or false completeness. Validate synthetic transactions and
   independence through scratch-to-framebuffer reuse; preserve production acquisition,
   keep capacities provisional and leave timezone/provider normalization unimplemented.
+- Add a reusable read-only five-day snapshot renderer and dedicated EE02 example
+  preview using the application workspace's borrowed GFX2 framebuffer. Show timed,
+  point, all-day and spanning events with explicit local-time conversion, stable
+  bounded ordering, source-status warnings and visible text/row overflow. Keep the
+  five-column agenda provisional; preserve production graphics/acquisition and defer
+  live normalization, final presentation, target compatibility and physical validation.
 - Add bounded standalone raw HTTP response framing and strict RFC 5545 logical-line
   unfolding in borrowed scratch storage. Require exact supported body completion,
   preserve octets across arbitrary read boundaries and fail explicitly on malformed,
