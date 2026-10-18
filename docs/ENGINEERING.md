@@ -109,7 +109,7 @@ standalone HTTP framing/line unfolding, property/component parsing, selective
 source-local dependency staging, typed primitive decoding, VEVENT-local checks and
 timezone/observance-local checks, source-local coverage, standalone core RECUR
 grammar, contextual RRULE validation, VEVENT recurrence-property coverage and observance
-recurrence-local coverage implemented;
+recurrence-local coverage plus source-wide recurrence-local composition implemented;
 production integration and hardware validation pending.** The owner-selected architecture
 uses Seeed_GFX2 with a locally maintained external-framebuffer ownership extension,
 one application-owned PSRAM arena, and a separate fixed-capacity five-day occurrence
@@ -869,8 +869,8 @@ without changing accepted ingestion, workspace, snapshot or vendor implementatio
 Production remains on Apps Script JSON and legacy graphics. Selective source-local
 staging, typed primitive decoding, selected VEVENT-local and timezone/observance-local
 checks plus source-local coverage, standalone core RECUR grammar, contextual RRULE
-validation, VEVENT recurrence-property coverage and observance recurrence-local coverage
-now exist in isolation below; complete component/source semantic validation, recurrence
+validation, VEVENT/observance recurrence-local coverage and source-wide recurrence-local
+composition now exist in isolation below; complete component/source semantic validation, recurrence
 application, timezone resolution and snapshot producer integration remain unimplemented.
 
 #### API, ownership and generic grammar
@@ -1826,7 +1826,9 @@ combination, source enumeration, UID/TZID index, cache or second recurrence/even
 representation. Existing grammar, typed, local/coverage, stage and snapshot
 implementations/interfaces remain unchanged. Source-local coverage does not call
 this operation. The separate VEVENT and observance recurrence-property passes below
-now enumerate their direct rules; source-wide recurrence coverage remains later work.
+enumerate their direct rules; IcsSourceRecurrenceLocal now composes those passes
+after a complete source-local preflight for whole-source local recurrence coverage.
+Recurrence execution and complete source semantic acceptance remain later work.
 
 #### Admission, order and diagnostics
 
@@ -2167,6 +2169,102 @@ regressions. No target/production build, live-provider or hardware test ran; ear
 isolated target evidence remains historical and does not establish this unit's
 target compatibility, performance or runtime memory headroom.
 
+### Source-wide recurrence-local coverage
+
+**Implemented complete local coverage across all staged calendar objects, not source
+semantic acceptance.** [IcsSourceRecurrenceLocal](../application/ics_source_recurrence_local.h)
+exposes stateless `inspect(stage, limits)`. Limits contain the existing source-local,
+event recurrence-local and observance recurrence-local limit structures. Pass each
+unchanged; independent nested budgets may differ. No default capacities, extra
+source limits, validated-source flag, descriptor store or production integration is
+introduced. The three accepted validators and staging/workspace/snapshot contracts
+remain unchanged.
+
+#### Two-phase ordering and dispatch
+
+Phase 1 explicitly calls IcsSourceLocal::inspect exactly once, requiring its complete
+LocalCoveragePassed preflight. That API owns stage readability, all-component/root/
+parent associations, root metadata, applicable component-local schemas, projection
+handling and source/count budgets. Any failure returns SourceLocalFailure with the
+entire original typed source Report and failing component; recurrence coverage never
+starts. A later source-local failure therefore outranks an earlier recurrence error.
+There is no single global first-failure order combining both phases.
+
+Phase 2 visits every staged component in increasing index order across every root.
+For each VEVENT, derive the direct calendar index from its validated parentOrdinal
+and call IcsEventRecurrenceLocal::inspect. For each STANDARD/DAYLIGHT, derive its
+direct timezone index and call IcsObservanceRecurrenceLocal::inspect. Check parent
+ordinal bounds before size_t conversion and use checked readers before dereferencing;
+inconsistent dispatch associations return InvalidAssociation. There is no alternate
+parent discovery, UID/TZID lookup, identity merging, sorting or display-window filter.
+Only successful child coverage increments the checked count, without overflow.
+
+Calendar/timezone roots, projected tasks/journals/freebusy/alarms, RFC 9073 children
+and opaque components receive no recurrence dispatch. Their preflight observations
+and review obligations survive; child UID/RRULE-like payloads never become parent
+event data. The first Phase 2 recurrence failure in component order returns
+EventRecurrenceFailure or ObservanceRecurrenceFailure with its entire typed child
+Report, including nested status/domain/property/offset diagnostics. No enum casts
+or lossy translations are used. Every failure clears all aggregate masks and
+successful counts, even after earlier successful recurrence checks.
+
+#### Results, obligations and bounded lifetime
+
+Report contains scalar status/domain, failing component index (None if unavailable),
+three distinct typed diagnostic slots, seven uint32_t masks and seven coverage counts.
+Only the active failure-domain slot is authoritative; inactive slots do not prove
+calls occurred. No pointer, view, identity string, source payload or recurrence
+record escapes. On success, copy calendar/event/timezone/observance/projected counts
+from preflight and require eventsRecurrenceChecked == events and
+observancesRecurrenceChecked == observances. Count inconsistency is an association
+failure, never partial success.
+
+Copy the three original preflight domains into sourceDeferred, sourceEventDeferred
+and sourceTimezoneDeferred. OR child masks only within their original domains into
+eventRecurrenceDeferred, eventContextualRuleDeferred, observanceLocalDeferred and
+observanceContextualRuleDeferred. No bit meanings are combined between domains and
+no child obligation is cleared. Metadata, nested-component and non-event observations,
+missing DTSTART, multiple rules, list/PERIOD context, override/RANGE/parameter review,
+timezone/leap-second evidence and unresolved observance EXDATE remain pending.
+
+Zero-event/zero-observance, opaque-only and non-event-only sources retain the accepted
+source-local coverage behavior; passing does not establish a complete empty schedule.
+LocalCoveragePassed establishes no supported executable recurrence set, expansion
+profile, resolved timezone identity/transitions, revision/override/cancellation or
+METHOD semantics, provider/source interpretation, normalization or snapshot eligibility.
+There is no source acceptance state machine, rollback or FiveDaySnapshot call.
+
+The wrapper performs one explicit source preflight plus one bounded component-order
+dispatch pass, using fixed reports/indices/counters, without allocation or recursion.
+Existing nested checks may repeat, including local/RDATE checks inside observance
+context validation; no bypass, decoded cache or exactly-once guarantee is added.
+Work is bounded by source component limits and the sum of the supplied nested
+validation budgets. All borrowed reads finish inside the existing withScratch
+lifetime; copied reports remain usable after release/poisoning. No new PSRAM owner,
+persistent state or event/recurrence database is added. ESP32 performance, stack/heap/
+PSRAM headroom and final operating limits remain unmeasured.
+
+Fresh strict C++11 and ASan/UBSan runs of tests/ics_source_recurrence_local_test.cpp
+passed **68 deterministic cases**, with zero audited `new` allocations and guarded
+byte-for-byte stage immutability, unchanged status/counts, repeated inspection and
+copied reports surviving release/poisoning. Synthetic Content-Length/chunked feeds
+use one-byte/fragmented delivery through actual ingestion, structure and staging;
+transient parser buffers are poisoned before coverage. Cases cover all-root/event/
+observance enumeration, both failure phases, complete original child diagnostics,
+separate mask aggregation, independent/exact/excess nested budgets, metadata,
+projections and explicit EXDATE pending review. Host Report sizeof/alignof is
+**376/8**, not a target-layout or measured headroom claim.
+
+Fresh strict regressions passed **106** source-local scenarios, **160** VEVENT
+recurrence-local cases and **116** observance recurrence-local cases. Commands are
+in AGENTS.md. An initially invalid test fixture's property-after-child ordering
+was corrected to the accepted structural contract; no accepted implementation or
+interface changed and no shared defect required broader regressions. Standalone
+grammar/typed/staging/structure, snapshot, graphics and acquisition suites were not
+run for this unit. No target/production build, provider access or hardware validation
+was performed. Historical test/target evidence retains its original applicability;
+these host results establish local coverage only, never semantic source completeness.
+
 ### Boot to sleep flow
 
 1. Start Serial. No filesystem mount, formatting or artwork initialization occurs.
@@ -2360,8 +2458,8 @@ measurement or successful firmware build is available to support readiness.
   remain prerequisites for a verified complete build. Host coverage is limited
   to acquisition orchestration and isolated panel/workspace/snapshot/ICS contracts,
   including staged values, local coverage, core RECUR grammar, contextual RRULE
-  checks, VEVENT recurrence-property coverage and observance recurrence-local coverage;
-  no CI is committed.
+  checks, VEVENT/observance recurrence-local coverage and source-wide recurrence-local
+  composition; no CI is committed.
 - **Data reliability:** truncation before global sort,
   insufficient response-state distinctions, volatile events and unresolved timezone
   alignment limit confidence. The target calendar snapshot is wake-cycle-only;
@@ -2473,7 +2571,7 @@ Blocked publication still requires local preservation and an explicit incomplete
 publication report. [AGENTS.md](../AGENTS.md#authorized-feature-branch-publication)
 remains the current workflow and publication-procedure authority.
 
-On 2026-10-18, the owner clarified the October 17 decision: generic hosted-operation
+On 2026-10-17, the owner clarified the October 17 decision: generic hosted-operation
 restrictions do not exclude required, standing-authorized feature-branch publication.
 Future execution prompts must preserve that obligation; genuine task conflicts must
 be resolved before substantive execution rather than producing a silent local-only

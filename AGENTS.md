@@ -390,6 +390,24 @@ shared issues. LocalCoveragePassed is local core RRULE/RDATE coverage with unres
 EXDATE review, recurrence-set, transition and source obligations. It establishes no
 exactly-once RDATE guarantee, final runtime budgets or snapshot publication eligibility.
 
+The source-wide recurrence-local regression composes one whole-source preflight and
+complete component-order event/observance recurrence dispatch. It checks two-phase
+failure precedence, complete child diagnostics, independent budgets/mask domains,
+multi-root projections, guarded immutability and report survival after release:
+
+```
+g++ -std=c++11 -Wall -Wextra -Werror -pedantic tests/ics_source_recurrence_local_test.cpp -o /tmp/ee02-source-recurrence-local-test
+/tmp/ee02-source-recurrence-local-test
+g++ -std=c++11 -Wall -Wextra -Werror -pedantic -fsanitize=address,undefined -fno-omit-frame-pointer tests/ics_source_recurrence_local_test.cpp -o /tmp/ee02-source-recurrence-local-sanitized
+/tmp/ee02-source-recurrence-local-sanitized
+```
+
+Run the existing strict source-local, VEVENT recurrence-local and observance
+recurrence-local focused commands for their directly composed reports. Broaden only
+for material coupling or exposed shared issues. LocalCoveragePassed establishes
+whole-source local enumeration, not source semantic acceptance, resolved recurrence/
+timezones, valid empty schedules or snapshot publication eligibility.
+
 Documentation: no dedicated lint/link-check command is committed; inspect Markdown
 references and affected claims directly, using available tools.
 Review: no automated review command exists; independent review inspects source/diff.
