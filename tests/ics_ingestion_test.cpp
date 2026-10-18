@@ -401,6 +401,46 @@ void scriptedShortReads() {
     assert(r.count==0); expect(event(h,HTTP::Transport::Closed),Status::Complete);
     r.equals({"AB"}); arena.check(); ++scenarios;
 }
+void optionalProcessingAndBoundary() {
+    const std::string wire=lengthResponse("A\r\nB\r\nC\r\n");
+    for(bool unlimited:{false,true}) {
+        auto l=evaluation(); l.processingMs=unlimited?0:10; l.stalledMs=5;
+        Guarded arena(scratchBytes(l)); Time t; Recorder r; HTTP h;
+        expect(h.initialize(arena.data(),arena.bytes,l,Recorder::sink,&r,Time::clock,&t),Status::InProgress);
+        assert(!h.bodyBoundaryReached());
+        for(size_t i=0;i<wire.size() && h.status()==Status::InProgress;++i) {
+            t.now+=2; feed(h,wire,i,1);
+        }
+        if(unlimited) { assert(h.bodyBoundaryReached()); expect(finish(h),Status::Complete); r.equals({"A","B","C"}); }
+        else { expect(h.status(),Status::ResourceLimit); assert(h.limit()==HTTP::Limit::ProcessingTime && !h.bodyBoundaryReached()); }
+        h.release(); assert(!h.bodyBoundaryReached()); arena.check(); ++scenarios;
+    }
+    for(const std::string& raw:{lengthResponse("A\r\n"),chunked("A\r\n",1)}) {
+        auto l=evaluation(); l.processingMs=0; Guarded arena(scratchBytes(l)); Time t; Recorder r; HTTP h;
+        expect(h.initialize(arena.data(),arena.bytes,l,Recorder::sink,&r,Time::clock,&t),Status::InProgress);
+        expect(feed(h,raw,0,raw.size()-1),Status::InProgress); assert(!h.bodyBoundaryReached());
+        expect(feed(h,raw,raw.size()-1,1),Status::InProgress); assert(h.bodyBoundaryReached() && h.status()==Status::InProgress);
+        expect(feed(h,std::string("X"),0,1),Status::UnexpectedBytes); assert(!h.bodyBoundaryReached()); ++scenarios;
+    }
+    { auto l=evaluation(); l.processingMs=0; l.stalledMs=10; Guarded arena(scratchBytes(l)); Time t; Recorder r; HTTP h;
+      expect(h.initialize(arena.data(),arena.bytes,l,Recorder::sink,&r,Time::clock,&t),Status::InProgress);
+      t.now=5; expect(event(h,HTTP::Transport::WouldBlock),Status::InProgress);
+      t.now=11; expect(event(h,HTTP::Transport::WouldBlock),Status::ResourceLimit); assert(h.limit()==HTTP::Limit::StallTime); ++scenarios; }
+    { auto l=evaluation(); l.processingMs=0; Guarded arena(scratchBytes(l)); Time t; Recorder r; HTTP h;
+      r.advanceClock=&t.now; r.clockStep=1000000;
+      expect(h.initialize(arena.data(),arena.bytes,l,Recorder::sink,&r,Time::clock,&t),Status::InProgress);
+      expect(feed(h,wire,0,wire.size()),Status::InProgress); // Callback CPU time is not remote inactivity.
+      expect(event(h,HTTP::Transport::WouldBlock),Status::InProgress); expect(finish(h),Status::Complete); ++scenarios; }
+    { auto l=evaluation(); l.processingMs=0; Guarded arena(scratchBytes(l)); Time t; Recorder r; HTTP h;
+      t.now=100; expect(h.initialize(arena.data(),arena.bytes,l,Recorder::sink,&r,Time::clock,&t),Status::InProgress);
+      t.now=99; expect(event(h,HTTP::Transport::WouldBlock),Status::InvalidClock); ++scenarios; }
+    { auto l=evaluation(); l.processingMs=0; l.stalledMs=0; Guarded arena(scratchBytes(l)); Time t; Recorder r; HTTP h;
+      expect(h.initialize(arena.data(),arena.bytes,l,Recorder::sink,&r,Time::clock,&t),Status::InvalidArgument); ++scenarios; }
+    for(bool header:{false,true}) {
+      auto l=evaluation(); l.processingMs=0; if(header) l.headerBytes=8; else l.receivedBytes=8;
+      responseCase(wire,Status::ResourceLimit,{},1,l);
+    }
+}
 void invalidArgumentsAndBounds() {
     Guarded arena(scratchBytes(evaluation())); Recorder r; Time t;
     HTTP fresh; expect(fresh.finish(),Status::NotInitialized);
@@ -446,7 +486,7 @@ int main() {
     static_assert(!std::is_copy_constructible<HTTP>::value,"scratch-bound session");
     static_assert(!std::is_copy_constructible<Lines>::value,"scratch-bound unfolder");
     unfolding(); happyFramingAndPartitions(); framingErrors(); redirects();
-    budgetsAndTiming(); lifecycleAndTransport(); scriptedShortReads(); invalidArgumentsAndBounds();
+    budgetsAndTiming(); lifecycleAndTransport(); scriptedShortReads(); optionalProcessingAndBoundary(); invalidArgumentsAndBounds();
     assert(allocations==0);
     std::printf("PASS: %zu partition/behavior scenarios; framing, unfolding, bounds, ownership, errors; zero ingestion allocations; sizeof session/unfolder=%zu/%zu\n",
         scenarios,sizeof(HTTP),sizeof(Lines));

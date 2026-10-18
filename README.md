@@ -9,7 +9,7 @@ The [original prototype article](https://www.makerguides.com/e-paper-wall-calend
 - **Display:** 1600×1200 Spectra 6, rolling next five days starting today, fixed waking-hour window (exact hours configurable), timed grid the leading candidate versus a five-day agenda. The week view **replaces the 1024×1024 artwork area**. Display layout is not finally selected.
 - **Other panels:** retain weather, multi-day forecast, today's detailed events, battery indication, and their existing positions initially. Whether the legacy monthly calendar remains is Open.
 - **Calendars:** select multiple source calendars; support Google, iCloud/CalDAV and general ICS by source-independent internal event representation. Entirely on-device fetching/normalization; **no separate backend, hosted processor or update preprocessor**. Sequential streaming ICS processing is selected; provider-access scope, including ICS-only initial access and private iCloud versus public ICS, remains Open.
-- **Selected graphics/memory architecture:** Seeed_GFX2 with a locally maintained external-framebuffer ownership extension; one application-owned PSRAM workspace for sequential, one-source-at-a-time streaming ICS processing, then rendering. A separate fixed-capacity five-day PSRAM snapshot owns normalized occurrences, text and transactional source outcomes without references into the reused workspace. GFX2 borrows only the 960,000-byte framebuffer slice and must not free it or allocate an unnecessary second framebuffer. The 2 MiB workspace, 1,024 occurrences and 320 KiB snapshot are provisional evaluation budgets, not validated operating limits. Borrowing, a scoped workspace, synthetic snapshot publication, standalone HTTP framing/line unfolding, bounded property/component parsing, selective source-local dependency staging, typed primitive decoding, VEVENT-local checks, timezone/observance-local checks, source-local coverage, standalone core RECUR grammar, contextual RRULE validation, VEVENT recurrence-property coverage, observance recurrence-local coverage, source-wide recurrence-local coverage, selected TZID reference-local identity matching, source-wide VEVENT TZID identity coverage, a restricted nonrecurring ICS-to-snapshot producer and a reusable snapshot renderer with a dedicated deterministic EE02 preview are implemented in isolation; live calendar acquisition, general component/source semantic validation and production phase reuse remain unimplemented, with hardware behavior unvalidated. Consult the [canonical architecture and validation contract](docs/ENGINEERING.md#selected-gfx2-psram-and-streaming-calendar-architecture).
+- **Selected graphics/memory architecture:** Seeed_GFX2 with a locally maintained external-framebuffer ownership extension; one application-owned PSRAM workspace for sequential, one-source-at-a-time streaming ICS processing, then rendering. A separate fixed-capacity five-day PSRAM snapshot owns normalized occurrences, text and transactional source outcomes without references into the reused workspace. GFX2 borrows only the 960,000-byte framebuffer slice and must not free it or allocate an unnecessary second framebuffer. The 2 MiB workspace, 1,024 occurrences and 320 KiB snapshot are provisional evaluation budgets, not validated operating limits. Borrowing, a scoped workspace, synthetic snapshot publication, standalone HTTP framing/line unfolding, bounded property/component parsing, selective source-local dependency staging, typed primitive decoding, VEVENT-local checks, timezone/observance-local checks, source-local coverage, standalone core RECUR grammar, contextual RRULE validation, VEVENT recurrence-property coverage, observance recurrence-local coverage, source-wide recurrence-local coverage, selected TZID reference-local identity matching, source-wide VEVENT TZID identity coverage, a restricted nonrecurring ICS-to-snapshot producer, a reusable snapshot renderer with a dedicated deterministic EE02 preview, and an authenticated streaming HTTPS acquisition API are implemented separately; coordinated live device integration, general component/source semantic validation and production phase reuse remain unimplemented, with hardware behavior unvalidated. Consult the [canonical architecture and validation contract](docs/ENGINEERING.md#selected-gfx2-psram-and-streaming-calendar-architecture).
 - **Storage/time:** NVS stores changed persistent configuration only (Wi-Fi, timezone, calendar URLs/selection, refresh settings). No daily churn, events, weather or routine counters go to NVS. RTC-retained memory may hold validated compact sleep context; reconstruct after invalid RTC/reset. NTP on cold boot when required, then approximately daily; use internal RTC between syncs.
 - **Refresh/recovery:** battery-powered, single user-configurable coordinated data-acquisition/render cycle, independently validated per source. Successful calendars display even if another calendar fails, with a named error bar; a weather failure is shown in its own panel while previously valid forecast data may remain. Three consecutive complete acquisition failures cause a full error screen; cold boot tries Wi-Fi before presenting recovery instructions.
 - **Setup:** device-hosted Wi-Fi webpage (LAN while explicitly awake, or open/no-password AP). AP stops after 10 minutes without meaningful user activity or 30 minutes maximum, then sleeps. Entering a new password may show characters; after save it is masked and the saved value is never echoed. Calendar URL fields remain displayed. An operator-accessible hardware AP trigger is required; simultaneous Setup+Refresh hold for five seconds is a **proposed, unverified** factory-reset gesture, not yet a pin/wake contract.
@@ -155,6 +155,70 @@ source-local ICS stage is described below; this snapshot provides no timezone
 resolver, persistent identity or production integration. See the
 [canonical snapshot contract](docs/ENGINEERING.md#normalized-five-day-occurrence-snapshot).
 
+### Authenticated streaming ICS HTTPS acquisition
+
+[IcsHttpsSource](application/ics_https_source.h) exposes
+`acquire(urlView, snapshot, sourceIndex, workspace, limits, transport, clock,
+clockContext, prerequisites)`. The caller supplies an initialized independent snapshot,
+a selected Pending source, an allocated scratch-ready workspace, Wi-Fi readiness,
+explicitly verified certificate-validation wall time, a readable NUL-terminated CA
+PEM span (length includes the terminator), and monotonic milliseconds. Inputs and
+transport/clock contexts must remain valid outside the workspace until return.
+No URL, request target, token, event text or redirect Location is logged or returned.
+Treat the entire URL as sensitive, including its hostname.
+
+The narrow URL profile accepts case-insensitive HTTPS, ASCII DNS labels, optional
+numeric port 1–65535, and encoded absolute path/query. Empty paths become `/`;
+query-only resources become `/?query`. Encoded bytes are preserved exactly.
+Hostnames must contain an ASCII letter. Userinfo, IPv6 literals, fragments, controls/whitespace,
+backslashes and malformed percent escapes fail. One bounded HTTP/1.1 GET sends
+Host (with explicit port), Accept:text/calendar, Accept-Encoding:identity and
+Connection:close. There are no cookies, authorization headers, redirects or retries.
+
+[IcsHttpsArduino](application/ics_https_arduino.h) binds the byte-I/O callbacks to the
+inspected Arduino-ESP32 **3.3.12** NetworkClientSecure API. It resolves once with
+synchronous `Network.hostByName`, then connects to the resolved IP while passing the
+original hostname for certificate verification and SNI. CA trust is required;
+there is no insecure or HTTP fallback. Keep the CA alive until acquisition returns.
+The adapter requires Core Debug Level **None** because upstream DNS failure logging
+can disclose the hostname; it does not change global logging or dependencies.
+
+All limits are explicit evaluation arguments. Positive `socketMs` bounds the pinned
+client's TCP connect and socket read/write operations; `handshakeSeconds` uses seconds
+with checked conversion bounds. Partial writes and empty polls have finite inactivity
+limits, and empty polls yield. Response inactivity uses `ingestion.stalledMs`, resets
+on received progress and excludes synchronous processing of received bytes.
+The live path requires `ingestion.processingMs == 0`, disabling only ingestion's total
+elapsed budget; other callers retain the existing positive-budget behavior.
+Synchronous DNS is uncancellable and has no caller timeout. There is **no overall
+acquisition deadline**: successful DNS/TLS and progressing downloads remain accepted
+regardless of total duration. A slow trickle can therefore prolong wake time/energy use.
+No final refresh or energy policy is selected.
+
+One `withScratch` scope partitions checked disjoint receive, HTTP, parser, stage and
+producer decoding slices. Raw bytes pass through existing ingestion → structure →
+stage → unchanged nonrecurring producer → snapshot, without a full-feed buffer.
+Observed declared HTTP boundaries permit finalization without waiting for EOF;
+observed surplus bytes still fail. RedirectRequired closes the socket and leaves the
+selected eligible source Incomplete without following or exposing Location.
+Upstream failures use existing beginSource/failSource; the producer owns successful
+publication and semantic rollback. Conflicting transactions remain intact. Invalid
+arguments/state leave the selected source untouched. Earlier completed sources survive.
+All socket/parser/stage users finish before workspace reuse; only snapshot-owned
+records/text survive. A pointer-free Report carries sanitized layer statuses, resource
+categories and committed counts; it does not replace snapshot outcomes.
+
+Strict C++11 and ASan/UBSan host tests exercise the actual streaming pipeline with
+scripted secure I/O, slow success, stalls, failures, scratch poisoning and renderer
+traces. Adapter stand-ins verify API call ordering, not real DNS/TLS authentication.
+Arduino compilation, physical EE02 testing and runtime/power measurements are
+owner-deferred and unverified; no live feed or credential was used. The restricted
+producer profile below is unchanged. Production networking/graphics, source settings,
+clock provisioning, rolling-window coordination and refresh integration remain later
+work. This capability is not a verified live wall calendar or provider interoperability
+claim. See [engineering](docs/ENGINEERING.md#authenticated-streaming-https-ics-acquisition)
+and [host commands](AGENTS.md#commands-and-validation).
+
 ### Restricted nonrecurring ICS-to-snapshot producer
 
 [IcsNonrecurringSnapshot](application/ics_nonrecurring_snapshot.h) connects the
@@ -297,7 +361,7 @@ exercise renderer decisions with graphics-call traces, not physical glyphs/pixel
 For the restricted producer and updated ICS preview, Arduino compilation and physical
 EE02 testing are explicitly owner-deferred; neither was attempted. Device compatibility
 is unverified. No physical EE02 was tested or flashed. See the [renderer contract and evidence](docs/ENGINEERING.md#five-day-snapshot-renderer-and-ee02-preview)
-and [focused commands](AGENTS.md#commands-and-validation). Live acquisition, broader
+and [focused commands](AGENTS.md#commands-and-validation). Coordinated live device acquisition, broader
 ICS normalization, production GFX2 migration, hardware/runtime validation and final
 presentation policy remain separate work.
 
@@ -365,12 +429,16 @@ finalization produces ingestion Complete. Empty framed bodies mean zero lines,
 not a valid empty calendar. Staged line delivery is provisional; errors, truncation,
 unsupported encodings, close-delimited bodies and resource exhaustion fail explicitly.
 Redirects yield bounded untrusted Location handoff data; they are never followed.
-URL resolution, origin/credential policy, HTTPS downgrade prevention, redirect-chain
-budgets, certificates and actual socket/TLS binding remain separate future work.
+The separate [HTTPS acquisition API](#authenticated-streaming-ics-https-acquisition)
+provides authenticated single-request socket binding. Redirect following, origin/
+credential-forwarding policy and trust/clock provisioning remain later work.
 
 Sessions allocate nothing and must live inside one workspace `withScratch()` scope;
-callback views must not escape (C++ cannot revoke aliases). Capacities/time limits are arguments, with no product
-defaults. Tests evaluate 8 MiB body/16 MiB received bytes, 4 KiB physical/16 KiB logical
+callback views must not escape (C++ cannot revoke aliases). `bodyBoundaryReached()`
+only observes declared framing completion; `finish()` remains mandatory. Capacities/time
+limits are arguments, with no product defaults. Positive processingMs retains total
+elapsed enforcement; zero disables only that budget. Positive stalledMs, monotonic
+clock checks and all byte/resource limits remain mandatory. Tests evaluate 8 MiB body/16 MiB received bytes, 4 KiB physical/16 KiB logical
 lines and 120-second processing/10-second stalled-read budgets provisionally.
 Strict C++11 and ASan/UBSan host checks passed; no new target compile, live provider
 or physical EE02 evidence is claimed. Production Apps Script acquisition and the
@@ -398,8 +466,9 @@ Malformed nesting, invalid text, exhaustion and consumer failure are terminal.
 Strict C++11 and ASan/UBSan host checks passed, including guarded actual-workspace
 use. The extended isolated EE02 fixture compiled/linked using the existing CLI
 1.5.1/core 3.3.12/OPI toolchain; this does not establish production compatibility
-or runtime hardware behavior. No live feed, production ICS integration or recurrence/timezone resolution is
-implemented. The separate restricted producer now consumes staged parser output for
+or runtime hardware behavior. This standalone parser adds no transport, production
+device integration or recurrence/timezone resolution. The separate HTTPS API composes
+it with acquisition; the restricted producer consumes staged parser output for
 transactional snapshot publication; structural success alone never publishes it. See the
 [canonical contract](docs/ENGINEERING.md#bounded-ics-propertycomponent-parser)
 and [host commands](AGENTS.md#commands-and-validation).
@@ -673,7 +742,7 @@ The documented deployment executes as the deploying account and allows access to
 
 ## Operation and recovery limits
 
-There is no committed reproducible build/flash procedure or validated recovery runbook. The intended AP/web/factory-reset recovery described above is not yet implemented. A focused [host regression](tests/data_acquisition_test.cpp) covers acquisition orchestration; it does not validate Arduino integration, display geometry, memory peaks or hardware. Keep local credentials private and use Serial output for diagnosis without sharing sensitive event/API content. Calendar retrieval is independent of weather success once acquisition Wi-Fi connects, but event data remains volatile across deep sleep. No application filesystem operations or persistent data cache remain; do not rely on offline retention. TLS certificate verification is currently disabled; security stabilization and owner-controlled hardware validation are still required. The redesign's selected recovery and storage policies are in the engineering anchor; implementation and hardware results remain unverified.
+There is no committed reproducible build/flash procedure or validated recovery runbook. The intended AP/web/factory-reset recovery described above is not yet implemented. A focused [host regression](tests/data_acquisition_test.cpp) covers acquisition orchestration; it does not validate Arduino integration, display geometry, memory peaks or hardware. Keep local credentials private and use Serial output for diagnosis without sharing sensitive event/API content. Calendar retrieval is independent of weather success once acquisition Wi-Fi connects, but event data remains volatile across deep sleep. No application filesystem operations or persistent data cache remain; do not rely on offline retention. Production legacy TLS certificate verification is currently disabled; the separate ICS HTTPS API requires authenticated CA/hostname verification; security stabilization and owner-controlled hardware validation are still required. The redesign's selected recovery and storage policies are in the engineering anchor; implementation and hardware results remain unverified.
 
 ## License
 

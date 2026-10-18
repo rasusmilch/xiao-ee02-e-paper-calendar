@@ -114,7 +114,7 @@ grammar, contextual RRULE validation, VEVENT recurrence-property coverage and ob
 recurrence-local coverage, source-wide recurrence-local composition, selected TZID
 reference-local identity matching, source-wide VEVENT TZID identity coverage and a
 reusable snapshot renderer/deterministic EE02 preview and restricted nonrecurring
-ICS-to-snapshot producer implemented;
+ICS-to-snapshot producer and authenticated streaming HTTPS acquisition API implemented;
 production integration and hardware validation pending.** The owner-selected architecture
 uses Seeed_GFX2 with a locally maintained external-framebuffer ownership extension,
 one application-owned PSRAM arena, and a separate fixed-capacity five-day occurrence
@@ -122,8 +122,10 @@ snapshot in PSRAM. Both allocations are volatile across deep sleep. Current firm
 still uses the global TFT_eSPI/EPaper object and ordinary event/weather storage;
 it uses none of the GFX2 borrowing extension, arena, normalized snapshot or streaming ICS pipeline.
 Contradictory engineering evidence must trigger explicit review and adjudication,
-not silent architectural substitution. Live transport and general component/source
-semantic validation remain unimplemented; detailed parser limits remain Open.
+not silent architectural substitution. Generic authenticated HTTPS acquisition now
+composes the restricted producer below; coordinated production device integration
+and general component/source semantic validation remain unimplemented. Operating
+capacities and measured device performance remain Open.
 
 #### Ownership and wake-cycle sequence
 
@@ -712,10 +714,139 @@ build is established. The smoke fixture uses synthetic UTC boundaries and evalua
 snapshot/workspace coexistence only if later executed; compilation does not run it.
 That fixture implements no ICS/provider/recurrence or three-consecutive-failures policy.
 
+### Authenticated streaming HTTPS ICS acquisition
+
+**Reusable acquisition API implemented; target execution and coordinated device
+integration unverified.** [IcsHttpsSource](../application/ics_https_source.h) owns one
+exclusive synchronous source acquisition, not a network framework or persistent
+source registry. `acquire(urlView, snapshot, sourceIndex, workspace, limits,
+transport, monotonicClock, clockContext, prerequisites)` accepts one URL, an
+initialized snapshot with the selected Pending source, scratch-ready application
+workspace, caller limits and a small byte-oriented transport callback table.
+The prerequisites explicitly assert ready Wi-Fi and trusted certificate-validation
+wall time, and supply a readable CA PEM span including its terminal NUL. Empty trust
+fails before DNS/TLS. The URL, CA and transport/clock contexts remain valid and
+outside borrowed workspace storage until return; callbacks must return normally.
+No new allocation owner, complete-response/ICS buffer, event model, cache or
+persistent source state is introduced. The Report contains scalar layer statuses,
+resource classifications, original producer diagnostics and committed counts only.
+Inactive diagnostics are not evidence of layer success.
+
+#### URL, request and TLS boundary
+
+The bounded URL parser admits case-insensitive HTTPS and ASCII DNS labels (1–63
+bytes, total at most 253, alphanumeric with interior hyphens, no trailing dot),
+port 1–65535, absolute path and optional query. Hostnames must contain an ASCII letter; IPv6 literals are unsupported. No userinfo, raw whitespace/control octets, fragment,
+backslash or malformed percent escape is accepted. Empty path uses `/`; query-only
+uses `/?query`. Original encoded path/query and Host authority bytes are preserved;
+there is no token decoding/normalization. A bounded partial-write loop sends one
+HTTP/1.1 GET with Host (including supplied port), Accept:text/calendar,
+Accept-Encoding:identity and Connection:close. No Authorization, Cookie, Referer,
+external credential, retry or automatic redirect is added. The **entire URL** is
+potentially sensitive, including host/path/query. Neither the API nor adapter logs
+or returns URL/request/Location content, calendar text or trust material.
+
+[IcsHttpsArduino](../application/ics_https_arduino.h) uses the public Arduino-ESP32
+**3.3.12** sources inspected at the [tag](https://github.com/espressif/arduino-esp32/tree/3.3.12):
+NetworkManager::hostByName, NetworkClientSecure and its ssl_client implementation.
+Synchronous hostByName calls lwip_getaddrinfo without a caller-controlled cancellation
+or per-request timeout. Resolve exactly once, then call
+`connect(resolvedIP, port, originalHostname, CA, nullptr, nullptr)`. This overload
+performs no second DNS lookup. CA verification selects MBEDTLS_SSL_VERIFY_REQUIRED;
+mbedtls_ssl_set_hostname receives the original requested hostname for hostname
+verification/SNI. No insecure, plain-start, alternate-host or downgrade path exists.
+The client is private to one adapter; CA bytes remain caller-owned through close.
+Core Debug Level **None** is required by a compile guard: upstream DNS failure logs
+can expose the hostname. The adapter changes no global logging, core or dependency.
+Collapsed socket/TLS failures are reported only as generic authenticated connection
+failure; the API does not invent certificate-specific causes. The core can collapse
+TLS available() errors into EOF; incomplete framing still fails. Host stand-ins
+cannot verify physical certificate-chain or hostname authentication.
+
+#### Timeouts and slow success
+
+Caller `socketMs` must be positive and fit INT32_MAX milliseconds. The inspected
+setConnectionTimeout sets the TCP connect budget and the connect-time socket_timeout
+used by TLS read/write helpers and SO_RCVTIMEO/SO_SNDTIMEO. Sharing this timeout
+avoids claiming independent control through an ineffective later setter.
+Handshake timeout is a separate positive **seconds** argument, bounded by
+UINT32_MAX/1000 because the core converts to milliseconds. `writeStalledMs` bounds
+repeated zero-progress writes; actual write progress resets it. Empty polls yield
+with delay(1) in the Arduino adapter. Response inactivity uses the existing positive
+`ingestion.stalledMs`; nonempty feeds reset waiting after synchronous parsing, while
+WouldBlock/zero reads do not. Monotonic milliseconds come from 64-bit
+esp_timer_get_time, independent of wall time and 32-bit millis wrap. Regression or
+invalid negative platform time fails explicitly.
+
+The live path requires **processingMs == 0**, the documented ingestion opt-out from
+its total elapsed budget. Positive processingMs for other callers retains existing
+ProcessingTime failure behavior. All other byte, metadata, line, parser, staging,
+producer and inactivity limits still apply. There is **no overall deadline**, DNS
+worker, post-call late-success test or producer deadline callback. Successful DNS
+and TLS proceed even after a long blocking call. Progressing transfers and completed
+producer transactions are accepted regardless of total duration. DNS may block for
+an implementation-dependent duration; slow trickles can extend wake time and energy
+use indefinitely within finite byte bounds. No hard maximum wall-clock duration,
+refresh target, battery policy or target performance guarantee is established.
+
+#### Streaming, source transactions and lifetime
+
+One withScratch callback partitions checked disjoint slices for hostname/request,
+receive chunk, ingestion metadata/line buffers, structure scratch, stage descriptors/
+pool and two producer TEXT/UID buffers. Capacity failure has no truncation fallback.
+Raw socket bytes retain HTTP status, headers and chunk framing for IcsIngestion.
+The readonly bodyBoundaryReached query allows prompt finish at a validated declared
+Content-Length/chunked boundary without waiting for EOF. It changes no status and
+never substitutes for finish/unfolding completion; observed surplus in the received
+buffer still triggers UnexpectedBytes. No claim is made about bytes never received
+after closing a legitimately completed response. RedirectRequired is preserved,
+closes the socket and marks the eligible source Incomplete without following or
+exposing Location. Non-200, unsupported encodings, malformed/truncated input and
+resource failures cannot become empty-success calendars.
+
+After ingestion Complete, structure finish and stage finish must succeed before
+calling unchanged IcsNonrecurringSnapshot. It owns begin/complete and rollback; the
+acquisition creates no enclosing transaction and never calls completeSource itself.
+Upstream failures begin/fail only the selected eligible Pending source. Invalid
+arguments/state preserve existing transactions; a conflicting active transaction
+may be detected by the existing snapshot/producer admission without new state APIs.
+Producer terminal outcomes are preserved without duplicate rollback. Earlier Complete
+sources survive every later failure. Complete with zero records is possible only
+through full supported semantic publication of valid outside-window events.
+Socket stop and CA alias revocation occur on every acquired terminal path, before
+producer publication or scoped return. Parser/stage destructors run inside the
+callback. Independent snapshot records/titles survive subsequent poisoning and
+scratch-to-framebuffer reuse; no drawing occurs while acquisition scratch is live.
+
+The nonrecurring profile below is unchanged: no recurrence, floating/TZID timestamp
+conversion, cancellation/revision selection or general source acceptance is added.
+The production sketch, deterministic preview, weather, battery and sleep remain
+unchanged. Future orchestration supplies rolling display windows, Wi-Fi, validated
+wall time, trust, private source selection/configuration and coordinated rendering.
+No live provider, settings UI, refresh scheduler or full wall-calendar integration is
+claimed. Arduino compilation, flashing, physical EE02 operation and runtime/energy
+measurements are owner-deferred and NOT RUN. Fresh host checks are listed in AGENTS;
+scripted transport and adapter stand-ins establish software behavior only.
+
+Fresh strict C++11 and ASan/UBSan runs passed 88 composed acquisition cases and
+the separate adapter call-order regression. They cover Content-Length/chunked raw
+responses, single-byte/fragmented reads, folded UTF-8 TEXT, exact UTC and DATE
+normalization, request/URL bounds, late DNS/TLS success and prolonged progress,
+actual inactivity failure, HTTP/structure/stage/semantic errors, snapshot capacity
+rollback, two-source preservation, renderer incomplete-source traces and independent
+titles/ranges after scratch poisoning. Guarded workspace/snapshot allocations and
+a new-allocation audit cover production orchestration (not real TLS heap behavior).
+The ingestion regression passed 1,335 scenarios, including the total-time opt-out,
+unchanged positive-budget failure, monotonic regression and framing-boundary query.
+Existing structure (565), stage (618), producer (228 plus shared-workspace case),
+snapshot, renderer (24) and workspace regressions also passed strict and sanitizer
+runs. Commands are in AGENTS.md. No live network/calendar, actual TLS, target compile,
+physical display, memory headroom or power evidence is implied by these results.
+
 ### Restricted nonrecurring ICS-to-snapshot producer
 
-**Implemented host-side supported-profile publication; no live acquisition or general
-ICS interoperability.** [IcsNonrecurringSnapshot](../application/ics_nonrecurring_snapshot.h)
+**Implemented supported-profile publication; transport remains a separate caller
+responsibility, with no general ICS interoperability.** [IcsNonrecurringSnapshot](../application/ics_nonrecurring_snapshot.h)
 is a small stateless producer, not another local-coverage wrapper. It uses existing
 stage readers, IcsSourceLocal, typed TEXT/temporal decoding and snapshot transactions.
 It introduces no event representation, UID registry, cache, allocation owner or
@@ -872,7 +1003,7 @@ also passed strict and sanitizer runs, retaining their scoped evidence limits. N
 Arduino compilation and physical EE02 testing for this producer/updated preview are
 explicitly owner-deferred and NOT RUN. Historical fixture/renderer evidence does not
 prove compatibility of this delta. Host facades do not establish physical glyphs,
-refresh, runtime headroom, energy or ESP32 performance. Live transport/authentication,
+refresh, runtime headroom, energy or ESP32 performance. Coordinated live device integration,
 recurrence, timezone transition resolution, revision/cancellation processing, broader
 metadata support,
 production GFX2 migration and final presentation policy remain separate work. No live
@@ -984,13 +1115,14 @@ no new physical evidence follows from these runs. Commands are in AGENTS.md.
 
 The final grid/agenda and waking-hour decisions remain Open. This example preview
 is a controlled intermediate display path, not a separate permanent application or
-the first live wall-calendar milestone. Live acquisition and broader ICS-to-snapshot support,
+the first live wall-calendar milestone. Coordinated live device integration and broader ICS-to-snapshot support,
 recurrence/timezone normalization, production GFX2 migration and physical validation
 remain separate independently authorized outcomes.
 
 ### Bounded streaming ICS ingestion
 
-**Implemented standalone software; no live acquisition or calendar semantics.**
+**Implemented framing software; the separate HTTPS operation composes it with
+acquisition and supported semantic publication.**
 [application/ics_ingestion.h](../application/ics_ingestion.h) implements one bounded
 raw HTTP response framer feeding the separate
 [application/ics_logical_lines.h](../application/ics_logical_lines.h) byte unfolder.
@@ -1022,12 +1154,14 @@ Complete means supported framing/unfolding, **not complete, semantically valid I
   Ignoring a Digest trailer is not integrity verification. HTTP delimiters and
   trailers never become ICS content.
 - Reaching a known body boundary leaves `InProgress`. `finish()` must also finalize
-  the unfolder before returning `Complete`. `transport(Closed)` uses this same
+  the unfolder before returning `Complete`. The side-effect-free
+  `bodyBoundaryReached()` only observes valid declared framing completion, without
+  finalization or status changes. `transport(Closed)` uses this same
   checked finalization; premature closure is `IncompleteFraming`. WouldBlock and
   `feed(nullptr, 0)` cannot complete acquisition. Submit only actual short-read
   counts, never requested counts. Observed bytes after the ordinary boundary are
-  `UnexpectedBytes`, including positive feed after Complete. A future socket
-  caller must check observed surplus and close its dedicated response connection;
+  `UnexpectedBytes`, including positive feed after Complete. The socket
+  caller submits observed surplus and closes its dedicated response connection;
   no detection of bytes arriving after that closure is claimed.
 - `transport(Error/Cancelled)` gives explicit terminal failure. Status, HTTP status,
   received/decoded byte counts, line count and enum limit category are the only
@@ -1049,12 +1183,13 @@ does not assert complete acquisition of that redirect's body or final calendar.
 
 No redirects are followed, resumed or chained here. No same-origin-only provider
 restriction is selected: even an HTTP/cross-origin Location can be returned as
-untrusted data. A separately approved transport adapter must resolve/validate
-targets, bound redirect count and the whole acquisition duration/bytes, reject
-HTTPS downgrade, apply origin/credential-forwarding policy, validate certificates
-at every hop and own socket cleanup. Never inherit prototype `setInsecure()` or
-automatic force-follow behavior. Authentication/provider coverage and trust/clock
-provisioning remain Open. Synthetic tests establish none of these live guarantees.
+untrusted data. The authenticated single-request adapter above refuses every
+redirect and closes without exposing Location. Future redirect following requires
+separate selection of target/origin and credential-forwarding policy, bounded hop/
+byte handling and authenticated HTTPS at every hop. It must not silently introduce
+an overall elapsed-time rejection policy. Never inherit prototype insecure TLS or
+automatic force-follow behavior. Provider coverage and trust/clock provisioning
+remain Open; synthetic tests establish no physical TLS or provider guarantees.
 This standalone supported subset establishes no permanent provider/transport restriction.
 
 The locally inspected core 3.3.12 HTTPClient reads headers/chunk sizes into growing
@@ -1063,8 +1198,9 @@ and stops its chunk writer at zero without trailer completion. `getStreamPtr()`
 returns the underlying client, not dechunked body bytes. These source limitations
 justify the small raw framer rather than another framing authority around that API;
 no core patch, dependency upgrade or general networking framework is introduced.
-The actual NetworkClientSecure read API also requires a later binding to distinguish
-no available data from EOF/errors correctly; this unit consumes explicit events.
+The separate NetworkClientSecure binding above maps available data, no-progress
+polls and closure/errors into this explicit-event API, with the documented upstream
+EOF/error distinction limits.
 
 #### Unfolding and borrowed lifetime
 
@@ -1120,12 +1256,15 @@ Check numeric conversion/counters before increment/access; exact byte limits are
 accepted and overflow fails. Monotonic clock callbacks check duration at feed,
 periodic parsing and sink/finalization boundaries; backwards clocks fail. Stall
 checks occur on feed/WouldBlock entry, and read-wait time starts after processing
-the last nonempty feed. Zero reads never reset it. Exact time budgets are allowed;
+the last nonempty feed. Zero reads never reset it. `processingMs > 0` retains the
+total elapsed limit; `processingMs == 0` disables only that limit and is required by
+the live HTTPS path. `stalledMs` must remain positive; monotonic clock checks and
+all storage/input limits remain active. Exact enabled time budgets are allowed;
 exceeding them is ResourceLimit with ProcessingTime/StallTime. No callback preemption
 or hard real-time guarantee exists. Caller polling and prompt callbacks are required.
 Final capacities and physical PSRAM/internal-heap/stack/TLS headroom remain unmeasured.
 
-Strict C++11 and ASan/UBSan [host tests](../tests/ics_ingestion_test.cpp) passed
+Historical strict C++11 and ASan/UBSan [host tests](../tests/ics_ingestion_test.cpp) passed
 1,325 partition/behavior scenarios, including every single split of representative
 responses, one-byte and mixed short reads, CRLF/folds/UTF-8 across HTTP chunks,
 length/chunk/trailer completion, malformed/unsupported profiles, redirect handoffs,
@@ -1142,8 +1281,9 @@ calls or extra allocation. Existing acquisition, snapshot and framebuffer regres
 passed unchanged. Exact commands are in AGENTS. Full production compilation,
 new target ingestion compile/link, TLS/providers, physical EE02 and measured runtime
 memory behavior were **NOT RUN**; the historical GFX2 fixture build does not validate
-this code. Later semantic normalization must validate calendar completeness and
-identity before independently authorized transactional snapshot publication.
+this code. Downstream normalization must validate calendar completeness and identity
+before transactional snapshot publication; the producer above discharges this only
+for its explicit supported profile, not general ICS semantics.
 
 ### Bounded ICS property/component parser
 
@@ -2845,11 +2985,13 @@ polarity, sequencing or sleep retention contract is established. Do not infer th
 
 ## Security and credential boundaries
 
-**Current-source observations:** Wi-Fi/API secrets come from intentionally ignored
+**Current production-source observations:** Wi-Fi/API secrets come from intentionally ignored
 local credentials.h. Apps Script contains a placeholder API_KEY that operators
 must privately configure. HTTPS paths call `setInsecure()` in calendar.h:146,
 weather.h:71/151/552. Thus certificate-based server authentication is disabled;
-encrypted transport is not authenticated trust.
+encrypted production transport is not authenticated trust. The separate ICS HTTPS
+API above requires CA-chain/hostname verification and caller-verified wall time; it
+does not repair these legacy paths or establish physical TLS validation.
 
 Calendar/API keys travel in query URLs. Apps Script deployment instructions
 execute as the deploying account with access set to
@@ -2869,7 +3011,7 @@ it adds no NVS/flash writes. Its diagnostics contain codes and ordinals rather t
 content. Release invalidates views but is not secure erasure; physical-access
 protection and runtime content handling still require the existing security review.
 
-**Recommendation, not yet implemented:** authenticated TLS for every endpoint and
+**Recommendation, not fully implemented:** authenticated TLS for every production endpoint and
 redirect, explicit clock/trust failure handling, bounded input validation and
 minimal diagnostic data. Trust-update mechanism, physical-access threat assumptions
 and recovery/retention policy require evidence or selection.
@@ -3002,7 +3144,9 @@ limits. Contrary engineering evidence requires explicit review and adjudication.
 **Recommendations not yet selected:** Arduino CLI as the reproducible production build route,
 immutable compatible pins for other dependencies, broader focused C++ host coverage, explicit
 production source-results/time normalization, durable configuration-save mechanisms and
-authenticated TLS mechanisms. The initial GFX2 source pin is approved and imported;
+production-wide authenticated TLS integration. The separate generic ICS adapter
+implements the inspected CA/hostname-authenticated API without production lifecycle
+integration. The initial GFX2 source pin is approved and imported;
 its local borrowing, scoped workspace and synthetic snapshot are implemented with isolated compile/link
 evidence. Production integration and physical memory/display behavior remain
 unverified, not grounds for a silent source upgrade.

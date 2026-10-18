@@ -258,6 +258,31 @@ profile and caller-owned scratch/lifetime contract are in
 Arduino compilation and physical testing are owner-deferred for this host-only unit;
 passing host tests do not establish target compatibility.
 
+The live HTTPS acquisition regression uses scripted secure byte I/O and actual
+framing → structure → stage → nonrecurring producer → snapshot → renderer behavior.
+The adapter regression uses only the inspected 3.3.12 API subset as test-local
+stand-ins; load the host graphics facade before the platform guard to avoid implying
+an ESP32 graphics build. Neither test performs DNS, TLS or a live service call:
+
+```
+g++ -std=c++11 -Wall -Wextra -Werror -pedantic -Itests/renderer_host -Itests/gfx2_host -Ithird_party/Seeed_GFX2/src tests/ics_https_source_test.cpp -Wl,--wrap=free -o /tmp/ee02-ics-https-source-test
+/tmp/ee02-ics-https-source-test
+g++ -std=c++11 -Wall -Wextra -Werror -pedantic -fsanitize=address,undefined -fno-omit-frame-pointer -Itests/renderer_host -Itests/gfx2_host -Ithird_party/Seeed_GFX2/src tests/ics_https_source_test.cpp -Wl,--wrap=free -o /tmp/ee02-ics-https-source-sanitized
+/tmp/ee02-ics-https-source-sanitized
+g++ -std=c++11 -Wall -Wextra -Werror -pedantic -Itests/https_arduino_host -Itests/renderer_host -Itests/gfx2_host -Ithird_party/Seeed_GFX2/src tests/ics_https_arduino_test.cpp -o /tmp/ee02-ics-https-arduino-test
+/tmp/ee02-ics-https-arduino-test
+g++ -std=c++11 -Wall -Wextra -Werror -pedantic -fsanitize=address,undefined -fno-omit-frame-pointer -Itests/https_arduino_host -Itests/renderer_host -Itests/gfx2_host -Ithird_party/Seeed_GFX2/src tests/ics_https_arduino_test.cpp -o /tmp/ee02-ics-https-arduino-sanitized
+/tmp/ee02-ics-https-arduino-sanitized
+```
+
+Compose ingestion, structure, staging, producer, snapshot, workspace and renderer
+regressions for acquisition's streaming/transaction/lifetime guarantees. The live
+path requires processingMs == 0 with positive stalledMs; existing positive processing
+budgets retain their behavior. There is no overall deadline or producer timeout.
+Arduino compilation, physical TLS/EE02 and runtime/power checks for this unit are
+owner-deferred. Host stand-ins do not establish platform compatibility. See the
+[acquisition contract](docs/ENGINEERING.md#authenticated-streaming-https-ics-acquisition).
+
 The standalone raw HTTP/ICS-unfolding regression uses allocation-free production
 headers with synthetic byte reads, a monotonic clock and guarded caller storage:
 

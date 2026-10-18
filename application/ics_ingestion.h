@@ -25,6 +25,8 @@ public:
         uint64_t receivedBytes, bodyBytes;
         size_t headerBytes, headerFields, metadataLine, chunkMetadata;
         size_t trailerBytes, trailerFields, location, physicalLine, logicalLine;
+        // Zero processingMs explicitly disables only the total elapsed budget.
+        // stalledMs remains mandatory; progress/clock/framing checks still run.
         uint64_t processingMs, stalledMs;
     };
     struct View { const uint8_t* data; size_t size; };
@@ -45,7 +47,7 @@ public:
             !limits.receivedBytes || !limits.headerBytes || !limits.headerFields ||
             !limits.metadataLine || !limits.chunkMetadata || !limits.trailerBytes ||
             !limits.trailerFields || !limits.location || !limits.physicalLine ||
-            !limits.logicalLine || !limits.processingMs || !limits.stalledMs ||
+            !limits.logicalLine || !limits.stalledMs ||
             limits.chunkMetadata > limits.metadataLine || limits.metadataLine > capacity ||
             limits.location > capacity - limits.metadataLine ||
             limits.logicalLine > capacity - limits.metadataLine - limits.location)
@@ -119,6 +121,11 @@ public:
         Call call(_busy); checkTime(true); return _status;
     }
     Status status() const { return _status; }
+    // Observed declared framing boundary only. finish() must still finalize
+    // unfolded lines; received surplus bytes must still be submitted to feed().
+    bool bodyBoundaryReached() const {
+        return _scratch && (_status == Status::InProgress || _status == Status::Complete) && _phase == Phase::Boundary;
+    }
     Limit limit() const { return _limit; }
     uint16_t httpStatus() const { return _httpStatus; }
     uint64_t receivedBytes() const { return _received; }
@@ -163,7 +170,7 @@ private:
         const uint64_t now = _clock(_clockContext);
         if (now < _lastClock) { fail(Status::InvalidClock); return false; }
         _lastClock = now;
-        if (now - _started > _limits.processingMs) { exhausted(Limit::ProcessingTime); return false; }
+        if (_limits.processingMs && now - _started > _limits.processingMs) { exhausted(Limit::ProcessingTime); return false; }
         if (checkStall && now - _lastData > _limits.stalledMs) { exhausted(Limit::StallTime); return false; }
         return _status == Status::InProgress;
     }
