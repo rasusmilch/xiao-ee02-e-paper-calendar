@@ -38,11 +38,12 @@ public:
     IcsIngestion& operator=(const IcsIngestion&) = delete;
     ~IcsIngestion() { release(); }
 
-    // Layout is [metadata][Location][logical line], all byte-aligned. No defaults.
-    Status initialize(uint8_t* scratch, size_t capacity, const Limits& limits,
-                      Sink sink, void* sinkContext, Clock clock, void* clockContext) {
-        if (_used) return fail(Status::InvalidState);
-        _used = true;
+    // Clock-free storage/limit admission shared with acquisition. InProgress
+    // means the configuration fits, not that a session or timer has started.
+    // The positive logical-line limit is also the unfolder's slice capacity;
+    // whole-span admission below proves that nested slice is a valid subspan.
+    static Status validateConfiguration(const uint8_t* scratch, size_t capacity,
+                                        const Limits& limits, Sink sink, Clock clock) {
         if (!scratch || !ee02_ics_detail::span(scratch, capacity) || !sink || !clock ||
             !limits.receivedBytes || !limits.headerBytes || !limits.headerFields ||
             !limits.metadataLine || !limits.chunkMetadata || !limits.trailerBytes ||
@@ -51,6 +52,16 @@ public:
             limits.chunkMetadata > limits.metadataLine || limits.metadataLine > capacity ||
             limits.location > capacity - limits.metadataLine ||
             limits.logicalLine > capacity - limits.metadataLine - limits.location)
+            return Status::InvalidArgument;
+        return Status::InProgress;
+    }
+
+    // Layout is [metadata][Location][logical line], all byte-aligned. No defaults.
+    Status initialize(uint8_t* scratch, size_t capacity, const Limits& limits,
+                      Sink sink, void* sinkContext, Clock clock, void* clockContext) {
+        if (_used) return fail(Status::InvalidState);
+        _used = true;
+        if (validateConfiguration(scratch, capacity, limits, sink, clock) != Status::InProgress)
             return _status = Status::InvalidArgument;
         _scratch = scratch; _capacity = capacity; _limits = limits;
         _meta = scratch; _location = scratch + limits.metadataLine;

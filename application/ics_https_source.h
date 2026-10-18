@@ -155,19 +155,12 @@ struct Call {
             rejectOverlap(t.context,t.context?1:0) || rejectOverlap(clock.context,clock.context?1:0)) {
             report=result(Status::InvalidArgument,Domain::Admission); return GfxResult::success();
         }
-        if(!prerequisites.wifiReady) { report=result(Status::WifiUnavailable,Domain::Prerequisite); return GfxResult::success(); }
-        if(!prerequisites.trustedWallClock) { report=result(Status::UntrustedTime,Domain::Prerequisite); return GfxResult::success(); }
-        const View ca=prerequisites.caPem;
-        if(!ee02_ics_detail::span(ca.data,ca.size) || ca.size<2 || ca.data[ca.size-1] || std::memchr(ca.data,0,ca.size-1)) {
-            report=result(Status::MissingTrust,Domain::Prerequisite); return GfxResult::success();
-        }
-        Url parsed={}; report=url(input,limits,parsed);
-        if(report.status!=Status::Published) return GfxResult::success();
         size_t stageBytes=0,parserBytes=0;
-        if(IcsSourceStage::requiredBytes(limits.stage,stageBytes)!=IcsSourceStage::Status::InProgress ||
-            IcsStructure::scratchBytes(limits.structure,parserBytes)!=IcsStructure::Status::InProgress) {
-            report=result(Status::InvalidArgument,Domain::Admission); return GfxResult::success();
-        }
+        report=result(Status::InvalidArgument,Domain::Admission);
+        report.stageStatus=IcsSourceStage::requiredBytes(limits.stage,stageBytes);
+        if(report.stageStatus!=IcsSourceStage::Status::InProgress) return GfxResult::success();
+        report.structureStatus=IcsStructure::scratchBytes(limits.structure,parserBytes);
+        if(report.structureStatus!=IcsStructure::Status::InProgress) return GfxResult::success();
         const auto& h=limits.ingestion;
         size_t used=0; uint8_t *host,*request,*receive,*httpBytes,*parserStorage,*stageStorage,*text;
         size_t httpSize=h.metadataLine;
@@ -185,6 +178,24 @@ struct Call {
         if(!take(bytes,capacity,used,2*limits.producer.maxDecodedTextBytes,text)) {
             report=result(Status::ResourceLimit,Domain::Workspace,Limit::Workspace); return GfxResult::success();
         }
+        // Admit actual aligned storage through the component owners before I/O.
+        // Keep this one stage/parser pair in scope through response processing.
+        IcsSourceStage stage; IcsStructure structure; IcsIngestion http;
+        report.stageStatus=stage.initialize(stageStorage,stageBytes,limits.stage);
+        if(report.stageStatus==IcsSourceStage::Status::InProgress)
+            report.structureStatus=structure.initialize(parserStorage,parserBytes,limits.structure,IcsSourceStage::sink,&stage);
+        if(report.stageStatus!=IcsSourceStage::Status::InProgress || report.structureStatus!=IcsStructure::Status::InProgress)
+            return GfxResult::success();
+        report.ingestionStatus=IcsIngestion::validateConfiguration(httpBytes,httpSize,h,IcsStructure::lineSink,Clock::callback);
+        if(report.ingestionStatus!=IcsIngestion::Status::InProgress) return GfxResult::success();
+        if(!prerequisites.wifiReady) { report=result(Status::WifiUnavailable,Domain::Prerequisite); return GfxResult::success(); }
+        if(!prerequisites.trustedWallClock) { report=result(Status::UntrustedTime,Domain::Prerequisite); return GfxResult::success(); }
+        const View ca=prerequisites.caPem;
+        if(!ee02_ics_detail::span(ca.data,ca.size) || ca.size<2 || ca.data[ca.size-1] || std::memchr(ca.data,0,ca.size-1)) {
+            report=result(Status::MissingTrust,Domain::Prerequisite); return GfxResult::success();
+        }
+        Url parsed={}; report=url(input,limits,parsed);
+        if(report.status!=Status::Published) return GfxResult::success();
         std::memcpy(host,input.data+parsed.hostBegin,parsed.hostSize); host[parsed.hostSize]=0;
         size_t requestBytes=0;
         const auto literal=[&](const char* s) { return append(request,limits.maxRequestBytes,requestBytes,s,std::strlen(s)); };
@@ -212,12 +223,8 @@ struct Call {
             } else { report=result(Status::WriteFailure,Domain::Write); return GfxResult::success(); }
         }
         if(clock.bad) { report=result(Status::InvalidClock,Domain::Admission); return GfxResult::success(); }
-        IcsSourceStage stage; IcsStructure structure; IcsIngestion http;
-        report.stageStatus=stage.initialize(stageStorage,stageBytes,limits.stage);
-        if(report.stageStatus==IcsSourceStage::Status::InProgress)
-            report.structureStatus=structure.initialize(parserStorage,parserBytes,limits.structure,IcsSourceStage::sink,&stage);
-        if(report.structureStatus==IcsStructure::Status::InProgress)
-            report.ingestionStatus=http.initialize(httpBytes,httpSize,h,IcsStructure::lineSink,&structure,Clock::callback,&clock);
+        // Start HTTP inactivity accounting only after DNS, TLS and GET writing.
+        report.ingestionStatus=http.initialize(httpBytes,httpSize,h,IcsStructure::lineSink,&structure,Clock::callback,&clock);
         if(report.ingestionStatus!=IcsIngestion::Status::InProgress) {
             report.status=Status::InvalidArgument; report.domain=Domain::Admission; return GfxResult::success();
         }
@@ -284,12 +291,13 @@ inline Report acquire(View url,FiveDaySnapshot& snapshot,size_t sourceIndex,Ee02
         !limits.maxRequestBytes || limits.maxRequestBytes>INT_MAX || !limits.receiveBytes || limits.receiveBytes>INT_MAX ||
         !limits.timeouts.socketMs || limits.timeouts.socketMs>INT32_MAX || !limits.timeouts.handshakeSeconds ||
         limits.timeouts.handshakeSeconds>UINT32_MAX/1000 || !limits.timeouts.writeStalledMs ||
-        limits.ingestion.processingMs || !limits.ingestion.stalledMs)
+        limits.ingestion.processingMs)
         return result(Status::InvalidArgument,Domain::Admission);
     Call call{url,snapshot,sourceIndex,limits,transport,prerequisites,{clock,clockContext},result(Status::InvalidState,Domain::Workspace)};
     if(!workspace.withScratch(0,workspace.capacity(),Call::callback,&call).ok()) return result(Status::InvalidState,Domain::Workspace);
+    // Workspace capacity/arithmetic rejection is caller admission, not source failure.
     if(call.report.status!=Status::Published && call.report.status!=Status::InvalidArgument &&
-        call.report.status!=Status::InvalidState && snapshot.source(sourceIndex)->outcome==FiveDaySnapshot::Outcome::Pending) {
+        call.report.status!=Status::InvalidState && call.report.domain!=Domain::Workspace && snapshot.source(sourceIndex)->outcome==FiveDaySnapshot::Outcome::Pending) {
         const auto begun=snapshot.beginSource(sourceIndex);
         if(begun==FiveDaySnapshot::Result::Ok) call.report.snapshotResult=snapshot.failSource(sourceIndex,FiveDaySnapshot::Reason::ProducerFailure);
         else { call.report.status=Status::InvalidState; call.report.domain=Domain::Snapshot; call.report.snapshotResult=begun; }

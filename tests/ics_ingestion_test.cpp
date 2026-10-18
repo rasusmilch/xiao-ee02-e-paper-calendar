@@ -441,6 +441,53 @@ void optionalProcessingAndBoundary() {
       responseCase(wire,Status::ResourceLimit,{},1,l);
     }
 }
+void configurationAdmission() {
+    Guarded arena(scratchBytes(evaluation())); Recorder r;
+    const auto clock=[](void* p)->uint64_t { ++*static_cast<size_t*>(p); return 100; };
+    // All initialization guards use the same component-owned checker. Exact
+    // capacities, a zero body budget and disabled total time remain admissible.
+    for(int fault=0;fault<26;++fault) {
+        auto l=evaluation(); uint8_t* p=arena.data(); size_t n=arena.bytes, reads=0;
+        HTTP::Sink sink=Recorder::sink; HTTP::Clock timer=clock;
+        switch(fault) {
+        case 0: l.receivedBytes=0; break;
+        case 1: l.headerBytes=0; break;
+        case 2: l.headerFields=0; break;
+        case 3: l.metadataLine=0; break;
+        case 4: l.chunkMetadata=0; break;
+        case 5: l.trailerBytes=0; break;
+        case 6: l.trailerFields=0; break;
+        case 7: l.location=0; break;
+        case 8: l.physicalLine=0; break;
+        case 9: l.logicalLine=0; break;
+        case 10: l.stalledMs=0; break;
+        case 11: l.chunkMetadata=l.metadataLine+1; break;
+        case 12: l.metadataLine=n+1; break;
+        case 13: l.location=n-l.metadataLine+1; break;
+        case 14: l.logicalLine=n-l.metadataLine-l.location+1; break;
+        case 15: --n; break;
+        case 16: p=nullptr; break;
+        case 17: p=reinterpret_cast<uint8_t*>(UINTPTR_MAX-8); break;
+        case 18: n=SIZE_MAX; break;
+        case 19: sink=nullptr; break;
+        case 20: timer=nullptr; break;
+        case 21: l.processingMs=0; break;
+        case 22: l.bodyBytes=0; break;
+        case 23: l.physicalLine=SIZE_MAX; break; // Not a storage capacity.
+        case 24: l.metadataLine=SIZE_MAX; break;
+        default: break; // Unmodified exact storage capacity.
+        }
+        const auto wanted=fault>=21 && fault!=24?Status::InProgress:Status::InvalidArgument;
+        HTTP h;
+        { Audit audit;
+          expect(HTTP::validateConfiguration(p,n,l,sink,timer),wanted);
+          assert(reads==0 && h.status()==Status::NotInitialized && r.count==0);
+          assert(std::all_of(arena.storage.begin(),arena.storage.end(),[](uint8_t b){return b==0xa5;}));
+          expect(h.initialize(p,n,l,sink,&r,timer,&reads),wanted);
+          assert(reads==(wanted==Status::InProgress?1U:0U)); }
+        h.release(); arena.check(); ++scenarios;
+    }
+}
 void invalidArgumentsAndBounds() {
     Guarded arena(scratchBytes(evaluation())); Recorder r; Time t;
     HTTP fresh; expect(fresh.finish(),Status::NotInitialized);
@@ -486,7 +533,7 @@ int main() {
     static_assert(!std::is_copy_constructible<HTTP>::value,"scratch-bound session");
     static_assert(!std::is_copy_constructible<Lines>::value,"scratch-bound unfolder");
     unfolding(); happyFramingAndPartitions(); framingErrors(); redirects();
-    budgetsAndTiming(); lifecycleAndTransport(); scriptedShortReads(); optionalProcessingAndBoundary(); invalidArgumentsAndBounds();
+    budgetsAndTiming(); lifecycleAndTransport(); scriptedShortReads(); optionalProcessingAndBoundary(); configurationAdmission(); invalidArgumentsAndBounds();
     assert(allocations==0);
     std::printf("PASS: %zu partition/behavior scenarios; framing, unfolding, bounds, ownership, errors; zero ingestion allocations; sizeof session/unfolder=%zu/%zu\n",
         scenarios,sizeof(HTTP),sizeof(Lines));

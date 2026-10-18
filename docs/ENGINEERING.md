@@ -774,7 +774,9 @@ UINT32_MAX/1000 because the core converts to milliseconds. `writeStalledMs` boun
 repeated zero-progress writes; actual write progress resets it. Empty polls yield
 with delay(1) in the Arduino adapter. Response inactivity uses the existing positive
 `ingestion.stalledMs`; nonempty feeds reset waiting after synchronous parsing, while
-WouldBlock/zero reads do not. Monotonic milliseconds come from 64-bit
+WouldBlock/zero reads do not. Configuration admission starts no HTTP timer;
+HTTP initialize runs only after successful DNS, TLS and complete GET transmission.
+Monotonic milliseconds come from 64-bit
 esp_timer_get_time, independent of wall time and 32-bit millis wrap. Regression or
 invalid negative platform time fails explicitly.
 
@@ -794,6 +796,21 @@ refresh target, battery policy or target performance guarantee is established.
 One withScratch callback partitions checked disjoint slices for hostname/request,
 receive chunk, ingestion metadata/line buffers, structure scratch, stage descriptors/
 pool and two producer TEXT/UID buffers. Capacity failure has no truncation fallback.
+Before transport invocation, requiredBytes/scratchBytes check component-owned limits
+and checked sizes; actual stage and structure initializers admit aligned spans.
+One initialized stage/parser pair remains scoped through response processing.
+IcsIngestion::validateConfiguration admits its exact storage/limit contract, shared
+with initialize(), without reading the clock, emitting callbacks or starting a
+session. Its checked complete span and positive physical/logical limits also admit
+the unfolder: the logical slice capacity equals its logical limit. No alternate
+parser, duplicated acquisition-side rule list or persistent validation state exists.
+All deterministic component-configuration and workspace-capacity rejection precedes
+DNS/TLS/request writes, preserves the selected Pending source and leaves other
+transactions untouched. Reports preserve the applicable component InvalidArgument
+status or workspace ResourceLimit category. Valid configured resource limits may
+still be exhausted while processing a source; those genuine failures retain existing
+Incomplete/rollback behavior. Ingestion initialize is deferred until the full GET is
+sent, so slow successful DNS/TLS/writes never consume response inactivity time.
 Raw socket bytes retain HTTP status, headers and chunk framing for IcsIngestion.
 The readonly bodyBoundaryReached query allows prompt finish at a validated declared
 Content-Length/chunked boundary without waiting for EOF. It changes no status and
@@ -828,7 +845,7 @@ claimed. Arduino compilation, flashing, physical EE02 operation and runtime/ener
 measurements are owner-deferred and NOT RUN. Fresh host checks are listed in AGENTS;
 scripted transport and adapter stand-ins establish software behavior only.
 
-Fresh strict C++11 and ASan/UBSan runs passed 88 composed acquisition cases and
+Historical initial-acquisition strict C++11 and ASan/UBSan runs passed 88 composed acquisition cases and
 the separate adapter call-order regression. They cover Content-Length/chunked raw
 responses, single-byte/fragmented reads, folded UTF-8 TEXT, exact UTC and DATE
 normalization, request/URL bounds, late DNS/TLS success and prolonged progress,
@@ -842,6 +859,22 @@ Existing structure (565), stage (618), producer (228 plus shared-workspace case)
 snapshot, renderer (24) and workspace regressions also passed strict and sanitizer
 runs. Commands are in AGENTS.md. No live network/calendar, actual TLS, target compile,
 physical display, memory headroom or power evidence is implied by these results.
+
+The focused admission repair passed fresh strict C++11 and ASan/UBSan runs:
+323 acquisition cases and 1,361 ingestion scenarios. Thirty-one invalid configuration
+cases are repeated with another Pending source, an active transaction and an earlier
+Complete source. They assert zero DNS/connect/read/write calls, unchanged outcomes,
+preserved diagnostics and successful reuse after rejected admission. Exact workspace
+capacity passes across eight alignment offsets; one-byte excess is rejected before
+transport. Clock-free ingestion checks agree with actual initialization for required
+fields, mutually constrained limits, invalid spans and exact scratch boundaries,
+without touching buffers or invoking callbacks. Slow DNS, TLS and writes each
+exceed the response inactivity interval while valid Content-Length/chunked responses
+still publish. Existing stall, truncation, semantic rollback, earlier-source and
+scratch-independence cases remain covered. Existing structure (565) and staging
+(618) regressions also passed fresh strict and ASan/UBSan runs; the ingestion suite
+includes direct logical-line coverage. Earlier evidence remains historical; target
+and physical validation remain owner-deferred.
 
 ### Restricted nonrecurring ICS-to-snapshot producer
 
@@ -1133,6 +1166,10 @@ Complete means supported framing/unfolding, **not complete, semantically valid I
 
 #### Raw HTTP contract
 
+- `IcsIngestion::validateConfiguration(scratch, capacity, limits, sink, clock)`
+  is a read-only, clock-free configuration query shared with initialize. It returns
+  InProgress for admitted storage/limits or InvalidArgument; it does not start a
+  session, validate response data or change an existing object's lifecycle.
 - `IcsIngestion::initialize(scratch, capacity, limits, sink, sinkContext, clock,
   clockContext)` admits caller storage and explicit limits. `feed(bytes, count)`
   accepts raw HTTP/1.0 or HTTP/1.1 status/headers/body, not an HTTPClient-decoded

@@ -217,13 +217,98 @@ void exactLimits() {
     }
     { Fake f; f.now=UINT64_MAX; Snap s; init(s); expect(run(f,s,w),S::InvalidClock); failed(s); assert(!f.resolves); }
 }
+void configurationAdmission() {
+    Ee02PsramWorkspace w; assert(w.allocate(Ee02PsramWorkspace::FrameBufferBytes).ok());
+    // Repeat each invalid configuration with another Pending source, an active
+    // transaction and an earlier Complete source. Admission cannot change any.
+    for(int other=0;other<3;++other) for(int fault=0;fault<31;++fault) {
+        Fake f; Snap s; init(s); auto l=limits();
+        if(other==1)assert(s.beginSource(1)==Snap::Result::Ok);
+        if(other==2) { Fake earlier; expect(run(earlier,s,w,url,l,ready(),1),S::Published); }
+        bool workspace=false,parser=false,stage=false;
+        switch(fault) {
+        case 0: l.ingestion.headerFields=0; break;
+        case 1: l.ingestion.metadataLine=0; break;
+        case 2: l.ingestion.logicalLine=0; break;
+        case 3: l.ingestion.physicalLine=0; break;
+        case 4: l.ingestion.chunkMetadata=l.ingestion.metadataLine+1; break;
+        case 5: l.ingestion.receivedBytes=0; break;
+        case 6: l.ingestion.headerBytes=0; break;
+        case 7: l.ingestion.chunkMetadata=0; break;
+        case 8: l.ingestion.trailerBytes=0; break;
+        case 9: l.ingestion.trailerFields=0; break;
+        case 10: l.ingestion.location=0; break;
+        case 11: l.ingestion.stalledMs=0; break;
+        case 12: l.ingestion.location=SIZE_MAX; workspace=true; break;
+        case 13: l.ingestion.logicalLine=SIZE_MAX; workspace=true; break;
+        case 14: l.ingestion.location=w.capacity(); workspace=true; break;
+        case 15: l.stage.poolBytes=w.capacity(); workspace=true; break;
+        case 16: l.producer.maxDecodedTextBytes=SIZE_MAX; workspace=true; break;
+        case 17: l.structure.parameters=0; parser=true; break;
+        case 18: l.structure.valuesPerParameter=0; parser=true; break;
+        case 19: l.structure.valuesPerProperty=0; parser=true; break;
+        case 20: l.structure.depth=0; parser=true; break;
+        case 21: l.structure.componentName=0; parser=true; break;
+        case 22: l.structure.logicalLine=0; parser=true; break;
+        case 23: l.structure.propertiesPerComponent=0; parser=true; break;
+        case 24: l.structure.propertiesPerSource=0; parser=true; break;
+        case 25: l.structure.components=0; parser=true; break;
+        case 26: l.structure.calendars=0; parser=true; break;
+        case 27: l.structure.depth=SIZE_MAX; parser=true; break;
+        case 28: l.stage.components=0; stage=true; break;
+        case 29: l.stage.reviewBytes=l.stage.poolBytes+1; stage=true; break;
+        case 30: l.stage.properties=SIZE_MAX; stage=true; break;
+        }
+        const auto before0=*s.source(0), before1=*s.source(1); const auto count=s.occurrenceCount();
+        const auto r=run(f,s,w,url,l);
+        expect(r,workspace?S::ResourceLimit:S::InvalidArgument);
+        assert(r.domain==(workspace?N::Domain::Workspace:N::Domain::Admission));
+        if(workspace)assert(r.limit==N::Limit::Workspace);
+        else if(parser)assert(r.structureStatus==IcsStructure::Status::InvalidArgument);
+        else if(stage)assert(r.stageStatus==IcsSourceStage::Status::InvalidArgument);
+        else assert(r.ingestionStatus==IcsIngestion::Status::InvalidArgument);
+        assert(!f.resolves && !f.connects && !f.writes && !f.reads && f.request.empty() && f.closes==1);
+        assert(!std::memcmp(&before0,s.source(0),sizeof(before0)) && !std::memcmp(&before1,s.source(1),sizeof(before1)));
+        assert(s.occurrenceCount()==count);
+        if(other==1)assert(s.completeSource(1)==Snap::Result::Ok); // Active transaction survived.
+        if(other==2)assert(title(s)=="Folded title, UTF-8 Café");
+        // The failed admission leaked neither scoped users nor a transaction.
+        expect(run(f,s,w),S::Published); assert(s.source(0)->outcome==Snap::Outcome::Complete);
+    }
+    // Exact aggregate storage, including worst-case alignment padding, with
+    // varied slice offsets. No permanent capacity or layout policy is selected.
+    for(size_t shift=0;shift<8;++shift) {
+        Fake f; Snap s; init(s); auto l=limits(); l.maxHostBytes-=shift;
+        size_t parser=0,stage=0;
+        assert(IcsStructure::scratchBytes(l.structure,parser)==IcsStructure::Status::InProgress);
+        assert(IcsSourceStage::requiredBytes(l.stage,stage)==IcsSourceStage::Status::InProgress);
+        const size_t used=l.maxHostBytes+1+l.maxRequestBytes+l.receiveBytes+l.ingestion.metadataLine+
+            l.ingestion.location+l.ingestion.logicalLine+parser+stage+2*l.producer.maxDecodedTextBytes;
+        assert(used<w.capacity()); l.stage.poolBytes+=w.capacity()-used;
+        expect(run(f,s,w,url,l),S::Published); assert(s.occurrenceCount()==1);
+        Snap rejected; init(rejected); Fake over; ++l.stage.poolBytes;
+        const auto r=run(over,rejected,w,url,l); expect(r,S::ResourceLimit);
+        assert(r.domain==N::Domain::Workspace && !over.resolves && !over.connects && !over.writes);
+        assert(rejected.source(0)->outcome==Snap::Outcome::Pending);
+    }
+    // DNS, handshake and GET writing each exceed the response inactivity bound.
+    // None starts that timer; it begins with HTTP initialization after the GET.
+    for(bool chunks:{false,true}) {
+        Fake f(chunks?chunked(body()):length(body())); Snap s; init(s);
+        f.dnsDuration=1000000; f.tlsDuration=1000000; f.writeDuration=1000000;
+        f.readSize=1; f.readDuration=2; f.emptyEvery=3;
+        auto l=limits(); l.ingestion.stalledMs=5;
+        expect(run(f,s,w,url,l),S::Published);
+        assert(f.now>3000000 && s.source(0)->outcome==Snap::Outcome::Complete);
+    }
+}
 void ownership() {
     { auto b=body(); const auto start=b.find("BEGIN:VEVENT"), end=b.find("END:VCALENDAR");
       auto second=b.substr(start,end-start); second.replace(second.find("UID:synthetic"),13,"UID:other"); b.insert(end,second);
       Fake f(length(b)); Snap s; init(s,1); Ee02PsramWorkspace w; assert(w.allocate(2097152).ok());
       expect(run(f,s,w),S::ProducerFailure); failed(s); assert(s.source(0)->reason==Snap::Reason::RecordCapacity); }
 
-    { Fake f;Snap s;init(s);Ee02PsramWorkspace w;assert(w.allocate(2097152).ok());auto l=limits();l.stage.poolBytes=2097152;expect(run(f,s,w,url,l),S::ResourceLimit);failed(s);assert(!f.connects); }
+    { Fake f;Snap s;init(s);Ee02PsramWorkspace w;assert(w.allocate(2097152).ok());auto l=limits();l.stage.poolBytes=2097152;expect(run(f,s,w,url,l),S::ResourceLimit);assert(s.source(0)->outcome==Snap::Outcome::Pending && !f.connects); }
     { Fake f;Snap s;init(s);Ee02PsramWorkspace w;assert(w.allocate(2097152).ok());auto l=limits();l.ingestion.processingMs=1;
       expect(run(f,s,w,url,l),S::InvalidArgument);assert(s.source(0)->outcome==Snap::Outcome::Pending && !f.resolves); }
     { Fake f;Snap s;init(s);Ee02PsramWorkspace w;assert(w.allocate(2097152).ok());assert(s.beginSource(1)==Snap::Result::Ok);
@@ -253,4 +338,4 @@ void multiple() {
     }
 }
 }
-int main() { happy();urls();transportFailures();responseFailures();semantics();exactLimits();ownership();multiple();for(const auto& a:allocations)assert(!a.live);std::printf("HTTPS ICS acquisition: %zu composed cases passed; no audited allocations\n",cases); }
+int main() { happy();urls();transportFailures();responseFailures();semantics();exactLimits();configurationAdmission();ownership();multiple();for(const auto& a:allocations)assert(!a.live);std::printf("HTTPS ICS acquisition: %zu composed cases passed; no audited allocations\n",cases); }

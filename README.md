@@ -196,7 +196,14 @@ regardless of total duration. A slow trickle can therefore prolong wake time/ene
 No final refresh or energy policy is selected.
 
 One `withScratch` scope partitions checked disjoint receive, HTTP, parser, stage and
-producer decoding slices. Raw bytes pass through existing ingestion → structure →
+producer decoding slices. Before DNS/TLS or GET transmission, component-owned
+stage/parser initialization and `IcsIngestion::validateConfiguration` admit limits,
+spans and capacity, including the nested line-unfolder slice. Configuration errors
+and insufficient workspace leave the selected source Pending without network I/O.
+The same scoped stage/parser pair handles the response. The clock-free ingestion
+check starts no session; actual ingestion initialization starts its response timer
+only after DNS, TLS and the complete GET write succeed.
+Raw bytes pass through existing ingestion → structure →
 stage → unchanged nonrecurring producer → snapshot, without a full-feed buffer.
 Observed declared HTTP boundaries permit finalization without waiting for EOF;
 observed surplus bytes still fail. RedirectRequired closes the socket and leaves the
