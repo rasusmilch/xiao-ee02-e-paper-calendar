@@ -64,8 +64,12 @@ is historical evidence, not current architecture or requirements authority.
 - Connect staged ICS to transactional five-day snapshot publication for a closed
   nonrecurring VEVENT profile: exact decoded UID uniqueness, UTC timestamps,
   civil-date all-day ranges and decoded titles. Validate every event, including
-  outside-window input; reject unsupported recurrence/timezone/revision/extension
-  semantics and roll back failed sources without harming earlier calendars. Reuse
+  outside-window input; admit passive METHOD:PUBLISH/X-WR metadata, validated ignored
+  administrative/display-irrelevant fields, confirmed/public events, declared
+  attachment/image projections, direct alarms and locally validated unused timezone
+  definitions. Keep floating/TZID times, recurrence, cancellation/revision selection,
+  privacy/tentative presentation and unknown event/root semantics unsupported; roll
+  back failed sources without harming earlier calendars. Reuse
   two bounded caller-owned decoding buffers without another event store. Drive the
   deterministic EE02 preview through actual HTTP/ICS ingestion and normalization;
   retain explicit incomplete-source warnings, independent scratch/snapshot ownership,

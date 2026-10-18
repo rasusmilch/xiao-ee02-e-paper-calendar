@@ -231,19 +231,19 @@ void textAndIdentity() {
 void failures() {
     const auto good=calendar(event());
     const std::vector<std::string> unsupported={
-        calendar(event(),"METHOD:PUBLISH\r\n"), calendar(event(),"CALSCALE:JULIAN\r\n"),calendar(event(),"X-CALENDAR:any\r\n"),
+        calendar(event(),"METHOD:REQUEST\r\n"), calendar(event(),"CALSCALE:JULIAN\r\n"),calendar(event(),"X-CALENDAR:any\r\n"),
         calendar(event(),"NAME:Title\r\n"),replace(good,"PRODID:synthetic","PRODID;LANGUAGE=en:synthetic"),
-        replace(good,"SUMMARY:Appointment","SUMMARY;LANGUAGE=en:Appointment"),
+        replace(good,"SUMMARY:Appointment","SUMMARY;ALTREP=unsupported:Appointment"),
         replace(good,"UID:event","UID;VALUE=TEXT:event"),replace(good,"DTSTAMP:","DTSTAMP;VALUE=DATE-TIME:"),
         calendar(event("DTSTART:20261023T090000\r\n")),calendar(event("DTSTART;TZID=Custom:20261023T090000\r\n")),
         good+good,calendar(component("VTODO","SUMMARY:Task\r\n")),
-        calendar(event()+component("VTIMEZONE","TZID:X\r\n"+component("STANDARD","DTSTART:20261023T020000\r\nTZOFFSETFROM:+0000\r\nTZOFFSETTO:+0100\r\n"))),
-        calendar(component("VEVENT","UID:e\r\nDTSTAMP:20261017T120000Z\r\nDTSTART:20261023T090000Z\r\n"+component("VALARM","ACTION:DISPLAY\r\nTRIGGER:-PT5M\r\nDESCRIPTION:Alarm\r\n")))};
+        calendar(event()+component("X-OPAQUE","X-FIELD:any\r\n")),
+        calendar(component("VEVENT","UID:e\r\nDTSTAMP:20261017T120000Z\r\nDTSTART:20261023T090000Z\r\n"+component("PARTICIPANT","UID:child\r\n")))};
     for(const auto& body:unsupported) {
         Session s; parse(s,body); Snapshot snap; init(snap); expect(checked(s,snap),S::UnsupportedProfile); rolledBack(snap);
     }
     for(const char* field:{"RRULE:FREQ=DAILY","RDATE:20261024T090000Z","EXDATE:20261023T090000Z","RECURRENCE-ID:20261023T090000Z",
-        "STATUS:CANCELLED","SEQUENCE:2","CREATED:20261017T120000Z","LAST-MODIFIED:20261017T120000Z","DESCRIPTION:Info","LOCATION:Here",
+        "STATUS:CANCELLED","STATUS:TENTATIVE","CLASS:PRIVATE","SEQUENCE;VALUE=INTEGER:2","CREATED;VALUE=DATE-TIME:20261017T120000Z","LAST-MODIFIED;VALUE=DATE-TIME:20261017T120000Z","DESCRIPTION;ALTREP=x:Info","LOCATION;ALTREP=x:Here",
         "ORGANIZER:mailto:example.invalid","ATTENDEE:mailto:example.invalid","X-EXTRA:any","DURATION:PT1H"}) {
         Session s; parse(s,calendar(event("DTSTART:20200101T000000Z\r\n"+std::string(field)+"\r\n")));
         Snapshot snap; init(snap); expect(checked(s,snap),S::UnsupportedProfile); rolledBack(snap);
@@ -381,6 +381,139 @@ void sharedWorkspace() {
     assert(title(snap,0)=="Workspace title" && data.report.publishedOccurrences==1);
     draw(snap,{"Workspace title","11:00 +0200"}); assert(workspace.release().ok());
 }
+std::string observance(const std::string& kind="STANDARD",const std::string& extra="") {
+    return component(kind,"DTSTART:20261025T030000\r\nTZOFFSETFROM:+0200\r\nTZOFFSETTO:+0100\r\n"+extra);
+}
+std::string timezone(const std::string& extra="") {
+    return component("VTIMEZONE","TZID:Example/Unused\r\n"+extra+observance()+observance("DAYLIGHT","RRULE:FREQ=YEARLY;BYMONTH=3;BYDAY=-1SU\r\n"));
+}
+std::string alarm() { return component("VALARM","ACTION:DISPLAY\r\nTRIGGER:-PT15M\r\nDESCRIPTION:Notification only\r\n"); }
+void accepts(const std::string& body) {
+    Session s; parse(s,body); Snapshot snap; init(snap); const auto r=checked(s,snap);
+    expect(r,S::SourceCommitted); assert(r.publishedOccurrences==1 && snap.source(0)->outcome==Snapshot::Outcome::Complete);
+    assert(snap.occurrence(0)->range.timed.start==1792746000 && title(snap,0)=="Appointment");
+}
+void rejects(const std::string& body,S expected=S::UnsupportedProfile) {
+    Session s; parse(s,body); Snapshot snap; init(snap); expect(checked(s,snap),expected); rolledBack(snap);
+}
+void passiveMetadata() {
+    for(const char* root:{"METHOD:PUBLISH\r\n","METHOD:publish\r\n","X-WR-CALNAME:Personal\r\n","X-WR-CALDESC:Shared\\, public\\nfeed\r\n","x-wr-timezone:America/New_York\r\n"})
+        accepts(calendar(event(),root));
+    for(const char* root:{"METHOD:CANCEL\r\n","METHOD:REQUEST\r\n","METHOD:REPLY\r\n","METHOD:ADD\r\n","METHOD:UNKNOWN\r\n","METHOD:\r\n",
+        "METHOD;X-OTHER=x:PUBLISH\r\n","X-WR-OTHER:any\r\n","X-VENDOR:any\r\n","NAME:any\r\n","X-WR-CALNAME;LANGUAGE=en:Name\r\n",
+        "X-WR-CALNAME:A\r\nx-wr-calname:B\r\n"}) rejects(calendar(event(),root));
+    rejects(calendar(event(),"X-WR-CALDESC:bad\\q\r\n"),S::InvalidText);
+    rejects(calendar(event("SUMMARY:No start\r\n"),"METHOD:PUBLISH\r\n"));
+    for(const char* field:{"CREATED:20261017T120000Z","LAST-MODIFIED:20261017T130000Z","SEQUENCE:0","SEQUENCE:27","SEQUENCE:+1",
+        "DESCRIPTION:Details\\, escaped\\; here\\nnext","LOCATION:Office","URL:https://example.invalid/event?id=1&view=public#info",
+        "URL:urn:uuid:abc-123","URL:mailto:calendar@example.invalid","STATUS:CONFIRMED","STATUS:confirmed","TRANSP:OPAQUE","TRANSP:TRANSPARENT","CLASS:PUBLIC",
+        "DESCRIPTION;LANGUAGE=en:Details","LOCATION;LANGUAGE=zh-Hant-TW:Office"})
+        accepts(calendar(event("DTSTART:20261023T090000Z\r\nSUMMARY:Appointment\r\n"+std::string(field)+"\r\n")));
+    for(const char* field:{"STATUS:CANCELLED","STATUS:TENTATIVE","STATUS:","CLASS:PRIVATE","CLASS:CONFIDENTIAL","CLASS:","TRANSP:BUSY","TRANSP:","SEQUENCE:-1",
+        "SEQUENCE;X-OTHER=x:0","CREATED;X-OTHER=x:20261017T120000Z","URL:","URL:relative/path","URL:https://","URL:https://example.invalid/a b",
+        "URL:https://example.invalid/%gg","URL:https://example.invalid/\tbad","URL:https://example.invalid/%2","URL:https://example.invalid/\\bad","URL:https://host:abc/a",
+        "URL:https://user@host/a","URL:https://[::1]/a","URL;VALUE=URI:https://example.invalid/a",
+        "DESCRIPTION;LANGUAGE=en;LANGUAGE=de:Text","LOCATION;ALTREP=x:Here","SUMMARY;X-OTHER=x:No"}) {
+        // SUMMARY replacement avoids an unrelated duplicate SUMMARY failure.
+        const std::string base=std::string(field).find("SUMMARY")==0?"DTSTART:20261023T090000Z\r\n":"DTSTART:20261023T090000Z\r\nSUMMARY:Appointment\r\n";
+        rejects(calendar(event(base+field+"\r\n")));
+    }
+    for(const char* lang:{"en","en-US","es-419","zh-Hant","zh-Hant-TW","eng-Latn-419","\"en-US\""})
+        accepts(calendar(event("DTSTART:20261023T090000Z\r\nSUMMARY;LANGUAGE="+std::string(lang)+":Appointment\r\n")));
+    for(const char* name:{"X-WR-CALNAME","X-WR-CALDESC","X-WR-TIMEZONE"})
+        rejects(calendar(event(),std::string(name)+":A\r\n"+name+":B\r\n"));
+    for(const char* lang:{"e","english","en_US","en-","en-US-extra","en-a","en-abcdefghi","en,fr","\"\"","en-1234","x-private","en^nUS"})
+        rejects(calendar(event("DTSTART:20261023T090000Z\r\nSUMMARY;LANGUAGE="+std::string(lang)+":Appointment\r\n")));
+    for(const char* field:{"CREATED:20260230T120000Z","LAST-MODIFIED:20261017T250000Z","SEQUENCE:bad","SEQUENCE:2147483648"})
+        rejects(calendar(event("DTSTART:20261023T090000Z\r\n"+std::string(field)+"\r\n")),S::LocalValidationFailure);
+    for(const char* field:{"CREATED:20261017T120060Z","LAST-MODIFIED:20261017T120060Z"})
+        rejects(calendar(event("DTSTART:20261023T090000Z\r\n"+std::string(field)+"\r\n")),S::InvalidTemporalValue);
+    for(const char* field:{"CREATED:20261017T120000Z","LAST-MODIFIED:20261017T120000Z","SEQUENCE:0","DESCRIPTION:Text","LOCATION:Here","URL:https://example.invalid",
+        "TRANSP:OPAQUE","STATUS:CONFIRMED","CLASS:PUBLIC"}) {
+        const std::string f=std::string(field)+"\r\n";
+        rejects(calendar(event("DTSTART:20261023T090000Z\r\n"+f+f)),S::LocalValidationFailure);
+    }
+    // Structural duplicate METHOD rejection is unchanged, including complete HTTP.
+    { Session s; const auto body=calendar(event(),"METHOD:PUBLISH\r\nMETHOD:PUBLISH\r\n");
+      const auto raw="HTTP/1.1 200 OK\r\nContent-Length: "+std::to_string(body.size())+"\r\n\r\n"+body;
+      s.http.feed(reinterpret_cast<const uint8_t*>(raw.data()),raw.size()); s.http.finish(); s.structure.finish();
+      assert(s.structure.status()==IcsStructure::Status::InvalidMetadata); s.stage.finish(s.http,s.structure);
+      Snapshot snap; init(snap); expect(checked(s,snap),S::Unavailable); rolledBack(snap); }
+}
+void passiveComponents() {
+    for(const char* attachment:{"ATTACH:https://example.invalid/file","ATTACH;VALUE=URI:https://example.invalid/file",
+        "IMAGE;VALUE=URI:https://example.invalid/image","ATTACH;VALUE=BINARY;ENCODING=BASE64:YWJj","IMAGE;VALUE=BINARY;ENCODING=BASE64:YWJj"})
+        accepts(calendar(event("DTSTART:20261023T090000Z\r\nSUMMARY:Appointment\r\n"+std::string(attachment)+"\r\n")));
+    for(const char* attachment:{"ATTACH;ENCODING=QUOTED-PRINTABLE:abc","ATTACH;FMTTYPE=image/png:https://example.invalid","IMAGE:https://example.invalid",
+        "ATTACH;VALUE=BINARY:YWJj","IMAGE;VALUE=URI;X-OTHER=x:https://example.invalid"})
+        rejects(calendar(event("DTSTART:20261023T090000Z\r\n"+std::string(attachment)+"\r\n")));
+    accepts(calendar(event("DTSTART:20261023T090000Z\r\nSUMMARY:Appointment\r\n"+alarm())));
+    accepts(calendar(timezone()+event())); accepts(calendar(event()+timezone()));
+    // Unused definition-local extension/recurrence obligations remain nonapplicable.
+    accepts(calendar(timezone("X-DEFINITION-ONLY:Unreviewed\r\n")+event()));
+    rejects(calendar(timezone()+event("DTSTART;TZID=Example/Unused:20261023T090000\r\n")));
+    rejects(calendar(timezone()+event("DTSTART:20261023T090000\r\n")));
+    rejects(calendar(replace(timezone(),"TZOFFSETTO:+0100\r\n","")+event()),S::LocalValidationFailure);
+    rejects(calendar(event()+component("X-OPAQUE","X-EXTRA:any\r\n")));
+    rejects(calendar(component("VEVENT","UID:event\r\nDTSTAMP:20261017T120000Z\r\nDTSTART:20261023T090000Z\r\n"+component("PARTICIPANT","UID:child\r\n"))));
+    { Session s; parse(s,calendar(event("DTSTART:20261023T090000Z\r\n"+alarm())));
+      auto* c=const_cast<Stage::Component*>(s.stage.component(2)); c->parentOrdinal=1;
+      Snapshot snap; init(snap); expect(checked(s,snap),S::LocalValidationFailure); rolledBack(snap); }
+    { Session s; parse(s,calendar(event("DTSTART:20261023T090000Z\r\n"+alarm())));
+      const_cast<Stage::Component*>(s.stage.component(2))->flags=0;
+      Snapshot snap; init(snap); expect(checked(s,snap),S::LocalValidationFailure); rolledBack(snap); }
+    { Session s; parse(s,calendar(event("DTSTART:20261023T090000Z\r\n"+alarm())));
+      auto* c=s.stage.component(2); auto* p=const_cast<Stage::Property*>(s.stage.property(c->lastProperty)); p->next=c->firstProperty;
+      Snapshot snap; init(snap); expect(checked(s,snap),S::UnsupportedProfile); rolledBack(snap); }
+    { Session s; parse(s,calendar(replace(timezone(),"TZOFFSETTO:+0100\r\n","")+event()));
+      const auto original=SL::inspect(s.stage,limits().source); Snapshot snap; init(snap);
+      const auto r=checked(s,snap); expect(r,S::LocalValidationFailure);
+      assert(r.localReport.timezoneStatus==original.timezoneStatus && r.localReport.failureKind==original.failureKind && r.propertyCode==Code::Tzoffsetto);
+      rolledBack(snap); }
+    { Session s; parse(s,calendar(timezone()+event())); Snapshot snap; init(snap); auto l=limits(); l.source.maxTimezones=0;
+      const auto r=checked(s,snap,0,l); expect(r,S::LocalValidationFailure); assert(r.localReport.status==SL::Status::ResourceLimit); rolledBack(snap); }
+    const std::string a=event("DTSTART:20261023T090000Z\r\nSUMMARY:Appointment\r\n"+alarm(),"a");
+    const std::string b=event("DTSTART:20261023T100000Z\r\nSUMMARY:Second\r\n","b");
+    { Session s; parse(s,calendar(timezone()+a+b+timezone()),true,1); Snapshot snap; init(snap); auto l=limits(); l.maxUidComparisons=1;
+      const auto r=checked(s,snap,0,l); expect(r,S::SourceCommitted); assert(r.publishedOccurrences==2);
+      assert(title(snap,0)=="Appointment" && title(snap,1)=="Second" && snap.occurrence(1)->range.timed.start==1792749600); }
+    for(const char* start:{"20261023T090000Z","20200101T000000Z"}) {
+      const auto f="DTSTART:"+std::string(start)+"\r\n";
+      rejects(calendar(event(f,"same\\nuid")+timezone()+event(f+alarm(),"same\\Nuid")),S::DuplicateUid);
+    }
+    rejects(calendar(timezone()+event("DTSTART:20200101T000000Z\r\nSEQUENCE:9\r\n","same")+event("DTSTART:20200101T000000Z\r\nSEQUENCE:10\r\n","same")),S::DuplicateUid);
+    { Session s; parse(s,calendar(a+timezone()+b)); Snapshot snap; init(snap,1);
+      const auto r=checked(s,snap); expect(r,S::ResourceLimit);
+      assert(r.snapshotResult==Snapshot::Result::RecordCapacity); rolledBack(snap); }
+    rejects(calendar(a+timezone()+event("DTSTART:20200101T000000Z\r\nSTATUS:CANCELLED\r\n","cancelled")));
+}
+void publishedFeedPipeline() {
+    // Synthetic public-export shapes, not evidence of provider interoperability.
+    const auto fields="DTSTART:20261023T090000Z\r\nDTEND:20261023T100000Z\r\nSUMMARY;LANGUAGE=en-US:Appointment\r\n"
+        "CREATED:20261017T120000Z\r\nLAST-MODIFIED:20261017T130000Z\r\nSEQUENCE:0\r\nSTATUS:CONFIRMED\r\nTRANSP:OPAQUE\r\nCLASS:PUBLIC\r\n"
+        "DESCRIPTION;LANGUAGE=en:Folded \\r\\n details\r\nLOCATION:Room\\, one\r\nURL:https://example.invalid/public\r\n"
+        "ATTACH;VALUE=URI:https://example.invalid/file\r\n";
+    // Replace the literal escaped CRLF in the description with a real folded line.
+    const auto body=calendar(timezone()+event(replace(fields,"\\r\\n","\r\n")+alarm()),
+        "METHOD:PUBLISH\r\nX-WR-CALNAME:Public example\r\nX-WR-CALDESC:Example feed\r\nX-WR-TIMEZONE:Pacific/Honolulu\r\n");
+    for(bool chunked:{false,true}) {
+        Session s; parse(s,body,chunked,chunked?1:11); Snapshot snap; init(snap); expect(checked(s,snap),S::SourceCommitted);
+        assert(snap.occurrenceCount()==1 && title(snap,0)=="Appointment" && snap.occurrence(0)->range.timed.start==1792746000 && snap.occurrence(0)->range.timed.end==1792749600);
+        Session bad; parse(bad,calendar(event("DTSTART:20261023T090000Z\r\nSTATUS:TENTATIVE\r\n")));
+        expect(checked(bad,snap,1),S::UnsupportedProfile); rolledBack(snap,1,1);
+        s.stage.release(); std::memset(s.data.data(),0xcd,s.data.capacity);
+        draw(snap,{"Appointment","11:00 +0200","12:00 +0200","Incomplete schedule","Team"});
+    }
+    { Session s; parse(s,body); Snapshot snap; init(snap); auto l=limits(); l.maxDecodedTextBytes=12;
+      expect(checked(s,snap,0,l,24),S::ResourceLimit); rolledBack(snap); }
+    { Session s; parse(s,body); Snapshot snap; init(snap,32,22); const auto r=checked(s,snap); expect(r,S::ResourceLimit);
+      assert(r.snapshotResult==Snapshot::Result::TextCapacity); rolledBack(snap); }
+    { Session s; parse(s,body); Snapshot snap; init(snap); expect(checked(s,snap,0,limits(),8191),S::ResourceLimit); rolledBack(snap); }
+    { Session s; parse(s,replace(replace(body,"20261023T090000Z","20200101T090000Z"),"20261023T100000Z","20200101T100000Z"));
+      Snapshot snap; init(snap); const auto r=checked(s,snap); expect(r,S::SourceCommitted);
+      assert(!r.publishedOccurrences && r.outsideWindowOccurrences==1 && snap.source(0)->outcome==Snapshot::Outcome::Complete); }
+}
+
 void unavailable() {
     { Session s; Snapshot snap; init(snap); expect(checked(s,snap),S::Unavailable); rolledBack(snap); }
     { Session s; parse(s,calendar(event())); s.stage.release(); Snapshot snap; init(snap); expect(checked(s,snap),S::Unavailable); rolledBack(snap); }
@@ -409,7 +542,7 @@ void unavailable() {
 }
 }
 int main() {
-    basics(); ranges(); dst(); textAndIdentity(); failures(); budgetsAndTransactions(); admissionAndEdges(); sharedWorkspace(); unavailable();
+    basics(); ranges(); dst(); textAndIdentity(); failures(); budgetsAndTransactions(); admissionAndEdges(); sharedWorkspace(); passiveMetadata(); passiveComponents(); publishedFeedPipeline(); unavailable();
     for(const auto& a:psram) assert(!a.live);
     std::printf("ICS nonrecurring snapshot: %zu composed scenarios passed\n",scenarios);
 }

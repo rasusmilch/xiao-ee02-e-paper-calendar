@@ -4,7 +4,7 @@
 #include "ics_source_local.h"
 #include "five_day_snapshot.h"
 
-// One source transaction for the deliberately closed Calendar/Event profile.
+// One source transaction for the closed passive-feed/nonrecurring event profile.
 // Caller supplies genuinely readable spans, and the complete live backing region
 // of staging/parser/ingestion storage. No concurrent mutation/release/transactions.
 // Scratch must also be disjoint from any other live caller objects. No ownership,
@@ -102,6 +102,72 @@ inline Report temporal(const Stage& stage, size_t owner, size_t index, T::Tempor
         return result(Status::UnsupportedProfile, FailureCategory::Profile, owner, index, stage.property(index)->code);
     return result(Status::SourceCommitted, FailureCategory::None);
 }
+inline bool alpha(uint8_t c) { return (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z'); }
+inline bool digit(uint8_t c) { return c >= '0' && c <= '9'; }
+inline bool hex(uint8_t c) { return digit(c) || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F'); }
+// Conservative LANGUAGE subset: 2..3 ASCII letters, optional 4-letter script,
+// optional 2-letter/3-digit region. At most 12 bytes; no variants/extensions or
+// private-use tags. This is not full RFC 5646 validation or locale selection.
+inline bool language(View v) {
+    size_t i = 0;
+    while (i < v.size && alpha(v.data[i])) ++i;
+    if (i < 2 || i > 3) return false;
+    if (i == v.size) return true;
+    if (v.data[i++] != '-') return false;
+    size_t begin = i;
+    while (i < v.size && alpha(v.data[i])) ++i;
+    if (i - begin == 4) {
+        if (i == v.size) return true;
+        if (v.data[i++] != '-') return false;
+        begin = i;
+        while (i < v.size && alpha(v.data[i])) ++i;
+    }
+    if (i - begin == 2) return i == v.size;
+    i = begin;
+    while (i < v.size && digit(v.data[i])) ++i;
+    return i == v.size && i - begin == 3;
+}
+inline bool pchar(uint8_t c) {
+    return alpha(c) || digit(c) || std::strchr("-._~!$&'()*+,;=:@", c);
+}
+// Ignored URL subset: absolute ASCII URI, complete percent triplets and RFC 3986
+// path/query/fragment characters. Optional // authority has a nonempty reg-name
+// and optional numeric port; userinfo and IP literals are unsupported. No lookup,
+// percent decoding, scheme-specific interpretation or network action.
+inline bool uri(View v) {
+    if (!v.size || !alpha(v.data[0])) return false;
+    size_t i = 1;
+    while (i < v.size && v.data[i] && (alpha(v.data[i]) || digit(v.data[i]) || std::strchr("+.-", v.data[i]))) ++i;
+    if (i == v.size || v.data[i++] != ':' || i == v.size) return false;
+    if (v.size - i >= 2 && v.data[i] == '/' && v.data[i + 1] == '/') {
+        i += 2; const size_t host = i;
+        while (i < v.size && v.data[i] != '/' && v.data[i] != '?' && v.data[i] != '#' && v.data[i] != ':') {
+            const uint8_t c = v.data[i];
+            if (!c || c >= 128 || c == '@' || !pchar(c)) {
+                if (c != '%' || v.size - i < 3 || !hex(v.data[i + 1]) || !hex(v.data[i + 2])) return false;
+                i += 3;
+            } else ++i;
+        }
+        if (i == host) return false;
+        if (i < v.size && v.data[i] == ':') {
+            const size_t port = ++i;
+            while (i < v.size && digit(v.data[i])) ++i;
+            if (i == port) return false;
+        }
+        if (i < v.size && v.data[i] != '/' && v.data[i] != '?' && v.data[i] != '#') return false;
+    }
+    bool query = false, fragment = false;
+    for (; i < v.size; ++i) {
+        const uint8_t c = v.data[i];
+        if (c == '?' && !fragment) { query = true; continue; }
+        if (c == '#' && !fragment) { fragment = true; continue; }
+        if (c == '%') {
+            if (v.size - i < 3 || !hex(v.data[i + 1]) || !hex(v.data[i + 2])) return false;
+            i += 2;
+        } else if (!c || c >= 128 || (!pchar(c) && c != '/' && !(c == '?' && (query || fragment)))) return false;
+    }
+    return true;
+}
 // Typed dates have years 0000..9999. All intermediates (including BCE epoch
 // differences) fit int64; explicit checks guard narrowing/multiplication/addition.
 inline bool civil(const T::Date& date, int32_t& out) {
@@ -165,62 +231,150 @@ inline Report publish(const IcsSourceStage& stage, FiveDaySnapshot& snapshot, si
         if (!contains(liveStorage, c, sizeof(*c)) ||
             !contains(liveStorage, stage.componentName(i).data, stage.componentName(i).size))
             return abort(snapshot, sourceIndex, result(Status::InvalidArgument, FailureCategory::Admission, i));
-        if (c->kind != (i == 0 ? IcsStructure::Kind::Calendar : IcsStructure::Kind::Event))
+        using Kind = IcsStructure::Kind;
+        const auto* parent = c->parentOrdinal && c->parentOrdinal <= i ? stage.component(size_t(c->parentOrdinal - 1)) : nullptr;
+        const bool ordinary = (i == 0 && c->kind == Kind::Calendar && !c->parentOrdinal) ||
+            ((c->kind == Kind::Event || c->kind == Kind::Timezone) && parent == stage.component(0)) ||
+            ((c->kind == Kind::Standard || c->kind == Kind::Daylight) && parent && parent->kind == Kind::Timezone);
+        const bool alarm = c->kind == Kind::Alarm && parent && parent->kind == Kind::Event;
+        if ((!ordinary && !alarm) || (c->flags & Stage::OpaqueProjectedOut) ||
+            bool(c->flags & Stage::ProjectedOut) != alarm)
             return abort(snapshot, sourceIndex, result(Status::UnsupportedProfile, FailureCategory::Profile, i));
-        for (uint32_t p = c->firstProperty; p != Stage::None; p = stage.property(p)->next) {
+        size_t visited = 0; uint32_t last = Stage::None;
+        for (uint32_t p = c->firstProperty; p != Stage::None;) {
             const auto* property = stage.property(p); View value = {};
-            const auto parameters = stage.parameters(p);
+            // Source-local owns root/event/timezone chains; also protect the
+            // projected alarm chain before using any of its stored descriptors.
+            if (!property || property->owner != i || visited >= c->observedProperties ||
+                (property->next != Stage::None && (property->next <= p || property->next >= stage.counts().storedProperties)))
+                return abort(snapshot, sourceIndex, result(Status::UnsupportedProfile, FailureCategory::Admission, i, p));
+            ++visited; last = p;
+            const auto parameters = stage.parameters(p), name = stage.propertyName(p);
             if (!contains(liveStorage, property, sizeof(*property)) || !contains(liveStorage, parameters.data, parameters.size) ||
+                (property->code == Code::Unknown && !contains(liveStorage, name.data, name.size)) ||
                 ((property->flags & Stage::ValueRetained) &&
                  (stage.value(p, value) != Stage::Read::Ok || !contains(liveStorage, value.data, value.size))))
                 return abort(snapshot, sourceIndex, result(Status::InvalidArgument, FailureCategory::Admission, i, p, property->code));
+            p = property->next;
         }
+        if (visited != c->observedProperties || last != c->lastProperty)
+            return abort(snapshot, sourceIndex, result(Status::UnsupportedProfile, FailureCategory::Admission, i));
     }
     uint8_t* const first = scratch;
     uint8_t* const second = limits.maxDecodedTextBytes ? scratch + limits.maxDecodedTextBytes : scratch;
-    size_t comparisons = 0; bool version = false, prodid = false, scale = false;
+    size_t comparisons = 0; uint8_t rootFields = 0;
+    uint32_t eventExpected = IcsEventLocal::SourceValidationRequired | IcsEventLocal::IdentityReconciliationPending;
+    uint32_t sourceExpected = S::SourceSemanticsPending;
     for (size_t i = 0; i < components; ++i) {
         const auto& c = *stage.component(i);
+        if (c.kind == IcsStructure::Kind::Alarm) { sourceExpected |= S::NonEventProjectionObserved; continue; }
+        // These completely locally checked definitions are never consulted by
+        // admitted UTC/DATE events. All their property-local semantic obligations
+        // are nonapplicable to membership/timing, including retained extensions.
+        if (i && c.kind != IcsStructure::Kind::Event) continue;
         for (uint32_t p = c.firstProperty; p != Stage::None; p = stage.property(p)->next) {
             const auto& property = *stage.property(p); const Code code = property.code;
-            bool allowed = false;
-            if (!i) allowed = code == Code::Version || code == Code::Prodid || code == Code::Calscale;
-            else allowed = code == Code::Uid || code == Code::Dtstamp || code == Code::Dtstart || code == Code::Dtend || code == Code::Summary;
-            if (!allowed || property.disposition == Stage::Disposition::RetainUnreviewed || (property.flags & Stage::UnknownParameters))
+            uint8_t rootBit = 0;
+            if (!i) {
+                switch (code) {
+                case Code::Version: rootBit = 1; break;
+                case Code::Prodid: rootBit = 2; break;
+                case Code::Calscale: rootBit = 4; break;
+                case Code::Method: rootBit = 8; break;
+                case Code::Unknown: {
+                    const View name = stage.propertyName(p);
+                    if (IcsStructure::identifier(name, "X-WR-CALNAME")) rootBit = 16;
+                    else if (IcsStructure::identifier(name, "X-WR-CALDESC")) rootBit = 32;
+                    else if (IcsStructure::identifier(name, "X-WR-TIMEZONE")) rootBit = 64;
+                    break;
+                }
+                default: break;
+                }
+                if (!rootBit || (rootFields & rootBit))
+                    return abort(snapshot, sourceIndex, result(Status::UnsupportedProfile, FailureCategory::Profile, i, p, code));
+                rootFields |= rootBit;
+            }
+            const bool textField = code == Code::Uid || code == Code::Prodid || code == Code::Summary ||
+                code == Code::Description || code == Code::Location || (!i && code == Code::Unknown);
+            const bool temporalField = code == Code::Dtstamp || code == Code::Dtstart || code == Code::Dtend ||
+                code == Code::Created || code == Code::LastModified;
+            const bool scalarMetadata = code == Code::Sequence || code == Code::Url || code == Code::Status || code == Code::Class || code == Code::Transp;
+            const bool attachment = i && (code == Code::Attach || code == Code::Image);
+            if ((i && !textField && !temporalField && !scalarMetadata && !attachment) ||
+                (property.flags & Stage::UnknownParameters) ||
+                (property.disposition == Stage::Disposition::RetainUnreviewed && !(rootBit >= 16)))
                 return abort(snapshot, sourceIndex, result(Status::UnsupportedProfile, FailureCategory::Profile, i, p, code));
+            if (attachment) {
+                if (property.disposition != Stage::Disposition::IgnoreByDeclaredProjection)
+                    return abort(snapshot, sourceIndex, result(Status::UnsupportedProfile, FailureCategory::Profile, i, p, code));
+                continue; // Stage's selected omission profile only; no payload read.
+            }
             const View encodedParameters = stage.parameters(p);
             if (property.parameterCount || encodedParameters.size) {
-                if (!i || (code != Code::Dtstart && code != Code::Dtend) || property.parameterCount != 1)
-                    return abort(snapshot, sourceIndex, result(Status::UnsupportedProfile, FailureCategory::Profile, i, p, code));
                 IcsStructure::ParameterIterator parameters(encodedParameters); IcsStructure::Parameter parameter, extra;
-                if (!parameters.next(parameter) || !IcsStructure::identifier(parameter.name, "VALUE") || parameters.next(extra))
+                if (!i || property.parameterCount != 1 || !parameters.next(parameter) || parameters.next(extra))
                     return abort(snapshot, sourceIndex, result(Status::UnsupportedProfile, FailureCategory::Profile, i, p, code));
-                // Existing temporal decoding below owns VALUE type/member checks.
-            }
-            if (!i) {
-                bool& present = code == Code::Version ? version : code == Code::Prodid ? prodid : scale;
-                if (present) return abort(snapshot, sourceIndex, result(Status::UnsupportedProfile, FailureCategory::Profile, i, p, code));
-                present = true;
-                if (code != Code::Prodid) {
-                    View value = {}; stage.value(p, value);
-                    const bool valid = code == Code::Version ? IcsStructure::identifier(value, "2.0") || IcsStructure::identifier(value, "2.0;2.0") :
-                        IcsStructure::identifier(value, "GREGORIAN");
-                    if (!valid) return abort(snapshot, sourceIndex, result(Status::UnsupportedProfile, FailureCategory::Profile, i, p, code));
+                if (code == Code::Dtstart || code == Code::Dtend) {
+                    if (!IcsStructure::identifier(parameter.name, "VALUE"))
+                        return abort(snapshot, sourceIndex, result(Status::UnsupportedProfile, FailureCategory::Profile, i, p, code));
+                    // Accepted temporal decoding owns VALUE type/member checks.
+                } else {
+                    auto members = parameter.values(); IcsStructure::EncodedValue member, extraMember;
+                    if ((code != Code::Summary && code != Code::Description && code != Code::Location) ||
+                        !IcsStructure::identifier(parameter.name, "LANGUAGE") || !members.next(member) || members.next(extraMember) || !language(member.encoded))
+                        return abort(snapshot, sourceIndex, result(Status::UnsupportedProfile, FailureCategory::Profile, i, p, code));
                 }
             }
-            if (code == Code::Uid || code == Code::Summary || code == Code::Prodid) {
+            if (textField) {
                 size_t bytes = 0; const auto checked = text(stage, i, p, first, limits.maxDecodedTextBytes, bytes);
                 if (checked.status != Status::SourceCommitted) return abort(snapshot, sourceIndex, checked);
-            } else if (i) {
+            } else if (i && temporalField) {
                 T::TemporalValue value = {}; const auto checked = temporal(stage, i, p, value);
                 if (checked.status != Status::SourceCommitted) return abort(snapshot, sourceIndex, checked);
+            } else {
+                View value = {};
+                if (stage.value(p, value) != Stage::Read::Ok)
+                    return abort(snapshot, sourceIndex, result(Status::Unavailable, FailureCategory::Profile, i, p, code));
+                bool valid = false;
+                switch (code) {
+                case Code::Version: valid = IcsStructure::identifier(value, "2.0") || IcsStructure::identifier(value, "2.0;2.0"); break;
+                case Code::Calscale: valid = IcsStructure::identifier(value, "GREGORIAN"); break;
+                case Code::Method: valid = IcsStructure::identifier(value, "PUBLISH"); break;
+                case Code::Transp: valid = IcsStructure::identifier(value, "OPAQUE") || IcsStructure::identifier(value, "TRANSPARENT"); break;
+                case Code::Status: valid = IcsStructure::identifier(value, "CONFIRMED"); break;
+                case Code::Class: valid = IcsStructure::identifier(value, "PUBLIC"); break;
+                case Code::Url:
+                    if (value.size > limits.maxDecodedTextBytes)
+                        return abort(snapshot, sourceIndex, result(Status::ResourceLimit, FailureCategory::Budget, i, p, code));
+                    valid = uri(value); break;
+                case Code::Sequence: {
+                    int32_t number = 0; const auto decoded = T::decodeInteger(value, number);
+                    if (decoded.status != T::Status::Ok) {
+                        Report r = result(Status::UnsupportedProfile, FailureCategory::Profile, i, p, code);
+                        r.typedStatus = decoded.status; r.offset = decoded.offset; return abort(snapshot, sourceIndex, r);
+                    }
+                    valid = number >= 0; break;
+                }
+                default: break;
+                }
+                if (!valid) return abort(snapshot, sourceIndex, result(Status::UnsupportedProfile, FailureCategory::Profile, i, p, code));
             }
+            if (!i) {
+                if (rootBit >= 4) sourceExpected |= S::CalendarMetadataPending;
+                if (rootBit >= 16) eventExpected |= IcsEventLocal::ExtensionReviewPending;
+                if (code == Code::Method) eventExpected |= IcsEventLocal::MethodSemanticsPending;
+            } else if (code == Code::Transp || code == Code::Status || code == Code::Class || code == Code::Url)
+                eventExpected |= IcsEventLocal::OptionalPropertyValidationPending;
         }
         if (!i) continue;
+        // METHOD:PUBLISH must never relax this producer's required DTSTART.
+        if (find(stage, i, Code::Dtstart) == Stage::None)
+            return abort(snapshot, sourceIndex, result(Status::UnsupportedProfile, FailureCategory::Profile, i, Stage::None, Code::Dtstart));
         const size_t uid = find(stage, i, Code::Uid); size_t currentBytes = 0;
         const auto current = text(stage, i, uid, first, limits.maxDecodedTextBytes, currentBytes);
         if (current.status != Status::SourceCommitted) return abort(snapshot, sourceIndex, current);
         for (size_t previous = 1; previous < i; ++previous) {
+            if (stage.component(previous)->kind != IcsStructure::Kind::Event) continue;
             if (comparisons == limits.maxUidComparisons || comparisons == SIZE_MAX)
                 return abort(snapshot, sourceIndex, result(Status::ResourceLimit, FailureCategory::Budget, i, uid, Code::Uid));
             ++comparisons;
@@ -231,15 +385,20 @@ inline Report publish(const IcsSourceStage& stage, FiveDaySnapshot& snapshot, si
                 return abort(snapshot, sourceIndex, result(Status::DuplicateUid, FailureCategory::Identity, i, uid, Code::Uid));
         }
     }
-    // Closed profile discharges only these named obligations; no child masks
-    // are edited. New/unexpected deferred conditions must fail closed.
-    const uint32_t eventExpected = IcsEventLocal::SourceValidationRequired | IcsEventLocal::IdentityReconciliationPending;
-    const uint32_t sourceExpected = S::SourceSemanticsPending | (scale ? S::CalendarMetadataPending : 0U);
-    if (!version || !prodid || local.eventDeferred != eventExpected || local.sourceDeferred != sourceExpected || local.timezoneDeferred)
+    // Exact event/source masks are justified by the enumerated causes above.
+    // Known timezone-domain obligations are nonapplicable ONLY after every event
+    // has proven UTC/DATE independence and every definition passed source-local.
+    const uint32_t timezoneKnown = IcsTimezoneLocal::SourceValidationRequired | IcsTimezoneLocal::TimezoneIdentityReconciliationPending |
+        IcsTimezoneLocal::TransitionResolutionPending | IcsTimezoneLocal::RecurrenceValidationPending | IcsTimezoneLocal::MultipleRrulePending |
+        IcsTimezoneLocal::ExtensionReviewPending | IcsTimezoneLocal::OptionalPropertyValidationPending | IcsTimezoneLocal::LeapSecondPending |
+        IcsTimezoneLocal::ObservanceExdateReviewPending;
+    if ((rootFields & 3) != 3 || local.eventDeferred != eventExpected || local.sourceDeferred != sourceExpected ||
+        (local.timezoneDeferred & ~timezoneKnown) || (!local.timezones && local.timezoneDeferred))
         return abort(snapshot, sourceIndex, result(Status::UnsupportedProfile, FailureCategory::Profile));
 
     size_t inserted = 0, outside = 0;
     for (size_t i = 1; i < components; ++i) {
+        if (stage.component(i)->kind != IcsStructure::Kind::Event) continue;
         const size_t start = find(stage, i, Code::Dtstart), end = find(stage, i, Code::Dtend), summary = find(stage, i, Code::Summary);
         T::TemporalValue a = {}, b = {};
         auto checked = temporal(stage, i, start, a);

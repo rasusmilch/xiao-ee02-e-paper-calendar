@@ -19,8 +19,13 @@ static bool renderingAttempted = false;
 static uint64_t sourceClock(void*) { return 0; } // No elapsed time during deterministic replay.
 static const char exampleIcs[] =
   "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:EE02 deterministic example\r\nCALSCALE:GREGORIAN\r\n"
+  "METHOD:PUBLISH\r\nX-WR-CALNAME:Published example\r\nX-WR-CALDESC:Public demonstration\r\nX-WR-TIMEZONE:Europe/Berlin\r\n"
   // Deliberately unordered; the repeated 02:30 labels refer to distinct UTC instants.
-  "BEGIN:VEVENT\r\nUID:second\r\nDTSTAMP:20261017T120000Z\r\nDTSTART:20261025T013000Z\r\nDTEND:20261025T014500Z\r\nSUMMARY:Second 02:30 - standard time\r\nEND:VEVENT\r\n"
+  "BEGIN:VEVENT\r\nUID:second\r\nDTSTAMP:20261017T120000Z\r\nDTSTART:20261025T013000Z\r\nDTEND:20261025T014500Z\r\nSUMMARY;LANGUAGE=en:Second 02:30 - standard time\r\n"
+  "CREATED:20261017T120000Z\r\nLAST-MODIFIED:20261018T120000Z\r\nSEQUENCE:0\r\nSTATUS:CONFIRMED\r\nTRANSP:OPAQUE\r\nCLASS:PUBLIC\r\n"
+  "DESCRIPTION:Published example notification\r\nLOCATION:Example room\r\nURL:https://example.invalid/calendar\r\n"
+  "ATTACH;VALUE=URI:https://example.invalid/attachment\r\n"
+  "BEGIN:VALARM\r\nACTION:DISPLAY\r\nTRIGGER:-PT15M\r\nDESCRIPTION:Notification not executed\r\nEND:VALARM\r\nEND:VEVENT\r\n"
   "BEGIN:VEVENT\r\nUID:first\r\nDTSTAMP:20261017T120000Z\r\nDTSTART:20261025T003000Z\r\nDTEND:20261025T004500Z\r\nSUMMARY:First 02:30 - summer time\r\nEND:VEVENT\r\n"
   "BEGIN:VEVENT\r\nUID:midnight\r\nDTSTAMP:20261017T120000Z\r\nDTSTART:20261023T210000Z\r\nDTEND:20261023T230000Z\r\nSUMMARY:Cross-midnight handover\r\nEND:VEVENT\r\n"
   "BEGIN:VEVENT\r\nUID:appointment\r\nDTSTAMP:20261017T120000Z\r\nDTSTART:20261023T090000Z\r\nDTEND:20261023T100000Z\r\nSUMMARY:Example appointment\r\nEND:VEVENT\r\n"
@@ -38,7 +43,7 @@ static GfxResult populateFromIcs(uint8_t* bytes, size_t capacity, void*) {
   const IcsStructure::Limits syntaxLimits = {4096,32,32,64,8,64,128,512,32,1};
   const IcsIngestion::Limits inputLimits = {32768,16384,4096,32,1024,256,1024,16,1024,4096,4096,10000,1000};
   const IcsNonrecurringSnapshot::Limits producerLimits = {
-    {32,1,16,0,0,8,{8,8,4096},{8,8,4096,32,4096}},4096,120};
+    {32,1,16,0,0,8,{8,32,4096},{8,8,4096,32,4096}},4096,120};
   size_t stageBytes = 0, parserBytes = 0;
   if (IcsSourceStage::requiredBytes(stagingLimits, stageBytes) != IcsSourceStage::Status::InProgress ||
       IcsStructure::scratchBytes(syntaxLimits, parserBytes) != IcsStructure::Status::InProgress ||

@@ -723,26 +723,80 @@ source-acceptance framework. Accepted components/interfaces remain unchanged.
 
 #### Closed profile and deferred obligations
 
-Exactly one root VCALENDAR and one or more direct VEVENTs are supported. Root
-properties are singleton VERSION (parser-supported 2.0 / 2.0;2.0), nonempty valid
-TEXT PRODID, optional case-insensitive CALSCALE:GREGORIAN; root parameters are rejected.
-VEVENT permits required singleton UID, DTSTAMP, DTSTART and optional singleton
-DTEND, SUMMARY. UID is nonempty decoded TEXT; DTSTAMP is UTC DATE-TIME. SUMMARY is
-validated/copied decoded TEXT, absent/empty stays empty. Only DTSTART/DTEND may carry
-one VALUE=DATE or VALUE=DATE-TIME parameter. Every other parameter/property is
-UnsupportedProfile, including METHOD, recurrence, RECURRENCE-ID, DURATION, STATUS,
-SEQUENCE, CREATED/LAST-MODIFIED, DESCRIPTION/LOCATION, scheduling and unknown extensions.
-All non-event, timezone, nested and opaque/projected components are unsupported.
-These are this producer's initial limits, not permanent interoperability policy.
+One root VCALENDAR and at least one direct VEVENT are required. Root singletons:
+VERSION (2.0 / 2.0;2.0), nonempty decoded TEXT PRODID, optional CALSCALE:GREGORIAN,
+METHOD:PUBLISH and exactly named X-WR-CALNAME, X-WR-CALDESC, X-WR-TIMEZONE. Names and
+standard tokens use case-insensitive identifier comparison. X-WR values use bounded
+retained TEXT validation; parameters, duplicate selected fields and other root
+extensions/IANA properties are rejected. Metadata is discarded, never displayed or
+logged. PUBLISH is passive feed publication, with no iTIP/organizer authority. It
+never relaxes required DTSTART. X-WR-TIMEZONE is never a display-timezone authority.
 
-SourceValidationRequired / SourceSemanticsPending are discharged by complete profile
-inspection, never by local success alone. IdentityReconciliationPending is discharged
-only by decoded within-source UID uniqueness plus exclusion of revision/override
-semantics. CalendarMetadataPending is discharged only for the explicit root profile.
-Recurrence, timezones, local-time ordering, leap seconds, extensions, unchecked optional
-fields, nesting and projections either fail explicit profile/value checks or the final
-exact expected-deferred-mask check. Child masks are never cleared or rewritten. New
-unexpected deferred conditions fail closed. No cross-source identity reconciliation.
+VEVENT requires UID, UTC DTSTAMP and DTSTART, with optional DTEND/SUMMARY. Additional
+singletons: UTC CREATED/LAST-MODIFIED without leap-second/context ambiguity; nonnegative
+SEQUENCE within the existing int32 decoder; validated TEXT DESCRIPTION/LOCATION;
+bounded ignored URL; TRANSP:OPAQUE or TRANSPARENT; STATUS:CONFIRMED; CLASS:PUBLIC.
+No metadata is added to the snapshot or used for revision choice, filtering or title
+replacement. Missing/empty SUMMARY stays empty. Duplicate decoded UIDs still fail,
+even with different administrative timestamps/sequences or outside-window events.
+
+Only DTSTART/DTEND allow singular VALUE=DATE or VALUE=DATE-TIME. SUMMARY, DESCRIPTION
+and LOCATION allow one LANGUAGE member in a conservative subset: 2–3 ASCII letters,
+optional 4-letter script, optional 2-letter or 3-digit region, at most 12 bytes.
+Quoted single members are allowed by the existing iterator. No variants, extensions,
+private-use tags, caret substitutions or extra members/parameters are admitted.
+This is not full RFC 5646 compliance, translation or locale-based title selection.
+ALTREP and arbitrary extension parameters remain unsupported.
+
+URL uses an allocation-free ignored absolute-URI subset: ASCII scheme, complete
+percent triplets, RFC 3986 path/query/fragment character classes; optional // authority
+requires a nonempty reg-name and optional numeric port. Userinfo, IP literals,
+relative references, raw non-ASCII, controls/whitespace, malformed percent encoding
+and other unsupported forms are rejected. Encoded URL bytes use maxDecodedTextBytes
+as their explicit budget. No percent decoding, URI resolver, scheme-specific semantics
+or network action exists. DESCRIPTION/LOCATION/X-WR TEXT share the explicit decoded
+text budget and existing temporary buffers, without retained event-detail storage.
+
+Event ATTACH/IMAGE are admitted only with the accepted stage's explicit
+IgnoreByDeclaredProjection classification and no unreviewed parameters. That contract
+selects the URI/default-ATTACH or explicit VALUE=URI, or VALUE=BINARY with ENCODING=BASE64
+omission profiles. Other combinations, including retained conditional/unreviewed
+attachments, fail closed. Omitted payloads are neither read nor validated as files,
+images or Base64; nothing is fetched or stored. Direct VALARM children must have
+actual Alarm kind, Event parent, closure/calendar association and ProjectedOut state
+without opaque substitution. Their checked descriptor chains are bounded by staged
+property counts. Notification content is ignored, never parent event semantics.
+Other nested/opaque/projected component kinds remain unsupported.
+
+Root-owned VTIMEZONE and its STANDARD/DAYLIGHT children may be admitted after the
+complete source-local preflight has validated all their local fields and RDATE lists.
+Their property-local recurrence, identity, extension, leap-second and transition
+obligations are nonapplicable to published event membership/timing ONLY after every
+VEVENT has proven strictly UTC or DATE and all event-changing extensions are excluded.
+Definitions are unused even if their TZID looks familiar; no reference matching,
+recurrence grammar/transition resolution or definition persistence is claimed.
+Definition-local unknown metadata stays confined to the unused definition; no root
+or event extension is thereby allowed. A local timezone/observance failure or budget
+exhaustion still fails the source. Floating/TZID event times cannot be repaired with
+these definitions. A definition never changes the selected display timezone.
+
+SourceValidationRequired/SourceSemanticsPending are discharged only by complete
+profile inspection. IdentityReconciliationPending is discharged by within-source UID
+uniqueness and exclusion of overrides/revision selection. Event/source expected masks
+are computed from actual enumerated causes: validated root metadata, passive METHOD,
+selected X-WR fields and validated scalar metadata. NonEventProjectionObserved is
+discharged only for verified direct projected alarms. No arbitrary event extension,
+optional-property or scheduling obligation is accepted. Known timezone-domain bits
+are nonapplicable only under the UTC/DATE independence proof above; new unknown bits
+fail closed. Child masks remain untouched. Recurrence/overrides, DURATION, tentative,
+cancelled, private/confidential events, scheduling/attendee semantics and unknown
+root/event properties remain unsupported, including outside the window.
+
+Traversal selects events by kind and direct validated root parent, not component
+position. UID pair comparison skips timezone/observance/alarm descriptors; only actual
+event pairs consume its work budget. Normalization likewise visits only events. No
+event index array or copied catalogue is introduced. Source-local is still called
+exactly once; no additional source-wide validator or acceptance framework is added.
 
 Childless VCALENDAR still fails upstream structural parsing. Structurally valid
 non-event-only calendars are unsupported, never fabricated empty success. Every event,
@@ -793,28 +847,34 @@ and timezone conversion remain the renderer/window owner's responsibility.
 The dedicated preview now replays synthetic HTTP/ICS through production ingestion,
 structure, staging and this producer inside one workspace callback. Checked disjoint
 slices hold all transient users. The first example source completes; a second source
-with unsupported STATUS:CANCELLED becomes Incomplete. Deliberately unordered events
+with unsupported STATUS:CANCELLED becomes Incomplete. The first resembles a passive
+published feed with METHOD/X-WR metadata, UTC administrative fields, confirmed/public
+status, transparency, ignored TEXT/URL/attachment and a projected VALARM. This is
+synthetic export-shaped input, not provider interoperability evidence. Unordered events
 include five dates, DATE/all-day/multiday ranges, cross-midnight and point occurrences,
 and distinct UTC instants at the repeated fall hour. All source users release before
 scratch poisoning and borrowed-framebuffer rendering. EXAMPLE DATA remains explicit;
 this is not a live client or production firmware integration.
 
-Fresh strict C++11 and ASan/UBSan runs passed 88 checked producer scenarios plus
-the shared-workspace pipeline case. Host regression commands in AGENTS exercise actual
+Historical initial-profile runs passed 88 checked producer scenarios plus the
+shared-workspace case. Fresh expanded-profile strict C++11 and ASan/UBSan runs passed
+228 checked producer scenarios plus that shared-workspace pipeline case. Host
+regression commands in AGENTS exercise actual
 raw Content-Length/chunked responses, unfolding/fragmentation, staging, local checks,
 producer transactions, snapshot and renderer traces. They assert exact normalized
 values, supported-profile rejection, decoded duplicate UIDs (also outside the window),
 resource rollback, earlier-source preservation, source-byte immutability, audited
 zero new allocations during production calls, and independent titles after workspace
 reuse. The separate snapshot, renderer, workspace, typed, staging, structure, ingestion
-and source-local regressions also passed strict and sanitizer runs, retaining their
-scoped evidence limits. No Python/pytest tests are present in the tracked source.
+and source-local regressions, plus directly composed VEVENT/timezone-local checks,
+also passed strict and sanitizer runs, retaining their scoped evidence limits. No Python/pytest tests are present in the tracked source.
 
 Arduino compilation and physical EE02 testing for this producer/updated preview are
 explicitly owner-deferred and NOT RUN. Historical fixture/renderer evidence does not
 prove compatibility of this delta. Host facades do not establish physical glyphs,
 refresh, runtime headroom, energy or ESP32 performance. Live transport/authentication,
-recurrence, timezone definitions, revisions/cancellations, broader metadata support,
+recurrence, timezone transition resolution, revision/cancellation processing, broader
+metadata support,
 production GFX2 migration and final presentation policy remain separate work. No live
 wall-calendar or physical-display milestone is claimed.
 

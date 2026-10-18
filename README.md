@@ -165,27 +165,50 @@ coverage alone never establishes source completion. Unsupported input or exhaust
 ends the selected transaction as Incomplete; tentative records disappear and earlier
 Complete sources survive. Snapshot insertion's automatic rollback is respected.
 
-The initial profile admits exactly one VCALENDAR with one or more direct VEVENTs:
+The passive-feed profile admits one VCALENDAR with one or more direct VEVENTs:
 
-- Root: singleton VERSION (2.0 or 2.0;2.0), nonempty decoded PRODID and optional
-  CALSCALE:GREGORIAN (case-insensitive). No parameters or other root properties.
-- Event: required singleton decoded nonempty UID, UTC DTSTAMP, and DTSTART
-  (DATE or UTC DATE-TIME); optional singleton DTEND and SUMMARY. Only DTSTART/DTEND allow singular VALUE=DATE or
-  VALUE=DATE-TIME; every other parameter/property is unsupported. Missing/empty
-  SUMMARY copies an empty title. TEXT uses the accepted UTF-8/escape decoder.
-- DTSTART/DTEND are UTC DATE-TIME or DATE, with matching types and a strictly later
-  explicit end. Missing timed end creates a point; missing DATE end adds one civil
-  day. Gregorian conversion uses checked integer arithmetic, independent of TZ,
-  localtime and time_t. DATE stays a civil-day range with exclusive end. Original
-  ranges are not clipped; snapshot window admission excludes OutsideWindow values.
+- Root: singleton VERSION (2.0 or 2.0;2.0), nonempty decoded PRODID, optional
+  CALSCALE:GREGORIAN and METHOD:PUBLISH, plus exactly named X-WR-CALNAME,
+  X-WR-CALDESC and X-WR-TIMEZONE. Selected X-WR values are bounded valid TEXT;
+  all root parameters, duplicates and other root properties are rejected.
+  PUBLISH is passive feed metadata, not iTIP processing. X-WR-TIMEZONE never
+  configures the display or resolves an event time; root metadata is not stored.
+- Event: required UID, UTC DTSTAMP and DTSTART (DATE or UTC DATE-TIME); optional
+  DTEND and SUMMARY. CREATED/LAST-MODIFIED require UTC without leap seconds;
+  SEQUENCE is a nonnegative typed integer, never revision precedence. DESCRIPTION
+  and LOCATION are validated TEXT and discarded. URL is a bounded absolute ASCII
+  URI subset, never followed. TRANSP accepts OPAQUE/TRANSPARENT without hiding an
+  event; STATUS accepts only CONFIRMED; CLASS accepts only PUBLIC. All are
+  singletons. Missing/empty SUMMARY stays empty; ignored metadata never changes it.
+- DTSTART/DTEND allow singular VALUE=DATE or VALUE=DATE-TIME. SUMMARY, DESCRIPTION
+  and LOCATION allow one LANGUAGE member: 2–3 ASCII language letters, optional
+  4-letter script and optional 2-letter/3-digit region (maximum 12 bytes). Variants,
+  extensions/private-use tags and other parameters are unsupported; this is not
+  full RFC 5646 support or locale-dependent rendering.
+- Event ATTACH/IMAGE are omitted only when staging explicitly selects
+  IgnoreByDeclaredProjection. No payload decoding, Base64 validation, storage or
+  fetching occurs. Direct projected VALARM children are ignored notifications,
+  never occurrences, title/timing input or wake scheduling. Other nested/projected
+  components remain unsupported.
+- Locally validated VTIMEZONE and STANDARD/DAYLIGHT definitions may accompany
+  strictly UTC/DATE events. They are unused, not resolved or retained. Failed local
+  definition checks still fail the source; no timezone engine or external fallback
+  is introduced. Interleaved components are not event indices.
 
-Recurrence, overrides, cancellation/revision fields, floating/TZID times, leap seconds,
-DURATION, DESCRIPTION/LOCATION, scheduling, unknown metadata/extensions and all nested,
-non-event or timezone components are unsupported in this first producer. This is
-an initial compatibility restriction, not universal RFC behavior or final provider
-policy. Childless VCALENDAR remains rejected by the unchanged structural parser;
-structurally valid sources without VEVENTs are unsupported here. Supported sources
-whose events all fall outside the window can complete with zero records.
+Explicit event end must match the start representation and be strictly later.
+Missing timed end creates a point; missing DATE end adds one civil day. Checked
+Gregorian conversion is independent of TZ/localtime/time_t. DATE remains a civil
+range with exclusive end; original intervals are not clipped. Every event is checked
+before window admission, including outside-window identities and unsupported fields.
+
+Recurrence, overrides, DURATION, floating/TZID event times, event leap seconds,
+unsupported scheduling, tentative/cancelled events, private/confidential presentation,
+attendee semantics and unknown event/root extensions remain unsupported. METHOD
+never relaxes required DTSTART. Duplicate UIDs fail regardless of SEQUENCE or dates;
+no revision selection is implemented. Childless VCALENDAR remains rejected upstream;
+non-event-only and multi-root sources are unsupported by this producer. Supported
+outside-window-only sources can complete with zero records. These are initial
+compatibility limits, not universal RFC behavior or full Google/Apple support.
 
 Caller limits bound source validation, decoded text size and pairwise UID comparison
 work. Two reusable caller-owned decoding buffers retain no per-event UID catalogue;
@@ -238,12 +261,13 @@ is outside production auto-compilation. It marks EXAMPLE DATA, explicitly config
 CET/CEST for October 23–27, 2026 (including the 25-hour DST day), and transactionally
 feeds deterministic synthetic HTTP/ICS through IcsIngestion → IcsStructure →
 IcsSourceStage → IcsNonrecurringSnapshot, producing timed, point, all-day, multiday
-and cross-midnight examples. A second ICS source with unsupported cancellation
+and cross-midnight examples alongside passive METHOD/X-WR metadata, administrative
+fields, ignored TEXT/URL/attachment and a projected VALARM. A second ICS source with
+unsupported cancellation
 evidence becomes Incomplete. No occurrence records are inserted directly by the
 sketch. Both sources finish inside one withScratch callback using checked, disjoint
 stage/parser/ingestion/text slices; all borrowed users end before reuse. Its 32
-records, 4 KiB text and
-2 MiB workspace are demonstration arguments, not operating defaults. It poisons
+records, 4 KiB text and 2 MiB workspace are demonstration arguments, not operating defaults. It poisons
 scratch before Ee02PsramWorkspace::render(), checks render/refresh and shutdown
 separately, and retains restricted workspace storage after uncertain shutdown.
 
