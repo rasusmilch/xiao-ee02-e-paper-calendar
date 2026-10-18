@@ -408,6 +408,24 @@ for material coupling or exposed shared issues. LocalCoveragePassed establishes
 whole-source local enumeration, not source semantic acceptance, resolved recurrence/
 timezones, valid empty schedules or snapshot publication eligibility.
 
+The selected TZID reference-local regression composes parameter selection and local
+timezone validation, comparing measured decoded identities without temporal-payload
+decoding. It covers calendar isolation, duplicate/missing matches, escape semantics,
+exact budgets, original diagnostics, guarded immutability and release. Independent
+scalar/list decoding rejects UTC/TZID payloads despite successful identity matches:
+
+```
+g++ -std=c++11 -Wall -Wextra -Werror -pedantic tests/ics_tzid_reference_local_test.cpp -o /tmp/ee02-tzid-reference-test
+/tmp/ee02-tzid-reference-test
+g++ -std=c++11 -Wall -Wextra -Werror -pedantic -fsanitize=address,undefined -fno-omit-frame-pointer tests/ics_tzid_reference_local_test.cpp -o /tmp/ee02-tzid-reference-sanitized
+/tmp/ee02-tzid-reference-sanitized
+```
+
+Run existing strict typed-value and timezone-local regressions for the directly
+composed contracts. Broaden only for material coupling or exposed shared issues.
+Inspected and a unique local match never establish temporal-value validity, global
+registry semantics, resolved timezones, source completeness or snapshot eligibility.
+
 Documentation: no dedicated lint/link-check command is committed; inspect Markdown
 references and affected claims directly, using available tools.
 Review: no automated review command exists; independent review inspects source/diff.

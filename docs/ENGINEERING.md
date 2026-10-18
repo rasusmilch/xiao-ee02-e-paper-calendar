@@ -109,7 +109,8 @@ standalone HTTP framing/line unfolding, property/component parsing, selective
 source-local dependency staging, typed primitive decoding, VEVENT-local checks and
 timezone/observance-local checks, source-local coverage, standalone core RECUR
 grammar, contextual RRULE validation, VEVENT recurrence-property coverage and observance
-recurrence-local coverage plus source-wide recurrence-local composition implemented;
+recurrence-local coverage, source-wide recurrence-local composition and selected TZID
+reference-local identity matching implemented;
 production integration and hardware validation pending.** The owner-selected architecture
 uses Seeed_GFX2 with a locally maintained external-framebuffer ownership extension,
 one application-owned PSRAM arena, and a separate fixed-capacity five-day occurrence
@@ -870,8 +871,9 @@ Production remains on Apps Script JSON and legacy graphics. Selective source-loc
 staging, typed primitive decoding, selected VEVENT-local and timezone/observance-local
 checks plus source-local coverage, standalone core RECUR grammar, contextual RRULE
 validation, VEVENT/observance recurrence-local coverage and source-wide recurrence-local
-composition now exist in isolation below; complete component/source semantic validation, recurrence
-application, timezone resolution and snapshot producer integration remain unimplemented.
+composition plus selected TZID reference-local identity matching now exist in isolation
+below; complete component/source semantic validation, recurrence application, timezone
+resolution and snapshot producer integration remain unimplemented.
 
 #### API, ownership and generic grammar
 
@@ -1271,9 +1273,12 @@ observance fields. Defaults and permitted DATE/DATE-TIME/PERIOD alternatives fol
 their property context. VALUE/TZID must be singular with one member; unsupported
 VALUE tokens never fall back. An explicit default VALUE is accepted (RFC 5545
 3.2.20); fixed-type timestamp/DURATION properties cannot override it with another
-standard type. UTC revision stamps must be UTC. Observance DTSTART
-must be local without TZID. Reject TZID on DATE/UTC; an empty present TZID stays
-present and NeedsContext, never floating. Referenced definitions may appear later.
+standard type. Selection does not inspect temporal payload bytes. selectTemporal
+rejects TZID with DATE selection; decodeTemporal and TemporalList additionally
+reject UTC DATE-TIME with TZID while decoding actual values. Those value readers
+require UTC revision stamps and local observance DTSTART without TZID. An empty
+present TZID remains present in selection; for a local DATE-TIME it yields NeedsContext
+during value decoding, never floating. Referenced definitions may appear later.
 
 Known inapplicable standard parameters fail locally; extension parameters preserve
 review obligations. RANGE on RECURRENCE-ID is retained for later interpretation.
@@ -1682,8 +1687,8 @@ NestedComponentReviewPending and NonEventProjectionObserved. Successful counts p
 full enumeration/applicable local success only. Zero-event, projected-only and
 opaque-only sources may pass coverage while supported source policy and valid
 empty-schedule semantics remain unresolved. METHOD, recurrence, identities/revisions,
-TZID matching, transitions, nested/extension/detail semantics, normalization and
-source publication remain the later semantic producer's responsibility.
+whole-source TZID reconciliation, transitions, nested/extension/detail semantics,
+normalization and source publication remain the later semantic producer's responsibility.
 
 #### Lifetime, resources and evidence limits
 
@@ -2265,6 +2270,109 @@ run for this unit. No target/production build, provider access or hardware valid
 was performed. Historical test/target evidence retains its original applicability;
 these host results establish local coverage only, never semantic source completeness.
 
+### Selected TZID reference-local identity matching
+
+**Implemented exact decoded identity evidence for one selected VEVENT property,
+not temporal-value validity or timezone resolution.**
+[IcsTzidReferenceLocal](../application/ics_tzid_reference_local.h) exposes stateless
+`inspect(stage, calendarIndex, eventIndex, temporalPropertyIndex, limits)`. It does
+not run automatically from source/event/recurrence coverage or examine every source
+reference. Existing validators, parser, stage, workspace and snapshot remain unchanged.
+
+#### Admission and responsibility boundary
+
+Require readable StagedSuccessfully storage, explicit valid root Calendar/direct
+Event indices, closed components, structural ordinal/index and nonzero calendar-object
+association, parent before child and no projected/opaque substitution. Accept only
+direct DTSTART, DTEND, RECURRENCE-ID, RDATE or EXDATE. Verify the complete event
+property chain within maxEventProperties: readable indices, ownership, increasing
+links, terminal/count consistency and requested-property membership. Child content,
+RRULE, DURATION and unrelated extension properties cannot supply this reference.
+
+Use selectTemporal for property-local VALUE/TZID parameter selection and original
+typed diagnostics. It does not inspect temporal payload bytes. This matcher never
+calls decodeTemporal or TemporalList, never peeks at a UTC suffix, and adds no implicit
+complete-value precondition. DTSTART;TZID=Custom:20261017T130000Z may uniquely match
+TZID:Custom while the independent scalar decoder rejects that UTC/TZID combination.
+The same distinction applies to RDATE/EXDATE list members and their separate complete
+list validators. TZID with DATE selection still fails in selectTemporal. Neither
+Inspected nor UniqueLocalDefinition proves the property or its payload is valid.
+
+#### Matching, limits and failure order
+
+NoReference returns without scanning definitions or choosing a device timezone.
+For a present reference, measure the complete quote-excluded parameter member with
+measureParameter. EmptyReference stays distinct, sets timezoneResolutionPending and
+never matches an empty definition. A nonempty decoded identity must fit
+maxDecodedIdentityBytes. A leading slash remains part of the compared bytes and
+sets globalRegistrySemanticsPending; no registry or TZDB fallback is performed.
+
+Scan all staged component descriptors in source order, bounded by
+maxComponentsScanned (every descriptor counts). In-scope timezone parent/calendar
+identities must agree with the supplied calendar; inconsistent associations fail.
+Other calendar objects cannot satisfy or conflict with this reference. Each eligible
+direct, closed, nonprojected VTIMEZONE must pass validateTimezone with unchanged
+timezone limits before its required retained TZID TEXT property is used. No TZNAME,
+alias or geographic inference substitutes for TZID. A later invalid in-scope definition
+or exhausted scan budget fails even after an earlier match or multiple matches.
+
+Measure each complete definition with measureText and apply the decoded identity
+byte limit independently, including unmatched definitions. The existing timezone-local
+maxTzidTextBytes encoded-work limit remains independent. Exact bounds pass; zero is
+a real bound. Compare admitted identities with small purpose-specific byte cursors:
+RFC 6868 ^n/^^/^' on parameters versus scalar TEXT backslash escapes on definitions.
+Unknown/trailing carets retain the accepted literal semantics. Do not compare raw
+encodings, case-fold, normalize Unicode, allocate decoded buffers or persist identities.
+
+Complete the scan before returning NoLocalDefinition, UniqueLocalDefinition or
+MultipleLocalDefinitions. Matching count saturates at 0/1/2+; only a unique match
+returns its temporary component index. Matching definition TZID parameters add
+definitionParameterReviewPending; they receive no invented semantic interpretation.
+Any present reference retains timezoneResolutionPending, even with a unique match.
+Upstream review flags and unknown-parameter obligations are not mutated or cleared.
+
+Failure order is availability, argument/component/property admission, complete
+event-chain integrity/budget, selection, reference measurement/budget, then bounded
+component-order definition validation/measurement/comparison. Preserve original typed
+selection/measurement status and available offset in TemporalSelectionFailure, or
+original timezone-local status/property diagnostic in TimezoneLocalFailure. The local
+Report supplies no byte offset, so none is invented. Wrapper budget failures use
+ResourceLimit; local-validator resource failures remain TimezoneLocalFailure.
+All errors clear matching counts, unique index and result flags. Only active failure
+diagnostics and Inspected match evidence are authoritative; no raw content is logged.
+
+#### Lifetime and evidence limits
+
+Fixed counters and cursors allocate no heap/PSRAM, recurse nowhere and create no
+second identity/component database, cache, index or persistent state. Processing
+finishes inside the existing withScratch lifetime without mutation or aliases in
+Report. Copied scalar evidence survives release/poisoning; a copied matching index
+is not a durable reference and must not be dereferenced after release/reuse.
+Work is bounded by the event/scan/local limits and admitted encoded identity lengths;
+comparison can repeat the reference cursor for each eligible definition. Final ESP32
+CPU/stack/heap/PSRAM capacities remain unmeasured. No complete source policy, source-wide
+TZID coverage, transition/UTC resolution, recurrence execution or FiveDaySnapshot
+publication eligibility is established.
+
+Fresh strict C++11 and ASan/UBSan runs of tests/ics_tzid_reference_local_test.cpp
+passed **125 deterministic cases**, with zero audited `new` allocations, guarded
+source-byte immutability, unchanged stage status/counts, repeatability and copied
+reports surviving release/poisoning. Actual Content-Length/chunked ingestion,
+structure and staging cover one-byte/fragmented delivery and parser-buffer poisoning.
+Cases include cross-root isolation, complete scans after matches, saturated duplicate
+counts, decoded escape/Unicode identity evidence, original failure diagnostics,
+independent exact/exceeded budgets and the adjudicated scalar/RDATE/EXDATE UTC-TZID
+boundary. Independent value decoders reject those payloads while identity matching
+can succeed. Host Report sizeof/alignof is **88/8**, not target layout or headroom.
+
+Fresh strict composed regressions passed **400** typed-value result assertions and
+**202** timezone-local scenarios; commands are in AGENTS.md. Accepted implementations
+and interfaces are unchanged and no shared defect required broader staging/structure,
+recurrence/source coverage, snapshot, graphics or acquisition suites. No target/
+production build, provider access or physical hardware validation ran. Historical
+evidence remains scoped to its original units; these results establish no temporal
+payload validity, timezone resolution, production compatibility or source completeness.
+
 ### Boot to sleep flow
 
 1. Start Serial. No filesystem mount, formatting or artwork initialization occurs.
@@ -2459,7 +2567,7 @@ measurement or successful firmware build is available to support readiness.
   to acquisition orchestration and isolated panel/workspace/snapshot/ICS contracts,
   including staged values, local coverage, core RECUR grammar, contextual RRULE
   checks, VEVENT/observance recurrence-local coverage and source-wide recurrence-local
-  composition; no CI is committed.
+  composition plus selected TZID reference-local identity matching; no CI is committed.
 - **Data reliability:** truncation before global sort,
   insufficient response-state distinctions, volatile events and unresolved timezone
   alignment limit confidence. The target calendar snapshot is wake-cycle-only;
