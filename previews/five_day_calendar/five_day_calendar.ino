@@ -2,6 +2,7 @@
 #include <Seeed_GFX.h>
 #include "../../application/psram_workspace.h"
 #include "../../application/five_day_posix_time.h"
+#include "../../application/five_day_window.h"
 #include "../../application/ics_nonrecurring_snapshot.h"
 
 #if !defined(ARDUINO_ARCH_ESP32) || !defined(CONFIG_IDF_TARGET_ESP32S3) || !defined(ARDUINO_XIAO_ESP32S3_PLUS)
@@ -108,7 +109,13 @@ void setup() {
   if (setenv("TZ", previewZone.configuredTimezone, 1) != 0) { Serial.println("Preview TZ setup failed"); return; }
   tzset();
   // Oct 23-27 2026, Europe-style POSIX rules; Oct 25 has 25 hours.
-  const FiveDaySnapshot::Window window = {{1792706400,1792792800,1792879200,1792969200,1793055600,1793142000},20749,0};
+  FiveDaySnapshot::Window window = {};
+  // Fixed EXAMPLE now, explicitly trusted for this deterministic replay only.
+  const auto built = FiveDayWindow::build(1792746000, true, previewZone.configuredTimezone, window);
+  const int64_t expected[] = {1792706400,1792792800,1792879200,1792969200,1793055600,1793142000};
+  bool equivalent = built == FiveDayWindow::Status::Ok && window.firstCivilDay == 20749 && !window.reserved;
+  for (size_t i = 0; i < 6 && equivalent; ++i) equivalent = window.utcBoundaries[i] == expected[i];
+  if (!equivalent) { Serial.printf("Example window failed: status=%u\n", unsigned(built)); return; }
   const FiveDaySnapshot::Text labels[] = {{"Example personal",16},{"Example team",12}};
   if (snapshot.initialize(window, 32, 4096, labels, 2) != FiveDaySnapshot::Result::Ok ||
       !workspace.allocate(2097152).ok()) { Serial.println("Preview PSRAM allocation failed"); return; }

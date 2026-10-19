@@ -78,7 +78,11 @@ is historical evidence, not current architecture or requirements authority.
   preview using the application workspace's borrowed GFX2 framebuffer. Show timed,
   point, all-day and spanning events with explicit local-time conversion, stable
   bounded ordering, source-status warnings and visible text/row overflow. Keep the
-  five-column agenda provisional; preserve production graphics/acquisition and defer
+  five-column agenda provisional. Build rolling local five-day windows from explicit
+  trusted UTC and configured POSIX TZ using independently resolved local midnights,
+  variable-length days, earliest repeated midnight and atomic rejection of missing
+  midnight/context. Generate and verify the deterministic preview's original window;
+  preserve production graphics/acquisition and defer
   broader normalization, final presentation, target compatibility and physical validation.
 - Add a reusable single-source authenticated HTTPS acquisition path streaming raw
   Content-Length/chunked responses through existing ingestion, staging and the

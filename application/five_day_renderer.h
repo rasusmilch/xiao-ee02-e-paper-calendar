@@ -2,6 +2,7 @@
 #define EE02_FIVE_DAY_RENDERER_H
 
 #include "five_day_snapshot.h"
+#include "five_day_local_time.h"
 #include <Seeed_GFX.h>
 #include <cstdio>
 
@@ -10,7 +11,7 @@
 // and remain available for the whole call. No views escape render().
 namespace FiveDayRenderer {
 struct Region { int32_t x, y, width, height; };
-struct LocalTime { int32_t civilDay; uint8_t hour, minute, second; int32_t offsetSeconds; };
+using LocalTime = FiveDayLocalTime::Value;
 using Convert = bool (*)(int64_t utc, LocalTime& local, void* context);
 struct TimeContext { Convert convert; void* context; };
 enum class Status { Drawn, InvalidSnapshot, InvalidRegion, InvalidTimeContext };
@@ -22,24 +23,11 @@ struct Report {
 namespace detail {
 // Gregorian arithmetic for civil labels only; never substitutes for UTC conversion.
 inline int64_t civilDay(int64_t year, unsigned month, unsigned day) {
-    year -= month <= 2;
-    const int64_t era = (year >= 0 ? year : year - 399) / 400;
-    const unsigned y = static_cast<unsigned>(year - era * 400);
-    const unsigned m = month > 2 ? month - 3 : month + 9;
-    return era * 146097 + y * 365 + y / 4 - y / 100 + (153 * m + 2) / 5 + day - 1 - 719468;
+    return FiveDayLocalTime::civilDay(year,month,day);
 }
 inline void date(int32_t day, char* out, size_t bytes) {
-    const int64_t z = int64_t(day) + 719468;
-    const int64_t era = (z >= 0 ? z : z - 146096) / 146097;
-    const unsigned doe = static_cast<unsigned>(z - era * 146097);
-    const unsigned yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
-    int64_t y = int64_t(yoe) + era * 400;
-    const unsigned doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
-    const unsigned mp = (5 * doy + 2) / 153;
-    const unsigned d = doy - (153 * mp + 2) / 5 + 1;
-    const unsigned m = mp < 10 ? mp + 3 : mp - 9;
-    y += m <= 2;
-    std::snprintf(out, bytes, "%04ld-%02u-%02u", static_cast<long>(y), m, d);
+    const auto d=FiveDayLocalTime::date(day);
+    std::snprintf(out, bytes, "%04ld-%02u-%02u", static_cast<long>(d.year), d.month, d.day);
 }
 inline bool local(const TimeContext& zone, int64_t utc, LocalTime& out) {
     if (!zone.convert || !zone.convert(utc, out, zone.context) || out.hour > 23 || out.minute > 59 || out.second > 59)

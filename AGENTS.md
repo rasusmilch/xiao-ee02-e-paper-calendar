@@ -239,6 +239,29 @@ defers target validation for the unit (as for the nonrecurring producer/updated 
 Do not substitute historical
 fixture compilation or host syntax checks for new target/physical evidence.
 
+The rolling local-window regression builds real windows and composes snapshot,
+POSIX adapter, ICS publication and renderer behavior. Run TZ-mutating cases serially.
+The pure time/fault mode needs no graphics include path, only the snapshot header's
+existing PSRAM declaration stand-in. Test-local libc interposition injects conversion/
+context failures and audits observable C allocations; it is not a target libc proof:
+
+```
+g++ -std=c++11 -Wall -Wextra -Werror -pedantic -Itests/renderer_host -Itests/gfx2_host -Ithird_party/Seeed_GFX2/src tests/five_day_window_test.cpp -Wl,--wrap=free -o /tmp/ee02-five-day-window-test
+/tmp/ee02-five-day-window-test
+g++ -std=c++11 -Wall -Wextra -Werror -pedantic -fsanitize=address,undefined -fno-omit-frame-pointer -Itests/renderer_host -Itests/gfx2_host -Ithird_party/Seeed_GFX2/src tests/five_day_window_test.cpp -Wl,--wrap=free -o /tmp/ee02-five-day-window-sanitized
+/tmp/ee02-five-day-window-sanitized
+g++ -std=c++11 -Wall -Wextra -Werror -pedantic -DEE02_WINDOW_TIME_ONLY -DEE02_WINDOW_FAULTS -Itests/gfx2_host tests/five_day_window_test.cpp -Wl,--wrap=free,--wrap=malloc,--wrap=calloc,--wrap=realloc,--wrap=localtime_r,--wrap=mktime -o /tmp/ee02-five-day-window-fault-test
+/tmp/ee02-five-day-window-fault-test
+g++ -std=c++11 -Wall -Wextra -Werror -pedantic -fsanitize=address,undefined -fno-omit-frame-pointer -DEE02_WINDOW_TIME_ONLY -DEE02_WINDOW_FAULTS -Itests/gfx2_host tests/five_day_window_test.cpp -Wl,--wrap=free,--wrap=malloc,--wrap=calloc,--wrap=realloc,--wrap=localtime_r,--wrap=mktime -o /tmp/ee02-five-day-window-fault-sanitized
+/tmp/ee02-five-day-window-fault-sanitized
+```
+
+Run snapshot, renderer/POSIX adapter and nonrecurring producer regressions for the
+shared conversion and generated-window integration. Preserve target/Newlib, physical
+EE02, RTC and runtime/power limitations; these checks acquire no system time or live
+source. The caller-configured timezone and explicit trusted-now contracts are in
+[ENGINEERING](docs/ENGINEERING.md#rolling-local-five-day-window).
+
 The restricted nonrecurring producer regression exercises the actual raw HTTP →
 structure → stage → supported-profile publication → snapshot → renderer pipeline.
 Use the same renderer facade include order and guarded snapshot free interception:

@@ -114,7 +114,8 @@ grammar, contextual RRULE validation, VEVENT recurrence-property coverage and ob
 recurrence-local coverage, source-wide recurrence-local composition, selected TZID
 reference-local identity matching, source-wide VEVENT TZID identity coverage and a
 reusable snapshot renderer/deterministic EE02 preview and restricted nonrecurring
-ICS-to-snapshot producer and authenticated streaming HTTPS acquisition API implemented;
+ICS-to-snapshot producer, authenticated streaming HTTPS acquisition API and rolling
+local five-day window builder implemented;
 production integration and hardware validation pending.** The owner-selected architecture
 uses Seeed_GFX2 with a locally maintained external-framebuffer ownership extension,
 one application-owned PSRAM arena, and a separate fixed-capacity five-day occurrence
@@ -623,8 +624,9 @@ Fixed capacity means fixed for this initialization, not a permanent product limi
 - `Window` copies the first selected civil-day ordinal and six supplied resolved UTC
   boundaries. `firstCivilDay + 5` must be representable and boundaries strictly
   increasing. No 86,400-second-day assumption or timezone resolver exists here.
-  The producer must establish five consecutive valid civil dates in the **same
-  selected display timezone** used for normalization and rendering. Unresolved,
+  The snapshot caller must establish five consecutive valid civil dates in the
+  **same selected display timezone** used for rendering. FiveDayWindow below now
+  builds this input from caller-trusted UTC and explicitly configured POSIX TZ. Unresolved,
   nonexistent/skipped dates require upstream failure, not invented boundaries or
   a complete schedule. This creates no second timezone configuration authority.
 - Before `completeSource`, the producer must finish transport, expansion/exclusions,
@@ -713,6 +715,89 @@ feed completeness, UID reconciliation, electrical shutdown or production firmwar
 build is established. The smoke fixture uses synthetic UTC boundaries and evaluates
 snapshot/workspace coexistence only if later executed; compilation does not run it.
 That fixture implements no ICS/provider/recurrence or three-consecutive-failures policy.
+
+### Rolling local five-day window
+
+**Reusable construction implemented; production clock/refresh integration and target
+conversion behavior remain unverified.** [FiveDayWindow](../application/five_day_window.h)
+exposes `Status build(int64_t nowUtc, bool clockTrusted, const char* configuredPosixTimezone,
+FiveDaySnapshot::Window& output)`. It prepares one input window, without allocating
+or modifying a snapshot, processing events, acquiring time or rendering. The trust
+flag is a caller assertion; nonzero time or a plausible year is never used as proof.
+UntrustedTime returns immediately. Null/empty configuration or absent TZ yields
+MissingTimezone; an exact configured/active string mismatch yields TimezoneMismatch.
+There is no device/default timezone, X-WR-TIMEZONE, event TZID or implicit UTC fallback.
+
+The caller sets TZ and calls tzset first, keeps the expected string readable and
+excludes concurrent TZ/tzset changes. Context is checked before/after conversion
+steps and again before output assignment. These observations cannot replace the
+caller synchronization contract or validate arbitrary POSIX rule syntax; full
+configuration syntax validation remains a separate responsibility. No configuration,
+clock, RTC, NTP, Wi-Fi, network, NVS or scheduling operation occurs in the builder.
+
+Checked localtime_r conversion selects **today locally**, independent of the UTC
+calendar date or weekday. Proleptic Gregorian ordinals relative to 1970-01-01 generate
+Day 0 through Day 5 as calendar dates. Each date independently tries mktime with
+fresh tm_isdst values -1, 0 and 1. Only representable UTC candidates that round-trip
+to the requested year/month/day at exactly 00:00:00 are admitted. Equivalent
+candidates have no additional effect; the earliest valid UTC instant wins at a
+repeated midnight. A time_t result of -1 is not itself an error: an actual pre-epoch
+instant can pass the same round-trip checks. No exact midnight candidate yields
+UnsupportedLocalMidnight, including dates that normalize to 01:00 or another date.
+A skipped midnight anywhere in the six-date window fails the whole operation.
+
+The complete local temporary window is then checked for representability, strict UTC
+ordering, six consecutive midnight dates, the preceding local date immediately
+before each later boundary, nowUtc in Day 0's half-open interval, checked firstCivilDay
+plus five and zero reserved. ConversionFailure/InvalidWindow report conversion or
+invariant failures. One final assignment publishes output; every failure preserves
+its original bytes. There is no snapshot mutation, window cache, background update
+or stored time-validity state. UTC boundaries never come from adding 86,400 elapsed
+seconds. Half-hour and other durations are admitted when the platform conversions
+satisfy these invariants; unsupported midnight rules fail explicitly. Timed events
+remain absolute UTC and all-day intervals remain civil dates with exclusive ends.
+
+[FiveDayLocalTime](../application/five_day_local_time.h) is a small extraction of the
+existing renderer's local-time value/civil arithmetic and POSIX conversion. Both the
+builder and unchanged FiveDayPosixTime::convert interface use the same interpretation.
+Renderer labels/offsets remain unchanged; the builder needs no Seeed_GFX or Arduino
+display header. Its public Window type still comes from the unchanged snapshot header;
+the graphics-free host command uses only the existing PSRAM declaration stand-in.
+At most eighteen mktime candidates and fixed local scalars are used, with no explicit
+heap/PSRAM allocation, second event store or new memory owner. Host allocation
+interposition audits observable C/C++ calls; private libc internals and target memory
+behavior still require platform evidence.
+
+The deterministic preview explicitly sets CET/CEST, passes fixed trusted example
+nowUtc 1792746000 (October 23, 2026), then checks firstCivilDay 20749 and the original
+six UTC reference boundaries before any snapshot/workspace allocation. Builder or
+fixture failure prints a nonsensitive status and stops before population/rendering.
+Existing example ICS, repeated fall-hour instants, DATE ranges, incomplete source,
+scratch poisoning, GFX2 borrowing and separate shutdown checks remain unchanged.
+Source inspection verifies this integration; no target compile claim follows.
+
+Fresh strict C++11 and ASan/UBSan host runs passed 156 window builds in composed
+mode and 156 in the graphics-free fault mode, exercising actual production construction,
+exact literal UTC fixtures for UTC, positive/negative/half-hour offsets, month/year/
+leap-year boundaries, European/North American/southern DST, half-hour shifts,
+repeated and nonexistent midnight and pre-epoch -1. Failures preserve byte-poisoned
+output. A graphics-free mode also checks context changes, failed conversion and an
+inconsistent preceding date using test-local libc interposition. Real generated
+windows initialize snapshots, preserve unclipped UTC/DATE ranges and exclusive ends,
+feed the existing raw HTTP/ICS ingestion/stage/producer and render correct headers,
+DST times and repeated offsets inside bounded graphics traces. Commands and fresh
+results are in AGENTS and the test output. Existing snapshot, renderer/POSIX adapter
+(24 checks) and nonrecurring producer (228 scenarios plus workspace composition)
+regressions also passed fresh strict and ASan/UBSan runs. Historical target evidence
+is not reused.
+
+Arduino compilation, flashing, physical EE02, RTC validation, runtime PSRAM and power
+measurements remain owner-deferred and NOT RUN. Host libc success does not prove
+Arduino/Newlib mktime/localtime behavior, especially ambiguous/skipped midnight or
+final configured timezone. Production .ino/calendar.h/constants.h, clock sync, daily
+NTP strategy, retained RTC validation, refresh/sleep and source acquisition sequencing
+are unchanged. Final grid/agenda, waking hours, capacities and other Open policies
+remain unchanged. This completes no production device integration milestone.
 
 ### Authenticated streaming HTTPS ICS acquisition
 
@@ -1063,12 +1148,14 @@ correct preceding local dates, and coherent local date/time/offset representatio
 Every timed endpoint is checked, even if its row will not fit. Boundary lengths may
 be 23/25 hours; overlap never adds 86,400 seconds to a UTC boundary. The constant
 86,400 in the conversion consistency check encodes civil fields, not elapsed local
-day length. The producer still owns valid window/normalization context.
+day length. The refresh caller supplies a valid generated window; the producer
+still owns event normalization and complete supported-source publication.
 
 [Narrow POSIX conversion](../application/five_day_posix_time.h) requires an explicit
 caller-owned expected TZ string matching the configured TZ, after caller setenv/tzset.
-It uses checked time_t conversion and localtime_r, deriving numeric offsets from the
-converted civil fields. There is no implicit device-timezone choice, fixed offset,
+It delegates checked time_t conversion, civil arithmetic and localtime_r to the
+shared hardware-independent FiveDayLocalTime helper also used by the window builder,
+deriving numeric offsets from the converted civil fields. There is no implicit device-timezone choice, fixed offset,
 ICS VTIMEZONE resolver or mutation of TZ inside rendering. No concurrent timezone
 changes are allowed. The preview uses known CET/CEST rules; tests explicitly set TZ
 and exercise spring gaps and both fall repeated-hour instants. Numeric offsets are
@@ -1107,7 +1194,9 @@ when necessary. Labels are snapshot-owned views; no provider registry is added.
 [Dedicated preview](../previews/five_day_calendar/five_day_calendar.ino) is outside
 production auto-compilation. It feeds deterministic HTTP/ICS through the restricted
 producer and public snapshot transactions with fixed EXAMPLE DATA for October
-23–27, 2026, including an incomplete example source, all-day,
+23–27, 2026. Its window now comes from FiveDayWindow with fixed trusted example
+UTC time, explicitly configured CET/CEST and an exact reference-boundary check before
+allocation. It includes an incomplete example source, all-day,
 multiday, cross-midnight, point and repeated-hour entries. It allocates a separate
 32-record/4 KiB-text snapshot and one 2 MiB workspace as evaluation arguments, poisons
 scratch, then calls the actual renderer through Ee02PsramWorkspace::render(). Only

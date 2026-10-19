@@ -9,7 +9,7 @@ The [original prototype article](https://www.makerguides.com/e-paper-wall-calend
 - **Display:** 1600×1200 Spectra 6, rolling next five days starting today, fixed waking-hour window (exact hours configurable), timed grid the leading candidate versus a five-day agenda. The week view **replaces the 1024×1024 artwork area**. Display layout is not finally selected.
 - **Other panels:** retain weather, multi-day forecast, today's detailed events, battery indication, and their existing positions initially. Whether the legacy monthly calendar remains is Open.
 - **Calendars:** select multiple source calendars; support Google, iCloud/CalDAV and general ICS by source-independent internal event representation. Entirely on-device fetching/normalization; **no separate backend, hosted processor or update preprocessor**. Sequential streaming ICS processing is selected; provider-access scope, including ICS-only initial access and private iCloud versus public ICS, remains Open.
-- **Selected graphics/memory architecture:** Seeed_GFX2 with a locally maintained external-framebuffer ownership extension; one application-owned PSRAM workspace for sequential, one-source-at-a-time streaming ICS processing, then rendering. A separate fixed-capacity five-day PSRAM snapshot owns normalized occurrences, text and transactional source outcomes without references into the reused workspace. GFX2 borrows only the 960,000-byte framebuffer slice and must not free it or allocate an unnecessary second framebuffer. The 2 MiB workspace, 1,024 occurrences and 320 KiB snapshot are provisional evaluation budgets, not validated operating limits. Borrowing, a scoped workspace, synthetic snapshot publication, standalone HTTP framing/line unfolding, bounded property/component parsing, selective source-local dependency staging, typed primitive decoding, VEVENT-local checks, timezone/observance-local checks, source-local coverage, standalone core RECUR grammar, contextual RRULE validation, VEVENT recurrence-property coverage, observance recurrence-local coverage, source-wide recurrence-local coverage, selected TZID reference-local identity matching, source-wide VEVENT TZID identity coverage, a restricted nonrecurring ICS-to-snapshot producer, a reusable snapshot renderer with a dedicated deterministic EE02 preview, and an authenticated streaming HTTPS acquisition API are implemented separately; coordinated live device integration, general component/source semantic validation and production phase reuse remain unimplemented, with hardware behavior unvalidated. Consult the [canonical architecture and validation contract](docs/ENGINEERING.md#selected-gfx2-psram-and-streaming-calendar-architecture).
+- **Selected graphics/memory architecture:** Seeed_GFX2 with a locally maintained external-framebuffer ownership extension; one application-owned PSRAM workspace for sequential, one-source-at-a-time streaming ICS processing, then rendering. A separate fixed-capacity five-day PSRAM snapshot owns normalized occurrences, text and transactional source outcomes without references into the reused workspace. GFX2 borrows only the 960,000-byte framebuffer slice and must not free it or allocate an unnecessary second framebuffer. The 2 MiB workspace, 1,024 occurrences and 320 KiB snapshot are provisional evaluation budgets, not validated operating limits. Borrowing, a scoped workspace, synthetic snapshot publication, standalone HTTP framing/line unfolding, bounded property/component parsing, selective source-local dependency staging, typed primitive decoding, VEVENT-local checks, timezone/observance-local checks, source-local coverage, standalone core RECUR grammar, contextual RRULE validation, VEVENT recurrence-property coverage, observance recurrence-local coverage, source-wide recurrence-local coverage, selected TZID reference-local identity matching, source-wide VEVENT TZID identity coverage, a restricted nonrecurring ICS-to-snapshot producer, a reusable snapshot renderer with a dedicated deterministic EE02 preview, an authenticated streaming HTTPS acquisition API and a rolling local five-day window builder are implemented separately; coordinated live device integration, general component/source semantic validation and production phase reuse remain unimplemented, with hardware behavior unvalidated. Consult the [canonical architecture and validation contract](docs/ENGINEERING.md#selected-gfx2-psram-and-streaming-calendar-architecture).
 - **Storage/time:** NVS stores changed persistent configuration only (Wi-Fi, timezone, calendar URLs/selection, refresh settings). No daily churn, events, weather or routine counters go to NVS. RTC-retained memory may hold validated compact sleep context; reconstruct after invalid RTC/reset. NTP on cold boot when required, then approximately daily; use internal RTC between syncs.
 - **Refresh/recovery:** battery-powered, single user-configurable coordinated data-acquisition/render cycle, independently validated per source. Successful calendars display even if another calendar fails, with a named error bar; a weather failure is shown in its own panel while previously valid forecast data may remain. Three consecutive complete acquisition failures cause a full error screen; cold boot tries Wi-Fi before presenting recovery instructions.
 - **Setup:** device-hosted Wi-Fi webpage (LAN while explicitly awake, or open/no-password AP). AP stops after 10 minutes without meaningful user activity or 30 minutes maximum, then sleeps. Entering a new password may show characters; after save it is masked and the saved value is never echoed. Calendar URL fields remain displayed. An operator-accessible hardware AP trigger is required; simultaneous Setup+Refresh hold for five seconds is a **proposed, unverified** factory-reset gesture, not yet a pin/wake contract.
@@ -154,6 +154,45 @@ bytes only as evaluation arguments (287,032 allocated bytes). The separate
 source-local ICS stage is described below; this snapshot provides no timezone
 resolver, persistent identity or production integration. See the
 [canonical snapshot contract](docs/ENGINEERING.md#normalized-five-day-occurrence-snapshot).
+
+### Rolling local five-day window
+
+[FiveDayWindow](application/five_day_window.h) provides
+`build(nowUtc, clockTrusted, configuredPosixTimezone, outputWindow)`. The caller
+supplies UTC POSIX seconds, explicitly asserts trusted time, configures a nonempty
+POSIX TZ string with setenv/tzset, and excludes timezone changes throughout the call.
+The expected string must exactly match active TZ. Untrusted time, missing/mismatched
+TZ or failed conversion leaves output byte-for-byte unchanged; there is no ambient
+UTC fallback, system-clock lookup, automatic synchronization or configuration change.
+
+The first civil date is **today locally**, followed by four dates. Six independently
+resolved local-midnight UTC boundaries include Day 5 as the exclusive end. The
+builder tries tm_isdst -1/0/1, round-trips each candidate, chooses the earliest valid
+repeated midnight and refuses nonexistent midnight instead of normalizing to 01:00.
+It validates consecutive dates, increasing boundaries, preceding dates, now containment
+and checked civil/time_t ranges before one final assignment with reserved zero.
+Local days need not be 86,400 seconds; supported half-hour transitions also work.
+
+The small [shared time helper](application/five_day_local_time.h) supplies the existing
+renderer/POSIX adapter's civil arithmetic and checked UTC conversion without graphics
+headers. FiveDayPosixTime::convert remains the renderer callback. The builder owns
+no snapshot, event records, allocations, cache, network or persistent state. The
+existing snapshot and UTC/DATE event representations remain unchanged. POSIX TZ
+syntax validation belongs to configuration; matching TZ plus round-trip checks do
+not prove arbitrary rule-string validity.
+
+The example preview builds its established October 23–27, 2026 window using fixed,
+explicitly trusted example UTC time 1792746000 and checks the original boundary
+fixture before allocating/populating a snapshot. It does not read current system time.
+Host tests cover fixed/DST offsets, calendar rollovers, repeated/skipped midnight,
+failure atomicity, allocation audits and real snapshot/ICS-producer/renderer
+composition. Pure time cases also compile without graphics. Arduino/Newlib timezone
+behavior, physical EE02, RTC validation and memory/power remain owner-deferred and
+unverified. Future production orchestration still supplies validated time, TZ,
+rolling-window construction, refresh, acquisition and display coordination. The
+production sketch does not yet use these rolling dates. See the
+[window contract](docs/ENGINEERING.md#rolling-local-five-day-window) and
+[host commands](AGENTS.md#commands-and-validation).
 
 ### Authenticated streaming ICS HTTPS acquisition
 
@@ -329,7 +368,8 @@ operator to check sources/retry instead of presenting an empty calendar.
 
 The dedicated [preview sketch](previews/five_day_calendar/five_day_calendar.ino)
 is outside production auto-compilation. It marks EXAMPLE DATA, explicitly configures
-CET/CEST for October 23–27, 2026 (including the 25-hour DST day), and transactionally
+CET/CEST, builds and verifies the October 23–27, 2026 window from a fixed example
+now (including the 25-hour DST day), and transactionally
 feeds deterministic synthetic HTTP/ICS through IcsIngestion → IcsStructure →
 IcsSourceStage → IcsNonrecurringSnapshot, producing timed, point, all-day, multiday
 and cross-midnight examples alongside passive METHOD/X-WR metadata, administrative
