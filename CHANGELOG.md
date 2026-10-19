@@ -93,6 +93,15 @@ is historical evidence, not current architecture or requirements authority.
   ingestion total-time opt-out while retaining positive-budget behavior. Refuse
   redirects safely, preserve source rollback and independent snapshot ownership,
   and leave production integration and target/physical validation deferred.
+- Compose trusted rolling local dates, enabled-source compaction, one independent
+  snapshot and sequential authenticated HTTPS/ICS processing into a reusable
+  multi-calendar refresh. Preserve successful calendars across source failures,
+  reconcile selected source outcomes and distinguish interrupted refreshes, empty
+  schedules and no calendar selection. Provide an opt-in development-only live
+  EE02 demonstration with private configuration, a fresh SNTP notification gate,
+  network shutdown before one borrowed-framebuffer render and unchanged retention
+  safeguards. Keep the deterministic preview and production dashboard intact;
+  target builds, live-feed and physical operation remain unverified.
 - Add bounded standalone raw HTTP response framing and strict RFC 5545 logical-line
   unfolding in borrowed scratch storage. Require exact supported body completion,
   preserve octets across arbitrary read boundaries and fail explicitly on malformed,

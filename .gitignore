@@ -38,6 +38,7 @@
 
 examples/
 credentials.h
+previews/live_calendar_refresh/live_demo_config.h
 
 .clang-format
 .clinerules/

@@ -181,7 +181,7 @@ inline Report render(Seeed_GFX& gfx, const FiveDaySnapshot& snapshot, Region reg
     gfx.fillRect(region.x, region.y, region.width, region.height, TFT_WHITE);
     size_t unused = 0;
     const size_t fullCells = static_cast<size_t>((region.width - 8) / cell);
-    const char* status = complete ? (snapshot.occurrenceCount() ? "Schedule: all sources complete" : "No events - all sources complete") :
+    const char* status = !snapshot.sourceCount() ? "No calendars selected" : complete ? (snapshot.occurrenceCount() ? "Schedule: all sources complete" : "No events - all sources complete") :
         r.completeSources ? "Incomplete schedule - available events shown" : "Calendar unavailable - check sources / retry";
     label(gfx, text(status), region.x + 4, region.y + 4, fullCells, 1, scale, complete ? TFT_BLACK : TFT_RED, unused);
     // Two bounded source lines plus an explicit count of additional affected sources.

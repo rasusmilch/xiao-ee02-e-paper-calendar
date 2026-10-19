@@ -2,14 +2,14 @@
 
 Battery-powered EE02 five-day calendar and weather dashboard.
 
-The [original prototype article](https://www.makerguides.com/e-paper-wall-calendar-with-ai-generated-artwork-and-weather-display/) describes the historical artwork-based firmware. AI artwork generation, processing, caching and rendering have been removed. The production sketch still leaves the former artwork region empty. A separate deterministic five-day preview now exercises the reusable snapshot renderer and borrowed GFX2 framebuffer; it is not the live wall-calendar milestone or final display design.
+The [original prototype article](https://www.makerguides.com/e-paper-wall-calendar-with-ai-generated-artwork-and-weather-display/) describes the historical artwork-based firmware. AI artwork generation, processing, caching and rendering have been removed. The production sketch still leaves the former artwork region empty. Separate deterministic and opt-in live development sketches exercise the reusable calendar pipeline and borrowed GFX2 framebuffer. The live sketch is target-unverified; neither establishes the live wall-calendar milestone or final display design.
 
-## Approved product direction (not yet implemented)
+## Approved product direction (production integration pending)
 
 - **Display:** 1600×1200 Spectra 6, rolling next five days starting today, fixed waking-hour window (exact hours configurable), timed grid the leading candidate versus a five-day agenda. The week view **replaces the 1024×1024 artwork area**. Display layout is not finally selected.
 - **Other panels:** retain weather, multi-day forecast, today's detailed events, battery indication, and their existing positions initially. Whether the legacy monthly calendar remains is Open.
 - **Calendars:** select multiple source calendars; support Google, iCloud/CalDAV and general ICS by source-independent internal event representation. Entirely on-device fetching/normalization; **no separate backend, hosted processor or update preprocessor**. Sequential streaming ICS processing is selected; provider-access scope, including ICS-only initial access and private iCloud versus public ICS, remains Open.
-- **Selected graphics/memory architecture:** Seeed_GFX2 with a locally maintained external-framebuffer ownership extension; one application-owned PSRAM workspace for sequential, one-source-at-a-time streaming ICS processing, then rendering. A separate fixed-capacity five-day PSRAM snapshot owns normalized occurrences, text and transactional source outcomes without references into the reused workspace. GFX2 borrows only the 960,000-byte framebuffer slice and must not free it or allocate an unnecessary second framebuffer. The 2 MiB workspace, 1,024 occurrences and 320 KiB snapshot are provisional evaluation budgets, not validated operating limits. Borrowing, a scoped workspace, synthetic snapshot publication, standalone HTTP framing/line unfolding, bounded property/component parsing, selective source-local dependency staging, typed primitive decoding, VEVENT-local checks, timezone/observance-local checks, source-local coverage, standalone core RECUR grammar, contextual RRULE validation, VEVENT recurrence-property coverage, observance recurrence-local coverage, source-wide recurrence-local coverage, selected TZID reference-local identity matching, source-wide VEVENT TZID identity coverage, a restricted nonrecurring ICS-to-snapshot producer, a reusable snapshot renderer with a dedicated deterministic EE02 preview, an authenticated streaming HTTPS acquisition API and a rolling local five-day window builder are implemented separately; coordinated live device integration, general component/source semantic validation and production phase reuse remain unimplemented, with hardware behavior unvalidated. Consult the [canonical architecture and validation contract](docs/ENGINEERING.md#selected-gfx2-psram-and-streaming-calendar-architecture).
+- **Selected graphics/memory architecture:** Seeed_GFX2 with a locally maintained external-framebuffer ownership extension; one application-owned PSRAM workspace for sequential, one-source-at-a-time streaming ICS processing, then rendering. A separate fixed-capacity five-day PSRAM snapshot owns normalized occurrences, text and transactional source outcomes without references into the reused workspace. GFX2 borrows only the 960,000-byte framebuffer slice and must not free it or allocate an unnecessary second framebuffer. The 2 MiB workspace, 1,024 occurrences and 320 KiB snapshot are provisional evaluation budgets, not validated operating limits. Borrowing, a scoped workspace, synthetic snapshot publication, standalone HTTP framing/line unfolding, bounded property/component parsing, selective source-local dependency staging, typed primitive decoding, VEVENT-local checks, timezone/observance-local checks, source-local coverage, standalone core RECUR grammar, contextual RRULE validation, VEVENT recurrence-property coverage, observance recurrence-local coverage, source-wide recurrence-local coverage, selected TZID reference-local identity matching, source-wide VEVENT TZID identity coverage, a restricted nonrecurring ICS-to-snapshot producer, a reusable snapshot renderer with a dedicated deterministic EE02 preview, an authenticated streaming HTTPS acquisition API, a rolling local five-day window builder and a multi-calendar refresh coordinator with an opt-in live development sketch are implemented. Production dashboard integration, general component/source semantic validation and production phase reuse remain unimplemented, with target/hardware behavior unvalidated. Consult the [canonical architecture and validation contract](docs/ENGINEERING.md#selected-gfx2-psram-and-streaming-calendar-architecture).
 - **Storage/time:** NVS stores changed persistent configuration only (Wi-Fi, timezone, calendar URLs/selection, refresh settings). No daily churn, events, weather or routine counters go to NVS. RTC-retained memory may hold validated compact sleep context; reconstruct after invalid RTC/reset. NTP on cold boot when required, then approximately daily; use internal RTC between syncs.
 - **Refresh/recovery:** battery-powered, single user-configurable coordinated data-acquisition/render cycle, independently validated per source. Successful calendars display even if another calendar fails, with a named error bar; a weather failure is shown in its own panel while previously valid forecast data may remain. Three consecutive complete acquisition failures cause a full error screen; cold boot tries Wi-Fi before presenting recovery instructions.
 - **Setup:** device-hosted Wi-Fi webpage (LAN while explicitly awake, or open/no-password AP). AP stops after 10 minutes without meaningful user activity or 30 minutes maximum, then sleeps. Entering a new password may show characters; after save it is masked and the saved value is never echoed. Calendar URL fields remain displayed. An operator-accessible hardware AP trigger is required; simultaneous Setup+Refresh hold for five seconds is a **proposed, unverified** factory-reset gesture, not yet a pin/wake contract.
@@ -188,8 +188,9 @@ Host tests cover fixed/DST offsets, calendar rollovers, repeated/skipped midnigh
 failure atomicity, allocation audits and real snapshot/ICS-producer/renderer
 composition. Pure time cases also compile without graphics. Arduino/Newlib timezone
 behavior, physical EE02, RTC validation and memory/power remain owner-deferred and
-unverified. Future production orchestration still supplies validated time, TZ,
-rolling-window construction, refresh, acquisition and display coordination. The
+unverified. Future production orchestration still supplies validated time, configured
+TZ and coordinated dashboard refresh. The calendar-only
+coordinator below now composes window construction with sequential acquisition. The
 production sketch does not yet use these rolling dates. See the
 [window contract](docs/ENGINEERING.md#rolling-local-five-day-window) and
 [host commands](AGENTS.md#commands-and-validation).
@@ -259,10 +260,82 @@ scripted secure I/O, slow success, stalls, failures, scratch poisoning and rende
 traces. Adapter stand-ins verify API call ordering, not real DNS/TLS authentication.
 Arduino compilation, physical EE02 testing and runtime/power measurements are
 owner-deferred and unverified; no live feed or credential was used. The restricted
-producer profile below is unchanged. Production networking/graphics, source settings,
-clock provisioning, rolling-window coordination and refresh integration remain later
-work. This capability is not a verified live wall calendar or provider interoperability
+producer profile below is unchanged. Production networking/graphics, settings,
+clock provisioning and coordinated dashboard integration remain later work; the
+calendar-only coordinator below now composes rolling windows and source acquisition.
+This capability is not a verified live wall calendar or provider interoperability
 claim. See [engineering](docs/ENGINEERING.md#authenticated-streaming-https-ics-acquisition)
+and [host commands](AGENTS.md#commands-and-validation).
+
+### Multi-calendar refresh and opt-in live demonstration
+
+[FiveDayCalendarRefresh](application/five_day_calendar_refresh.h) exposes synchronous
+`refresh(nowUtc, clockTrusted, configuredTimezone, workspace, snapshot, sources,
+sourceCount, limits, wifiReady, caPem, transport, clock, clockContext, callback,
+callbackContext)`. Supply an uninitialized snapshot, a scratch-ready application
+workspace, trusted UTC, and the same explicit POSIX TZ already configured by tzset.
+Window failure initializes no snapshot and makes no calendar request. Record/text
+capacities, configured-source count bound and nested HTTPS limits are caller inputs,
+not final operating capacities.
+
+Source descriptors contain enabled, display label and HTTPS URL view. Enabled
+sources compact in their original order into consecutive snapshot indices; callbacks
+also identify the original configuration index. Disabled sources consume no slots,
+requests or warnings. Snapshot initialization copies enabled UTF-8 labels through
+temporary aligned workspace descriptors; labels, URLs and input descriptors must
+remain outside workspace throughout the call. URLs are never stored in the snapshot
+or returned/logged. No additional persistent source/event model is introduced.
+
+Each enabled source uses the actual streaming HTTPS/ICS producer sequentially with
+one reusable transport. Failed sources become Incomplete, later sources are still
+attempted and earlier Complete records survive. Invalid selected URLs make no request
+and become Incomplete; valid outside-window-only sources are Complete with zero
+records. Normal results distinguish AllComplete, Partial, NoneComplete and NoSelection,
+and leave no selected source Pending. Shared invalid limits/state/storage interrupt
+refresh with original acquisition diagnostics and remaining Pending counts; these
+are not completed schedules. Admission failure preserves existing caller state
+and never initializes a false schedule.
+The optional callback observes scalar diagnostics only and must not reenter, mutate
+snapshot/workspace, change TZ or retain borrowed references.
+
+`acquisitionComplete` permits the caller's later display handoff: all network/parser
+users have ended and workspace is Scratch. The existing renderer and POSIX converter
+show combined events, source labels and partial-failure warnings. Zero selected
+sources initialize a zero-source snapshot and show **No calendars selected**, while
+keeping all five dates. Complete empty calendars and unavailable sources retain
+their distinct messages. The coordinator does not render or schedule refreshes.
+
+[Live development sketch](previews/live_calendar_refresh/live_calendar_refresh.ino)
+is an opt-in, calendar-only DEVELOPMENT DEMONSTRATION, outside production compilation.
+Copy [the synthetic template](previews/live_calendar_refresh/live_demo_config.example.h)
+to `previews/live_calendar_refresh/live_demo_config.h` (exact path Git ignored).
+Privately supply Wi-Fi, POSIX TZ, NTP server, trusted CA PEM, enabled flags, labels
+and HTTPS ICS URLs, then set `configured=true`. Never reuse production credentials.h,
+commit this file or print its contents. Missing configuration is a compile error;
+the unedited template refuses runtime opt-in. URLs can contain access tokens.
+
+For a future owner-authorized target check, use the existing explicit vendored GFX2
+library-selection procedure with this sketch directory, XIAO ESP32-S3 Plus, OPI
+PSRAM, Arduino-ESP32 **3.3.12** and Core Debug Level **None**. Keep build products
+outside the repository. This new sketch has **not** been target-compiled or run.
+Do not substitute the production prototype's historical alpha core settings.
+
+The demo uses finite Wi-Fi/NTP prerequisite waits. It registers the inspected SNTP
+notification before starting immediate-mode synchronization and requires a fresh
+session notification before trusting system UTC; plausible dates/getLocalTime alone
+are insufficient. SNTP is ordinary caller-configured network time, not an authenticated
+time service. After acquisition it closes sockets, stops SNTP, verifies Wi-Fi shutdown,
+poisons scratch and invokes the existing borrowed-framebuffer render path at most
+once. Render/refresh and shutdown results stay separate; uncertain shutdown retains
+workspace memory without reuse/free. No deep sleep or recurring scheduler is added.
+
+Host tests run actual multi-feed HTTP/ICS normalization, transaction rollback,
+scratch poisoning and renderer traces, including DST repeated times. No real feed,
+Arduino build, physical EE02, runtime headroom or power test was performed. The
+deterministic example preview stays synthetic and unchanged. Recurrence, floating/
+TZID conversion, redirects, cancellation/revision resolution, provider authentication,
+settings and production weather/calendar/display integration remain unfinished.
+See the [refresh contract](docs/ENGINEERING.md#integrated-multi-calendar-refresh)
 and [host commands](AGENTS.md#commands-and-validation).
 
 ### Restricted nonrecurring ICS-to-snapshot producer
@@ -363,7 +436,9 @@ restored. The renderer clears only its own rectangle, never the full display.
 
 Every source outcome is inspected. Complete empty sources produce a legitimate
 No events message; Incomplete/Pending sources produce warnings with bounded labels,
-reasons and additional-source counts. With no complete source, the preview asks the
+reasons and additional-source counts. Zero configured sources show No calendars
+selected with all five date columns. With selected sources but no complete source,
+the preview asks the
 operator to check sources/retry instead of presenting an empty calendar.
 
 The dedicated [preview sketch](previews/five_day_calendar/five_day_calendar.ino)

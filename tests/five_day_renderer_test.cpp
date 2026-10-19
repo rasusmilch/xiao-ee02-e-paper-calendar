@@ -109,6 +109,9 @@ void spans() {
     assert(has(gfx,"2026-10-22") && has(gfx,"to 2026-10-28") && has(gfx,"23:00 +0200") && has(gfx,"01:00 +0200"));
 }
 void outcomes() {
+    { Snapshot s; init(s,autumn(),0); Seeed_GFX gfx;
+      const auto r=draw(gfx,s); assert(r.status==F::Status::Drawn && !r.completeSources && !r.incompleteSources && !r.pendingSources);
+      assert(has(gfx,"No calendars selected") && has(gfx,"2026-10-23") && has(gfx,"2026-10-27") && !has(gfx,"unavailable")); }
     { Snapshot s; init(s); assert(s.beginSource(0)==Snapshot::Result::Ok); complete(s); Seeed_GFX gfx;
       const auto r=draw(gfx,s); assert(r.status==F::Status::Drawn && r.completeSources==1 && !r.dayEntriesDrawn && has(gfx,"No events - all sources complete")); }
     { Snapshot s; init(s,autumn(),3); assert(s.beginSource(0)==Snapshot::Result::Ok);

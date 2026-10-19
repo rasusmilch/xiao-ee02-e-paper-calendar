@@ -115,7 +115,7 @@ recurrence-local coverage, source-wide recurrence-local composition, selected TZ
 reference-local identity matching, source-wide VEVENT TZID identity coverage and a
 reusable snapshot renderer/deterministic EE02 preview and restricted nonrecurring
 ICS-to-snapshot producer, authenticated streaming HTTPS acquisition API and rolling
-local five-day window builder implemented;
+local five-day window builder and multi-calendar refresh/live development sketch implemented;
 production integration and hardware validation pending.** The owner-selected architecture
 uses Seeed_GFX2 with a locally maintained external-framebuffer ownership extension,
 one application-owned PSRAM arena, and a separate fixed-capacity five-day occurrence
@@ -124,7 +124,9 @@ still uses the global TFT_eSPI/EPaper object and ordinary event/weather storage;
 it uses none of the GFX2 borrowing extension, arena, normalized snapshot or streaming ICS pipeline.
 Contradictory engineering evidence must trigger explicit review and adjudication,
 not silent architectural substitution. Generic authenticated HTTPS acquisition now
-composes the restricted producer below; coordinated production device integration
+composes the restricted producer below; a synchronous multi-calendar coordinator
+composes window/selection/acquisition and an opt-in live sketch supplies the display
+handoff. Coordinated production device integration
 and general component/source semantic validation remain unimplemented. Operating
 capacities and measured device performance remain Open.
 
@@ -923,10 +925,12 @@ scratch-to-framebuffer reuse; no drawing occurs while acquisition scratch is liv
 The nonrecurring profile below is unchanged: no recurrence, floating/TZID timestamp
 conversion, cancellation/revision selection or general source acceptance is added.
 The production sketch, deterministic preview, weather, battery and sleep remain
-unchanged. Future orchestration supplies rolling display windows, Wi-Fi, validated
-wall time, trust, private source selection/configuration and coordinated rendering.
-No live provider, settings UI, refresh scheduler or full wall-calendar integration is
-claimed. Arduino compilation, flashing, physical EE02 operation and runtime/energy
+unchanged. The coordinator below now supplies calendar selection, rolling-window
+construction and sequential refresh. Its opt-in live sketch supplies development
+Wi-Fi/fresh SNTP configuration and the render handoff. Production orchestration,
+private settings UI, refresh scheduling and full dashboard integration remain absent;
+no provider interoperability is claimed. Arduino compilation, flashing, physical
+EE02 operation and runtime/energy
 measurements are owner-deferred and NOT RUN. Fresh host checks are listed in AGENTS;
 scripted transport and adapter stand-ins establish software behavior only.
 
@@ -960,6 +964,142 @@ scratch-independence cases remain covered. Existing structure (565) and staging
 (618) regressions also passed fresh strict and ASan/UBSan runs; the ingestion suite
 includes direct logical-line coverage. Earlier evidence remains historical; target
 and physical validation remain owner-deferred.
+
+### Integrated multi-calendar refresh
+
+[FiveDayCalendarRefresh](../application/five_day_calendar_refresh.h) coordinates one
+synchronous calendar refresh. It accepts caller-trusted UTC, trust flag, configured
+POSIX timezone, an allocated Scratch workspace, an uninitialized snapshot, a readable
+source descriptor span, explicit configured-count/record/text capacities, unchanged
+nested IcsHttpsSource limits, Wi-Fi readiness, caller CA PEM, reusable transport and
+monotonic clock. The transport starts closed and remains exclusive to this refresh.
+Optional synchronous observations contain original configuration
+index, compact snapshot index, complete pointer-free acquisition diagnostics,
+current outcome and reconciliation result. No URL, label, event text or scratch
+pointer escapes in diagnostics. Source descriptors/configuration are not persisted.
+
+#### Selection, admission and failure ownership
+
+Check count/span arithmetic and descriptor alignment before access. A bounded
+descriptor scan considers only enabled entries, preserving original order and
+allowing duplicate labels. Disabled invalid label/URL spans are never inspected and
+consume no source slot, callback, request or warning. The maximum configured count
+is caller-selected; no permanent calendar count is introduced. All caller input
+objects, enabled labels/URLs and callback/clock/transport contexts must remain valid
+outside workspace through return. Context object sizes/readability and concurrent
+alias prevention remain caller responsibilities, as in the lower acquisition API.
+
+Build FiveDayWindow before snapshot initialization; bad time/TZ initializes nothing
+and performs no calendar I/O. Under exclusive scratch access, verify external input
+spans, align a temporary contiguous Text array, placement-construct enabled label
+views, invoke snapshot.initialize once and destroy temporary descriptors. The existing
+snapshot alone validates nonempty UTF-8 labels/capacities and copies their bytes.
+Allocation/label failure exposes no partial initialized snapshot and makes no requests.
+No source label array, UID index, event list or configuration registry is retained.
+
+After successful initialization, invoke actual IcsHttpsSource::acquire once per
+enabled descriptor using consecutive compact indices and the same transport/workspace.
+Every enabled source, including malformed/missing URLs, goes through component-owned
+shared admission checks; invalid arithmetic URL spans are supplied as absent URLs
+without dereferencing them. URL rejection performs no DNS/GET. There is no duplicated
+URL/parser configuration validator or fake calendar importer. Normal TLS, HTTP,
+parser, supported-profile and resource failures remain source-local; later enabled
+sources are attempted and earlier Complete records remain. Identical UIDs in separate
+sources are independent; within-source exact decoded uniqueness remains unchanged.
+
+Snapshot outcomes remain authoritative. If acquisition has already completed/failed
+its source, preserve it without duplicate rollback. Only an eligible still-Pending
+source-specific failure uses beginSource/failSource(ProducerFailure). Never call
+completeSource here. Shared InvalidArgument/InvalidState or Workspace-domain failure
+interrupts refresh and preserves original acquisition diagnostics, source index and
+remaining Pending states. Existing component admission precedes DNS; a nested shared
+configuration error can be reported after snapshot initialization on the first
+attempt, without making any request. No independent copy of its validation rules is
+added. Initial initialized snapshots, including active transactions, are refused
+untouched. A failed transaction reconciliation is terminal, never forced or retried.
+
+Report statuses distinguish AllComplete, Partial, NoneComplete, NoSelection,
+AdmissionFailure and Interrupted. Counts include configured, selected, attempted,
+Complete, Incomplete, Pending, published and valid outside-window occurrences.
+Attempted includes a source whose admission/configuration failed without network I/O.
+On interruption, compact indices [attemptedSources, selectedSources) were not attempted;
+map them by the original enabled order. fatalConfigurationIndex identifies the active
+fatal source when applicable. Outside-window totals include only successfully completed
+sources, with checked addition; published totals come from the authoritative snapshot.
+Inactive diagnostic slots assert nothing. No persistent result collection exists.
+Callbacks may copy their scalar report but must return normally without reentry,
+snapshot/descriptor mutation, TZ reconfiguration or workspace release.
+
+Normal completion guarantees no selected Pending source and workspace Scratch.
+acquisitionComplete marks this handoff for caller-controlled later rendering, not
+another persistent phase machine. Zero selection still builds a window and initializes
+one zero-source snapshot without acquisition; the renderer shows No calendars selected
+with five dates. Complete empty and all-failed sources keep distinct existing messages.
+
+#### Live development sketch and memory handoff
+
+[Opt-in live sketch](../previews/live_calendar_refresh/live_calendar_refresh.ino)
+is calendar-only and outside production compilation. It requires private ignored
+live_demo_config.h beside the sketch; the tracked
+[template](../previews/live_calendar_refresh/live_demo_config.example.h) has only
+synthetic values, empty CA and configured=false. No credentials.h reuse, user settings
+store or credentials are added. Whole URLs (including host/query) are sensitive;
+Serial emits status codes/counts/indices only, never labels, requests or contents.
+Use the existing explicit vendored GFX2 selection, XIAO ESP32-S3 Plus/OPI settings,
+Arduino-ESP32 3.3.12 and Core Debug None for future authorized target validation.
+
+The inspected 3.3.12 package index pins IDF library release v5.5-b774170f-v3.
+Its esp_sntp.h notification API and sntp.c immediate-mode callback follow system time
+update. The sketch stops any previous SNTP service, resets a session-local atomic,
+sets immediate mode, registers notification before configTime and waits finitely
+for that fresh event. A plausible year/getLocalTime alone is insufficient. Wi-Fi
+setup also has a finite prerequisite wait, with persistence disabled. Missing fresh
+sync forbids window construction, calendar connection and display. This development
+gate uses ordinary configured NTP; it does not authenticate the NTP server, establish
+production RTC validity or implement daily synchronization. Configure TZ/tzset after
+sync and verify the same explicit context with the real builder before allocation;
+the coordinator builds its own initialization input from that trusted observation.
+
+One workspace holds temporary labels, then sequential source-local parser/stage/
+receive/TEXT slices. One independent snapshot survives them. After the coordinator
+finishes, the demo closes the adapter, stops SNTP, verifies Wi-Fi off, poisons scratch
+and calls workspace.render with FiveDayRenderer/FiveDayPosixTime. Only then is the
+960,000-byte prefix borrowed. It draws in x/y 10..1034, retains the 1044 dividers and
+places the development label below the calendar. No weather/battery mockups, secondary
+framebuffer or independent ordering/date code is added. At most one e-paper refresh
+occurs. Operation/shutdown are checked separately; uncertain hardware shutdown keeps
+Retained storage alive without reuse/free. Healthy release uses existing APIs. There
+is no retry, polling loop, deep-sleep schedule or production dashboard migration.
+
+TLS, synchronous uncancellable DNS, operation/inactivity timeouts and the absence of
+an overall deadline are unchanged. Slow successful DNS/TLS/progress/producer work
+remains accepted, processingMs stays zero, and the semantic producer profile below
+is unchanged. Real feeds may still fail for recurrence, TZID/floating time, redirects,
+cancellations, revisions, privacy/tentative semantics or unsupported metadata.
+
+#### Validation boundaries
+
+The focused host regression runs real selection → generated window → multiple
+HTTPS acquisitions → ingestion/structure/stage/producer → snapshot → poisoning →
+renderer traces. Guarded allocations, one snapshot allocation per initialization
+and zero audited C++ new calls cover coordinator processing. Cases cover compact
+mapping, disabled/invalid URLs, complete/partial/all-failed/no-selection schedules,
+shared interruption, exact records/labels, source rollback, capacity failure,
+same UID across calendars, DST repeated hours, bounded overflow and scratch lifetime.
+Fresh strict C++11 and ASan/UBSan runs passed 48 integrated cases and the existing
+window (156), snapshot, HTTPS source (323), secure-adapter, ingestion (1,361),
+structure (565), staging (618), nonrecurring producer (228), renderer (25) and
+workspace regressions. The exact temporary label-descriptor capacity and its next
+entry are exercised as arithmetic bounds, not suggested operating calendar counts.
+Existing workspace regressions independently cover actual panel borrow/retention
+with their hardware stand-ins. Commands are in AGENTS.md; host trace/fake I/O proves
+neither real DNS/TLS nor vendor rasterization. The live sketch received source/API
+inspection, not a host-facade or target build. No actual private config or real feed
+was used. Arduino compilation, physical EE02, RTC, memory/headroom and power tests
+remain owner-deferred and unverified. The deterministic preview is unchanged.
+Production weather, forecast, detailed events, battery, legacy acquisition, graphics
+and sleep remain intact. Coordinated dashboard integration, real-source/physical
+validation, final layout and other Open policies remain future work.
 
 ### Restricted nonrecurring ICS-to-snapshot producer
 
@@ -1129,8 +1269,8 @@ wall-calendar or physical-display milestone is claimed.
 
 ### Five-day snapshot renderer and EE02 preview
 
-**Reusable isolated rendering path implemented; live calendar/production migration
-and final presentation remain unimplemented.**
+**Reusable rendering path implemented; deterministic and opt-in live development
+sketches compose it. Production migration and final presentation remain unimplemented.**
 [FiveDayRenderer](../application/five_day_renderer.h) accepts a const FiveDaySnapshot,
 Seeed_GFX, a half-open rectangular region, an explicit local-time conversion context
 and a preview GLCD scale (1–3). It returns Drawn, InvalidSnapshot, InvalidRegion or
@@ -1187,8 +1327,10 @@ the application renderer.
 
 Inspect every source: all Complete plus zero occurrences is an empty schedule;
 Complete plus Incomplete/Pending shows available entries with an incomplete warning.
-No Complete sources yields a check-sources/retry indication, never a fabricated empty
-schedule. Two affected labels/reasons fit dedicated lines, with an additional count
+With selected sources, no Complete sources yields a check-sources/retry indication,
+never a fabricated empty schedule. Zero configured sources instead show No calendars
+selected and retain the five valid date columns. Two affected labels/reasons fit
+dedicated lines, with an additional count
 when necessary. Labels are snapshot-owned views; no provider registry is added.
 
 [Dedicated preview](../previews/five_day_calendar/five_day_calendar.ino) is outside
@@ -1225,7 +1367,7 @@ actual production formatting/selection/drawing calls against a narrow graphics
 stand-in and guarded real snapshot/workspace storage. They do not rasterize vendor
 fonts or establish physical EE02 appearance, refresh, energy or memory headroom.
 
-Fresh strict C++11 and ASan/UBSan runs passed **24 composed renderer checks** covering
+Historical renderer-unit strict C++11 and ASan/UBSan runs passed **24 composed renderer checks** covering
 five date headers, unsorted/overlapping and point entries, unclipped spanning ranges,
 exclusive all-day ends, all source outcomes, missing/mismatched conversion context,
 23/25-hour DST days and repeated times, long/UTF-8 titles, row overflow, three text
@@ -1237,7 +1379,8 @@ no new physical evidence follows from these runs. Commands are in AGENTS.md.
 
 The final grid/agenda and waking-hour decisions remain Open. This example preview
 is a controlled intermediate display path, not a separate permanent application or
-the first live wall-calendar milestone. Coordinated live device integration and broader ICS-to-snapshot support,
+the first live wall-calendar milestone. The opt-in live sketch described above is
+also a development entry point; coordinated production device integration and broader ICS-to-snapshot support,
 recurrence/timezone normalization, production GFX2 migration and physical validation
 remain separate independently authorized outcomes.
 
@@ -3220,8 +3363,8 @@ measurement or successful firmware build is available to support readiness.
   fixture uses the available stable 3.3.12 toolchain; this changes no production settings.
 - **No complete build/regression baseline:** documented library versions are not
   compatible revision proof; credentials/configuration, memory and partition fit
-  remain prerequisites for a verified complete build. Host coverage is limited
-  to acquisition orchestration and isolated panel/workspace/snapshot/ICS contracts,
+  remain prerequisites for a verified complete build. Host coverage includes integrated multi-calendar refresh/render traces
+  and isolated acquisition/panel/workspace/snapshot/ICS contracts,
   including staged values, local coverage, core RECUR grammar, contextual RRULE
   checks, VEVENT/observance recurrence-local coverage and source-wide recurrence-local
   composition, selected TZID reference-local identity matching, source-wide VEVENT

@@ -239,6 +239,25 @@ defers target validation for the unit (as for the nonrecurring producer/updated 
 Do not substitute historical
 fixture compilation or host syntax checks for new target/physical evidence.
 
+The integrated multi-calendar regression runs actual window construction, source
+selection, HTTPS/HTTP/ICS processing, snapshot transactions, scratch poisoning and
+renderer traces. The live sketch is opt-in and target-unverified; never use private
+demo configuration or real feeds during host validation. Run TZ-mutating tests serially:
+
+```
+g++ -std=c++11 -Wall -Wextra -Werror -pedantic -Itests/renderer_host -Itests/gfx2_host -Ithird_party/Seeed_GFX2/src tests/five_day_calendar_refresh_test.cpp -Wl,--wrap=free -o /tmp/ee02-calendar-refresh-test
+/tmp/ee02-calendar-refresh-test
+g++ -std=c++11 -Wall -Wextra -Werror -pedantic -fsanitize=address,undefined -fno-omit-frame-pointer -Itests/renderer_host -Itests/gfx2_host -Ithird_party/Seeed_GFX2/src tests/five_day_calendar_refresh_test.cpp -Wl,--wrap=free -o /tmp/ee02-calendar-refresh-sanitized
+/tmp/ee02-calendar-refresh-sanitized
+```
+
+Compose the existing window, snapshot, HTTPS/adapter, ingestion, structure, staging,
+producer, renderer and workspace regressions for this integrated lifecycle. Inspect
+the demo's private-config exclusion, fresh SNTP gate, network shutdown and borrowed
+framebuffer lifecycle separately. Host traces/stand-ins do not establish target TLS,
+Newlib, SNTP, physical display or operating capacities. Target compilation, live-feed
+requests, flashing and runtime/power measurements are owner-deferred for this unit.
+
 The rolling local-window regression builds real windows and composes snapshot,
 POSIX adapter, ICS publication and renderer behavior. Run TZ-mutating cases serially.
 The pure time/fault mode needs no graphics include path, only the snapshot header's
