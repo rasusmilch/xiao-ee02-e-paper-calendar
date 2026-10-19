@@ -2,14 +2,14 @@
 
 Battery-powered EE02 five-day calendar and weather dashboard.
 
-The [original prototype article](https://www.makerguides.com/e-paper-wall-calendar-with-ai-generated-artwork-and-weather-display/) describes the historical artwork-based firmware. AI artwork generation, processing, caching and rendering have been removed. The production sketch still leaves the former artwork region empty. Separate deterministic and opt-in live development sketches exercise the reusable calendar pipeline and borrowed GFX2 framebuffer. The live sketch is target-unverified; neither establishes the live wall-calendar milestone or final display design.
+The [original prototype article](https://www.makerguides.com/e-paper-wall-calendar-with-ai-generated-artwork-and-weather-display/) describes the historical artwork-based firmware. AI artwork generation, processing, caching and rendering have been removed. The production sketch still leaves the former artwork region empty. Separate deterministic and opt-in live development sketches exercise the reusable calendar pipeline and borrowed GFX2 framebuffer; the deterministic preview also composes the retained weather, forecast, today-event and battery panels. The live sketch is target-unverified; neither establishes the live wall-calendar milestone or final display design.
 
 ## Approved product direction (production integration pending)
 
 - **Display:** 1600×1200 Spectra 6, rolling next five days starting today, fixed waking-hour window (exact hours configurable), timed grid the leading candidate versus a five-day agenda. The week view **replaces the 1024×1024 artwork area**. Display layout is not finally selected.
-- **Other panels:** retain weather, multi-day forecast, today's detailed events, battery indication, and their existing positions initially. Whether the legacy monthly calendar remains is Open.
+- **Other panels:** retain weather, short and multi-day forecasts, today's detailed events, battery indication, and their existing positions initially. Whether the legacy monthly calendar remains is Open.
 - **Calendars:** select multiple source calendars; support Google, iCloud/CalDAV and general ICS by source-independent internal event representation. Entirely on-device fetching/normalization; **no separate backend, hosted processor or update preprocessor**. Sequential streaming ICS processing is selected; provider-access scope, including ICS-only initial access and private iCloud versus public ICS, remains Open.
-- **Selected graphics/memory architecture:** Seeed_GFX2 with a locally maintained external-framebuffer ownership extension; one application-owned PSRAM workspace for sequential, one-source-at-a-time streaming ICS processing, then rendering. A separate fixed-capacity five-day PSRAM snapshot owns normalized occurrences, text and transactional source outcomes without references into the reused workspace. GFX2 borrows only the 960,000-byte framebuffer slice and must not free it or allocate an unnecessary second framebuffer. The 2 MiB workspace, 1,024 occurrences and 320 KiB snapshot are provisional evaluation budgets, not validated operating limits. Borrowing, a scoped workspace, synthetic snapshot publication, standalone HTTP framing/line unfolding, bounded property/component parsing, selective source-local dependency staging, typed primitive decoding, VEVENT-local checks, timezone/observance-local checks, source-local coverage, standalone core RECUR grammar, contextual RRULE validation, VEVENT recurrence-property coverage, observance recurrence-local coverage, source-wide recurrence-local coverage, selected TZID reference-local identity matching, source-wide VEVENT TZID identity coverage, a restricted nonrecurring ICS-to-snapshot producer, a reusable snapshot renderer with a dedicated deterministic EE02 preview, an authenticated streaming HTTPS acquisition API, a rolling local five-day window builder and a multi-calendar refresh coordinator with an opt-in live development sketch are implemented. Production dashboard integration, general component/source semantic validation and production phase reuse remain unimplemented, with target/hardware behavior unvalidated. Consult the [canonical architecture and validation contract](docs/ENGINEERING.md#selected-gfx2-psram-and-streaming-calendar-architecture).
+- **Selected graphics/memory architecture:** Seeed_GFX2 with a locally maintained external-framebuffer ownership extension; one application-owned PSRAM workspace for sequential, one-source-at-a-time streaming ICS processing, then rendering. A separate fixed-capacity five-day PSRAM snapshot owns normalized occurrences, text and transactional source outcomes without references into the reused workspace. GFX2 borrows only the 960,000-byte framebuffer slice and must not free it or allocate an unnecessary second framebuffer. The 2 MiB workspace, 1,024 occurrences and 320 KiB snapshot are provisional evaluation budgets, not validated operating limits. Borrowing, a scoped workspace, synthetic snapshot publication, standalone HTTP framing/line unfolding, bounded property/component parsing, selective source-local dependency staging, typed primitive decoding, VEVENT-local checks, timezone/observance-local checks, source-local coverage, standalone core RECUR grammar, contextual RRULE validation, VEVENT recurrence-property coverage, observance recurrence-local coverage, source-wide recurrence-local coverage, selected TZID reference-local identity matching, source-wide VEVENT TZID identity coverage, a restricted nonrecurring ICS-to-snapshot producer, a reusable snapshot renderer with a dedicated deterministic EE02 preview, an authenticated streaming HTTPS acquisition API, a rolling local five-day window builder and a multi-calendar refresh coordinator with an opt-in live development sketch and a read-only dashboard composition are implemented. Production dashboard integration, general component/source semantic validation and production phase reuse remain unimplemented, with target/hardware behavior unvalidated. Consult the [canonical architecture and validation contract](docs/ENGINEERING.md#selected-gfx2-psram-and-streaming-calendar-architecture).
 - **Storage/time:** NVS stores changed persistent configuration only (Wi-Fi, timezone, calendar URLs/selection, refresh settings). No daily churn, events, weather or routine counters go to NVS. RTC-retained memory may hold validated compact sleep context; reconstruct after invalid RTC/reset. NTP on cold boot when required, then approximately daily; use internal RTC between syncs.
 - **Refresh/recovery:** battery-powered, single user-configurable coordinated data-acquisition/render cycle, independently validated per source. Successful calendars display even if another calendar fails, with a named error bar; a weather failure is shown in its own panel while previously valid forecast data may remain. Three consecutive complete acquisition failures cause a full error screen; cold boot tries Wi-Fi before presenting recovery instructions.
 - **Setup:** device-hosted Wi-Fi webpage (LAN while explicitly awake, or open/no-password AP). AP stops after 10 minutes without meaningful user activity or 30 minutes maximum, then sleeps. Entering a new password may show characters; after save it is masked and the saved value is never echoed. Calendar URL fields remain displayed. An operator-accessible hardware AP trigger is required; simultaneous Setup+Refresh hold for five seconds is a **proposed, unverified** factory-reset gesture, not yet a pin/wake contract.
@@ -406,6 +406,51 @@ remain unchanged. This does not select cross-source identity, timezone or recurr
 policy. See the [producer contract](docs/ENGINEERING.md#restricted-nonrecurring-ics-to-snapshot-producer)
 and [host commands](AGENTS.md#commands-and-validation).
 
+### GFX2 dashboard composition
+
+[FiveDayDashboardRenderer](application/five_day_dashboard_renderer.h) composes one
+read-only FiveDaySnapshot, current weather, short forecast, five-day forecast,
+today's detailed events and battery indication. `render(gfx, snapshot, timeContext,
+inputs, geometry)` returns scalar drawing/error and truncation counters. It owns
+no display, data acquisition, snapshot transaction, allocation or refresh. Inputs
+remain readable and immutable for the call; forecast pointers have explicit counts.
+
+The [shared weather declarations](application/weather_values.h) are the exact POD
+types formerly declared in weather.h. Production weather retrieval/storage, parsing,
+provider semantics and legacy drawing are unchanged. The new renderer borrows those
+records directly; it introduces no second weather or event catalogue. Battery input
+is an already measured percentage plus validity; no ADC/calibration code is invoked.
+
+`ee02PreviewGeometry()` supplies provisional retained 1600×1200 coordinates: calendar
+x/y 10..1034; weather x1054/y10; short forecast y430; daily forecast x10/y1054;
+today's events x1063/y970; battery body x1532/y1160. Dividers remain x1044,
+left y1044 and right y570 (the actual production height/2−30 expression). Regions
+and their separation are checked before drawing. The calendar delegates to the
+unchanged FiveDayRenderer; today's bounded selection reuses its overlap/order/time
+helpers, reads the same snapshot and shows original ranges, titles and source labels.
+All-day entries precede timed entries; excess rows show +N more events.
+
+Unavailable/invalid weather and forecasts show explicit unavailable indications.
+Unknown condition codes have a generic icon/text fallback; supported day/night
+categories use small vectors. Fixed-size weather text never requires a terminator;
+invalid/unsupported characters are sanitized without changing input. Text shortening
+and excess forecast entries are reported visibly. Fetch-time text is displayed as
+supplied and freshness is explicitly **not assessed**. Forecasts use supplied order
+and labels, without new date grouping or retention policy. Valid battery values are
+clamped to 0–100%; invalid measurements show N/A without fabricated charge.
+
+The deterministic preview below now composes this whole dashboard from its real
+synthetic ICS pipeline plus synthetic weather/battery observations before the single
+workspace-managed refresh. Its historical month-grid area is blank except for the
+EXAMPLE DATA notice; monthly-grid retention and final agenda/grid/layout remain Open.
+The live-calendar demonstration stays calendar-only and unchanged. Strict C++11 and
+ASan/UBSan host traces exercise panel bounds and immutable inputs, including a real
+ICS ingestion/staging/producer-to-dashboard case. Target compilation, physical EE02,
+runtime headroom and power checks remain owner-deferred and unverified. Production
+weather/calendar acquisition, TLS, NTP/RTC, sleep and legacy graphics are not migrated.
+See the [composition contract](docs/ENGINEERING.md#read-only-gfx2-dashboard-composition)
+and [host commands](AGENTS.md#commands-and-validation).
+
 ### Five-day snapshot renderer and EE02 example preview
 
 [FiveDayRenderer](application/five_day_renderer.h) renders the existing read-only
@@ -454,11 +499,14 @@ evidence becomes Incomplete. No occurrence records are inserted directly by the
 sketch. Both sources finish inside one withScratch callback using checked, disjoint
 stage/parser/ingestion/text slices; all borrowed users end before reuse. Its 32
 records, 4 KiB text and 2 MiB workspace are demonstration arguments, not operating defaults. It poisons
-scratch before Ee02PsramWorkspace::render(), checks render/refresh and shutdown
+scratch before Ee02PsramWorkspace::render(), composes the calendar and retained
+panels with synthetic weather/battery values, checks render/refresh and shutdown
 separately, and retains restricted workspace storage after uncertain shutdown.
 
 The region is x/y 10 through 1034 inclusive (width/height 1025), inside the existing
-x/y 1044 dividers in the 1600×1200 rotation. Only the preview clears the full frame.
+x/y 1044 dividers in the 1600×1200 rotation. The dashboard clears/composes the
+assigned screen, including the provisionally unassigned month area; the standalone
+calendar renderer continues to clear only its region.
 It leaves production weather, forecast, battery, legacy events and sleep unchanged.
 Compile with an **already available** documented toolchain, explicitly selecting the
 vendored library; generated output stays outside the repository:
@@ -483,7 +531,7 @@ exercise renderer decisions with graphics-call traces, not physical glyphs/pixel
 For the restricted producer and updated ICS preview, Arduino compilation and physical
 EE02 testing are explicitly owner-deferred; neither was attempted. Device compatibility
 is unverified. No physical EE02 was tested or flashed. See the [renderer contract and evidence](docs/ENGINEERING.md#five-day-snapshot-renderer-and-ee02-preview)
-and [focused commands](AGENTS.md#commands-and-validation). Coordinated live device acquisition, broader
+and [focused commands](AGENTS.md#commands-and-validation). Coordinated production weather/calendar integration, broader
 ICS normalization, production GFX2 migration, hardware/runtime validation and final
 presentation policy remain separate work.
 

@@ -84,6 +84,13 @@ is historical evidence, not current architecture or requirements authority.
   midnight/context. Generate and verify the deterministic preview's original window;
   preserve production graphics/acquisition and defer
   broader normalization, final presentation, target compatibility and physical validation.
+- Compose the five-day calendar, retained weather/short and daily forecasts,
+  today's snapshot events and supplied battery observation through one read-only
+  bounded GFX2 dashboard renderer. Share existing weather records without changing
+  acquisition, distinguish unavailable values and presentation overflow, and exercise
+  the full deterministic ICS-driven screen before one borrowed-framebuffer refresh.
+  Leave production migration, month-grid retention, final layout and hardware
+  validation separate.
 - Add a reusable single-source authenticated HTTPS acquisition path streaming raw
   Content-Length/chunked responses through existing ingestion, staging and the
   nonrecurring snapshot producer. Require explicit Wi-Fi, trusted time and CA trust;

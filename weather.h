@@ -1,6 +1,7 @@
 #pragma once
 
 #include "data_acquisition.h"
+#include "application/weather_values.h"
 #include "TFT_eSPI.h"
 #include "constants.h"
 #include "credentials.h"
@@ -17,34 +18,6 @@ extern EPaper epaper;
 // ============================================================
 // Data structures
 // ============================================================
-
-struct WeatherData {
-  bool valid;
-  char icon[4];
-  char description[64];
-  char fetchTime[32];
-  float temp;
-  int humidity;
-  float rain;
-  float windSpeed;
-};
-
-struct ForecastEntry {
-  bool valid;
-  char timeStr[6];
-  char icon[4];
-  float tempHigh;
-  float tempLow;
-};
-
-struct DailyForecastEntry {
-  bool valid;
-  char dayName[10];
-  char icon[4];
-  char description[32];
-  float tempHigh;
-  float tempLow;
-};
 
 static WeatherData weatherData = {false, "", "", "", 0.0f, 0, 0.0f, 0.0f};
 static ForecastEntry forecastData[FORECAST_COUNT] = {};

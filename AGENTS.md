@@ -239,6 +239,22 @@ defers target validation for the unit (as for the nonrecurring producer/updated 
 Do not substitute historical
 fixture compilation or host syntax checks for new target/physical evidence.
 
+The read-only dashboard regression composes the actual calendar renderer, shared
+weather PODs, bounded forecasts, today's snapshot events and supplied battery values.
+It also runs actual synthetic ingestion/staging/producer publication before drawing:
+
+```
+g++ -std=c++11 -Wall -Wextra -Werror -pedantic -Itests/renderer_host -Itests/gfx2_host -Ithird_party/Seeed_GFX2/src tests/five_day_dashboard_renderer_test.cpp -Wl,--wrap=free -o /tmp/ee02-dashboard-test
+/tmp/ee02-dashboard-test
+g++ -std=c++11 -Wall -Wextra -Werror -pedantic -fsanitize=address,undefined -fno-omit-frame-pointer -Itests/renderer_host -Itests/gfx2_host -Ithird_party/Seeed_GFX2/src tests/five_day_dashboard_renderer_test.cpp -Wl,--wrap=free -o /tmp/ee02-dashboard-sanitized
+/tmp/ee02-dashboard-sanitized
+```
+
+Run the existing renderer, snapshot, workspace and composed nonrecurring producer
+regressions for their shared read-only/storage/borrow contracts. The trace facade
+checks primitive bounds and viewport scopes, not rasterization or physical appearance.
+Target builds, flashing, physical EE02 and runtime memory/power remain owner-deferred.
+
 The integrated multi-calendar regression runs actual window construction, source
 selection, HTTPS/HTTP/ICS processing, snapshot transactions, scratch poisoning and
 renderer traces. The live sketch is opt-in and target-unverified; never use private

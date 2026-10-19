@@ -115,7 +115,8 @@ recurrence-local coverage, source-wide recurrence-local composition, selected TZ
 reference-local identity matching, source-wide VEVENT TZID identity coverage and a
 reusable snapshot renderer/deterministic EE02 preview and restricted nonrecurring
 ICS-to-snapshot producer, authenticated streaming HTTPS acquisition API and rolling
-local five-day window builder and multi-calendar refresh/live development sketch implemented;
+local five-day window builder, multi-calendar refresh/live development sketch and
+read-only GFX2 dashboard composition implemented;
 production integration and hardware validation pending.** The owner-selected architecture
 uses Seeed_GFX2 with a locally maintained external-framebuffer ownership extension,
 one application-owned PSRAM arena, and a separate fixed-capacity five-day occurrence
@@ -299,7 +300,7 @@ one hardware-independent helper; the remaining application is not a testable cor
 | --- | --- |
 | [Sketch](../xiao-ee02-e-paper-calendar.ino) | Global EPaper instance; boot orchestration, dividers and retained panel drawing/update, display sleep and ESP timer deep sleep. No filesystem initialization; `loop()` is empty. |
 | [calendar.h](../calendar.h) | Wi-Fi/NTP time synchronization, calendar date math/grid rendering, HTTPS Apps Script retrieval, volatile event array, subset sorting and event drawing. |
-| [weather.h](../weather.h) | Current weather, short forecast and grouped daily forecast retrieval; volatile state; icon/forecast rendering; network orchestration that also calls calendar retrieval. |
+| [weather.h](../weather.h) | Current weather, short forecast and grouped daily forecast retrieval; volatile state; legacy icon/forecast rendering; network orchestration that also calls calendar retrieval. Shared POD declarations are in [application/weather_values.h](../application/weather_values.h), unchanged in fields/layout. |
 | [data_acquisition.h](../data_acquisition.h) | Synchronous, independent fetch sequencing after Wi-Fi connection; reports four individual bool results, disconnects, and returns current-weather success. Uses callbacks without Arduino dependencies or retained state. |
 | [battery.h](../battery.h) | ADC enable/sample, assumed voltage conversion, discharge-curve interpolation and battery drawing. |
 | [constants.h](../constants.h) | Location/timezone/NTP, retained panel/divider layout, event limit and sleep interval. These defaults are implementation observations. |
@@ -1323,7 +1324,7 @@ requires room for complete temporal labels, headers, status and at least one row
 All graphics calls fit the region. A scoped absolute GFX2 viewport also guards it
 and restores the caller viewport/origin; font selection is left at GLCD. There is
 no full-display clear, second framebuffer, cache, persistent layout or allocation in
-the application renderer.
+FiveDayRenderer. The dashboard composition below assigns the surrounding screen.
 
 Inspect every source: all Complete plus zero occurrences is an empty schedule;
 Complete plus Incomplete/Pending shows available entries with an incomplete warning.
@@ -1341,8 +1342,9 @@ UTC time, explicitly configured CET/CEST and an exact reference-boundary check b
 allocation. It includes an incomplete example source, all-day,
 multiday, cross-midnight, point and repeated-hour entries. It allocates a separate
 32-record/4 KiB-text snapshot and one 2 MiB workspace as evaluation arguments, poisons
-scratch, then calls the actual renderer through Ee02PsramWorkspace::render(). Only
-the preview clears the full framebuffer. It checks rendering/refresh and panel end
+scratch, then calls the dashboard composition through Ee02PsramWorkspace::render().
+The dashboard composes the full assigned screen, including synthetic retained-panel
+observations; FiveDayRenderer itself still clears only its assigned rectangle. It checks rendering/refresh and panel end
 separately, retains restricted storage after uncertain shutdown and releases healthy
 storage through the existing APIs. The validated 960,000-byte borrowed prefix and
 independent snapshot remain the only large owners; no owned-panel case is added.
@@ -1383,6 +1385,113 @@ the first live wall-calendar milestone. The opt-in live sketch described above i
 also a development entry point; coordinated production device integration and broader ICS-to-snapshot support,
 recurrence/timezone normalization, production GFX2 migration and physical validation
 remain separate independently authorized outcomes.
+
+### Read-only GFX2 dashboard composition
+
+[FiveDayDashboardRenderer](../application/five_day_dashboard_renderer.h) provides
+`render(gfx, constSnapshot, timeContext, inputs, geometry)`. Inputs borrow current
+WeatherData, counted ForecastEntry/DailyForecastEntry spans and an already measured
+battery percentage/validity. An optional explicit current UTC observation supplies
+the weather day/time label through the same local converter; no system clock is read.
+Snapshot today is always window.firstCivilDay, independent of the weather observation.
+Caller inputs/conversion context remain readable, immutable and alive during render.
+No URL, acquisition object, parser or framebuffer pointer is returned/retained.
+
+The exact three POD declarations moved from weather.h to
+[weather_values.h](../application/weather_values.h); names, fields, array capacities,
+order and meanings are unchanged. Production static weather arrays, fetch/parsing,
+provider behavior, legacy TLS and legacy EPaper drawing remain otherwise byte-identical.
+There is one observation store, not copied renderer weather. Host layout assertions
+and an exact declaration comparison cover the extraction without claiming target ABI
+or firmware compilation. Battery ADC, conversion/calibration and pin control are untouched.
+
+#### Geometry and drawing
+
+The caller supplies seven checked half-open regions: screen, calendar, weather,
+short forecast, daily forecast, today and battery, plus three divider coordinates.
+The preview helper preserves the observed nominal coordinates:
+
+| Element | Provisional rectangle or coordinate |
+| --- | --- |
+| Screen | (0,0), 1600×1200 |
+| Five-day calendar | (10,10), 1025×1025 |
+| Current weather | (1054,10), 526×410 |
+| Short forecast | (1054,430), 526×130 |
+| Daily forecast | (10,1054), 1024×130 |
+| Today's details | (1063,970), 504×180 |
+| Battery region; body | (1452,1160), 134×24; body (1532,1160), 50×22 |
+| Dividers | x1044; left y1044; right y570; today's short line x1200..1400/y970 |
+
+The right divider follows actual production height/2−30, not the older 600-area
+comments. Regions must fit the screen, avoid one another/dividers, retain their
+relative panel placement and meet explicit minimum content dimensions. All arithmetic
+is checked before drawing. The calendar calls unchanged FiveDayRenderer first, so
+its own snapshot/geometry/time admission still precedes graphics. Detailed endpoint
+labels and optional current-time conversion are also checked before graphics. Only
+after successful calendar drawing does the dashboard clear the four surrounding
+screen strips, draw existing dividers and compose retained panels. The unassigned
+historical monthly-grid area stays blank; the preview places its example notice there.
+This selects neither monthly-grid removal nor final layout, typography or agenda/grid.
+
+Today uses the existing agenda's overlap, stable ordering, date/time and bounded
+text helpers directly. All-day entries precede absolute UTC start order; source/record
+ties retain published order. Repeated minimum scans select only visible rows without
+an event array. Original dates, UTC offsets and exclusive ends are shown, with source
+labels and visible +N overflow. Partial source failure still shows completed data;
+empty Complete, unavailable/Pending and no selection keep distinct messages.
+
+Weather displays temperature, humidity, reported rain amount, wind m/s, description,
+day/time and supplied fetch text. Rain is not relabeled as mm/hour: the existing field
+may come from 1-hour or 3-hour data. Validity flags and finite numeric values are checked;
+humidity must be 0–100 and rain/wind nonnegative. Missing/invalid observations show
+Weather unavailable; forecasts remain independent. Forecasts use supplied labels/order
+and finite high≥low ranges; short time labels require the existing HH:MM form. Invalid
+visible entries show N/A. Display capacity is derived from geometry; +N more forecasts
+counts entries not shown, including uninspected entries beyond that capacity. No
+forecast date grouping, freshness, RTC retention or provider selection is added.
+
+Condition prefixes 01/02/03/04/09/10/11/13/50 retain clear/partly cloudy/cloudy/overcast/
+showers/rain/thunder/snow/haze/fog meanings and night identification with small bounded
+vectors and text. Other/malformed codes show Unknown and a generic question icon.
+Fixed arrays are read only within their declared extent, terminating early at NUL;
+full arrays are safe. Valid unsupported UTF-8 scalars map to one ?, invalid bytes to
+?, controls to spaces. Text truncation is explicit and never changes stored fields.
+Fetch time is labeled as supplied and Freshness not assessed is always shown: valid
+is not a freshness claim. Valid battery percentages clamp only for display to 0–100;
+invalid measurements show N/A with no fabricated fill level.
+
+Every panel has a scoped absolute viewport; caller viewport/origin are restored.
+The report is pointer-free, distinguishes drawing/input/geometry/snapshot/time errors
+and carries the original calendar report, today/forecast overflow, text/glyph counters,
+icon fallbacks and unavailable/clamped flags. Inactive diagnostics assert no success.
+Rendering performs no allocation, source-outcome mutation, acquisition, refresh or
+shutdown. One workspace/snapshot still owns large storage; no second framebuffer,
+weather model, event catalogue, image assets or graphics dependency is introduced.
+
+#### Preview and validation boundary
+
+The deterministic EE02 preview retains its fixed trusted UTC, generated October
+23–27 window, actual synthetic HTTP/ICS ingestion/staging/producer, Complete/Incomplete
+source outcomes and scratch poisoning. It now supplies synthetic weather, counted
+forecasts and battery values to this dashboard in one draw callback, then lets the
+workspace refresh once and check shutdown separately. Retained restrictions remain
+unchanged. EXAMPLE DATA is visible in the provisional month area. The opt-in live
+calendar sketch is unchanged and remains calendar-only.
+
+The focused strict C++11/ASan/UBSan host regression covers all panels, viewport/region
+bounds, malformed fixed text, observation failures, battery edges, today ordering,
+source states, DST repeated times, overflow, immutable inputs and audited allocation
+absence. A real byte-fragmented HTTP/ICS → producer → snapshot case survives stage
+release and scratch poisoning before dashboard drawing. Existing renderer, snapshot,
+workspace and nonrecurring producer regressions cover directly composed guarantees.
+Final strict and sanitizer runs passed 56 dashboard compositions, 25 existing
+calendar-renderer checks, snapshot/workspace lifecycle checks and 228 producer cases.
+The extended test facade records primitive bounding boxes, not rasterized pixels.
+See AGENTS.md for executable commands. No host syntax-only sketch or target build is
+claimed. Arduino compilation, flashing, physical EE02, runtime headroom and power
+remain owner-deferred and unverified. Production dashboard/acquisition migration,
+weather security stabilization, final monthly-grid/layout decisions and device
+validation remain future independently authorized work.
 
 ### Bounded streaming ICS ingestion
 
@@ -3189,8 +3298,8 @@ complete temporal conformance, source acceptance or ESP32 runtime performance.
 4. Begin/rotate/clear the display, draw existing dividers, daily forecast, monthly calendar,
    events, battery and weather, then unconditionally call `update()` and `sleep()`.
    No displayed-content comparison exists. The cleared former artwork region is
-   reserved for the future five-day calendar; no replacement renderer or placeholder
-   is implemented (sketch lines 65–87).
+   reserved for the future production five-day calendar; the production sketch invokes
+   no replacement renderer or placeholder (sketch lines 65–87).
 5. Calculate sleep from local time and `DEEP_SLEEP_HOURS`, avoiding 00:00–04:59;
    failed time acquisition falls back to the interval. Enable timer wake and enter
    deep sleep if nonzero (sketch lines 25–57,89–99). Actual wake behavior is unverified.
@@ -3207,7 +3316,7 @@ not the unselected final week-view layout.
 NTP uses the configured pool server and POSIX timezone. OpenWeatherMap supplies
 current weather plus overlapping `cnt=5`/`cnt=40` forecast responses. Forecast
 hours/dates are taken from `dt_txt` without explicit timezone normalization
-(weather.h lines 191–205,631–659). Apps Script uses deployment-local date/time
+(weather.h lines 164–178,604–632). Apps Script uses deployment-local date/time
 operations; live deployment/calendar zone alignment is unverified.
 
 Apps Script truncates while enumerating calendars at eight events; firmware
@@ -3257,7 +3366,7 @@ polarity, sequencing or sleep retention contract is established. Do not infer th
 **Current production-source observations:** Wi-Fi/API secrets come from intentionally ignored
 local credentials.h. Apps Script contains a placeholder API_KEY that operators
 must privately configure. HTTPS paths call `setInsecure()` in calendar.h:146,
-weather.h:71/151/552. Thus certificate-based server authentication is disabled;
+weather.h:44/124/525. Thus certificate-based server authentication is disabled;
 encrypted production transport is not authenticated trust. The separate ICS HTTPS
 API above requires CA-chain/hostname verification and caller-verified wall time; it
 does not repair these legacy paths or establish physical TLS validation.

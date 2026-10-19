@@ -2,6 +2,7 @@
 #include <Seeed_GFX.h>
 #include "../../application/psram_workspace.h"
 #include "../../application/five_day_posix_time.h"
+#include "../../application/five_day_dashboard_renderer.h"
 #include "../../application/five_day_window.h"
 #include "../../application/ics_nonrecurring_snapshot.h"
 
@@ -13,8 +14,17 @@ static FiveDaySnapshot snapshot;
 static Ee02PsramWorkspace workspace;
 // Preview configuration only. Production timezone/configuration remains separate.
 static FiveDayPosixTime::Context previewZone = {"CET-1CEST,M3.5.0,M10.5.0/3"};
-static FiveDayRenderer::Report rendering;
+static FiveDayDashboardRenderer::Report rendering;
 static bool renderingAttempted = false;
+// Synthetic already-acquired observations; no weather API/ADC use or freshness policy.
+static const WeatherData exampleWeather={true,"02d","Partly cloudy","Example 2026-10-23 11:00",12.5f,68,0.2f,3.1f};
+static const ForecastEntry exampleShort[]={
+  {true,"12:00","02d",14,11},{true,"15:00","10d",13,10},{true,"18:00","03n",11,8},
+  {true,"21:00","01n",8,6},{false,"00:00","",0,0}};
+static const DailyForecastEntry exampleDaily[]={
+  {true,"Friday","02d","Partly cloudy",14,7},{true,"Saturday","10d","Rain",12,6},
+  {true,"Sunday","01d","Clear",13,5},{true,"Monday","50d","Haze",11,4},
+  {true,"Tuesday","13d","Snow",5,-1}};
 
 // Provisional preview budgets, not final device operating capacities.
 static uint64_t sourceClock(void*) { return 0; } // No elapsed time during deterministic replay.
@@ -89,19 +99,21 @@ static GfxResult populateFromIcs(uint8_t* bytes, size_t capacity, void*) {
 static GfxResult poisonScratch(uint8_t* bytes, size_t size, void*) {
   memset(bytes, 0xa5, size); return GfxResult::success();
 }
-static GfxResult drawCalendar(Seeed_GFX& display, void*) {
+static GfxResult drawDashboard(Seeed_GFX& display, void*) {
   display.setRotation(1); // Logical 1600x1200; existing dividers at x/y 1044.
-  display.fillScreen(TFT_WHITE); // Preview alone may clear the full framebuffer.
-  display.drawLine(1044, 10, 1044, 1180, TFT_BLACK);
-  display.drawLine(10, 1044, 1034, 1044, TFT_BLACK);
-  display.setFreeFont(nullptr);
-  const char* notice = "EXAMPLE DATA - NOT A LIVE CALENDAR";
-  for (size_t i = 0; notice[i]; ++i)
-    display.drawChar(10 + int32_t(i) * 12, 1060, notice[i], TFT_RED, TFT_WHITE, 2);
+  const FiveDayDashboardRenderer::Inputs observations={&exampleWeather,exampleShort,5,exampleDaily,5,{true,62},true,1792746000};
   renderingAttempted = true;
-  rendering = FiveDayRenderer::render(display, snapshot, {10,10,1025,1025}, {FiveDayPosixTime::convert, &previewZone});
-  return rendering.status == FiveDayRenderer::Status::Drawn ? GfxResult::success() :
-      GfxResult(GfxError::InvalidArgument, "calendar renderer failed");
+  rendering = FiveDayDashboardRenderer::render(display,snapshot,{FiveDayPosixTime::convert,&previewZone},
+      observations,FiveDayDashboardRenderer::ee02PreviewGeometry());
+  if(rendering.status!=FiveDayDashboardRenderer::Status::Drawn)
+    return GfxResult(GfxError::InvalidArgument,"dashboard renderer failed");
+  // Development notice in the otherwise unassigned historical month-grid area.
+  // It does not overlap the calendar, forecasts, today list or battery.
+  display.setFreeFont(nullptr);
+  const char* notice = "EXAMPLE DATA - NOT LIVE";
+  for (size_t i = 0; notice[i]; ++i)
+    display.drawChar(1064 + int32_t(i) * 12, 620, notice[i], TFT_RED, TFT_WHITE, 2);
+  return GfxResult::success();
 }
 void setup() {
   Serial.begin(115200);
@@ -124,9 +136,10 @@ void setup() {
   }
   // Demonstrate independent snapshot text/records before borrowing the framebuffer.
   if (!workspace.withScratch(0, workspace.capacity(), poisonScratch).ok()) return;
-  const auto result = workspace.render(drawCalendar);
-  Serial.printf("Renderer called=%u status=%u entries=%u overflow=%u\n", unsigned(renderingAttempted), unsigned(rendering.status),
-      unsigned(rendering.dayEntriesDrawn), unsigned(rendering.dayEntriesOmitted));
+  const auto result = workspace.render(drawDashboard);
+  Serial.printf("Dashboard called=%u status=%u calendar entries=%u overflow=%u today=%u omitted=%u\n", unsigned(renderingAttempted), unsigned(rendering.status),
+      unsigned(rendering.calendar.dayEntriesDrawn), unsigned(rendering.calendar.dayEntriesOmitted),
+      unsigned(rendering.todayDrawn),unsigned(rendering.todayOmitted));
   Serial.printf("Render/refresh=%u; shutdown checked=%u result=%u\n", unsigned(result.operation.error),
       unsigned(result.shutdownChecked), unsigned(result.shutdown.error));
   // Retained storage must remain alive after uncertain panel communication/end.
