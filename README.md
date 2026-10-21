@@ -451,6 +451,41 @@ weather/calendar acquisition, TLS, NTP/RTC, sleep and legacy graphics are not mi
 See the [composition contract](docs/ENGINEERING.md#read-only-gfx2-dashboard-composition)
 and [host commands](AGENTS.md#commands-and-validation).
 
+### Production observation interfaces (graphics-free)
+
+[weather_acquisition.h](application/weather_acquisition.h) exposes the existing
+`fetchWeatherData()`, `fetchForecastData()` and `fetchDailyForecastData()` independently
+of TFT_eSPI/EPaper/GFX2. Include the existing `OPENWEATHER_API_KEY` declaration before
+it; the legacy `weather.h` compatibility entry still supplies this through private
+`credentials.h`. The guarded header owns the same sketch-translation-unit static
+`weatherData`, `forecastData[FORECAST_COUNT]` and
+`dailyForecastData[DAILY_FCST_COUNT]`, using the shared PODs. It creates no second
+store, performs no acquisition at initialization, and does not change request order,
+JSON interpretation, grouping, time assumptions, failure retention or logging.
+`weather.h` retains all legacy drawing and `updateWeather()` Wi-Fi orchestration.
+
+This extraction preserves the legacy weather client's **insecure TLS**, an unresolved
+security defect. It is not authenticated acquisition and is not wired into a new
+production dashboard lifecycle. The separate authenticated ICS adapter does not fix it.
+
+[battery_measurement.h](application/battery_measurement.h) exposes the unchanged
+`readBatteryMillivolts()` and `voltageToPercent()` without graphics: A5 enable, 5 ms
+settling, A0 sampling, disable, original divider/scaling and discharge curve.
+`battery.h` retains `drawBattery()`, including its second measurement for logging.
+Measurement does not supply a validity flag: a zero reading must not automatically
+become a valid 0% dashboard observation; a valid low measurement can legitimately
+map to 0%. The caller supplies that distinction through the existing dashboard input.
+The dashboard can borrow the production weather arrays directly and accept an
+already measured battery percentage/validity; it does not acquire or copy observations.
+
+Focused strict C++11 and ASan/UBSan checks cover battery math/GPIO order and direct
+shared-observation dashboard rendering. A graphics-free compile check uses small
+Arduino/HTTP/JSON declaration stand-ins; source comparison checks unchanged parsing
+and grouping, not a simulated successful JSON parser. These checks do not verify live
+weather, TLS, ADC calibration or target compatibility. Production wake sequencing,
+legacy graphics, acquisition and sleep remain in place; target/hardware checks are
+owner-deferred. Executable commands are in [AGENTS.md](AGENTS.md#commands-and-validation).
+
 ### Five-day snapshot renderer and EE02 example preview
 
 [FiveDayRenderer](application/five_day_renderer.h) renders the existing read-only

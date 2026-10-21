@@ -255,6 +255,25 @@ regressions for their shared read-only/storage/borrow contracts. The trace facad
 checks primitive bounds and viewport scopes, not rasterization or physical appearance.
 Target builds, flashing, physical EE02 and runtime memory/power remain owner-deferred.
 
+The production observation extraction has a graphics-free syntax check and a focused
+battery/shared-weather-to-dashboard regression. Supply only synthetic key declarations;
+never include private credentials. The narrow HTTP/JSON stand-ins check call shapes
+and failure paths, not successful JSON parsing or TLS; compare moved parsing/grouping
+source directly. The first include path records GPIO calls without graphics dependencies:
+
+```
+g++ -std=c++11 -Wall -Wextra -Werror -pedantic -Itests/observations_host -fsyntax-only tests/production_observations_compile_test.cpp
+g++ -std=c++11 -Wall -Wextra -Werror -pedantic -Itests/observations_host -Itests/renderer_host -Itests/gfx2_host -Ithird_party/Seeed_GFX2/src tests/production_observations_test.cpp -o /tmp/ee02-production-observations-test
+/tmp/ee02-production-observations-test
+g++ -std=c++11 -Wall -Wextra -Werror -pedantic -fsanitize=address,undefined -fno-omit-frame-pointer -Itests/observations_host -Itests/renderer_host -Itests/gfx2_host -Ithird_party/Seeed_GFX2/src tests/production_observations_test.cpp -o /tmp/ee02-production-observations-sanitized
+/tmp/ee02-production-observations-sanitized
+```
+
+Run the existing data-acquisition orchestration and dashboard regressions for their
+direct composition. Host checks do not validate actual weather services, ADC
+calibration, target libraries, firmware linkage or device operation. Target and
+physical validation remain owner-deferred for this extraction.
+
 The integrated multi-calendar regression runs actual window construction, source
 selection, HTTPS/HTTP/ICS processing, snapshot transactions, scratch poisoning and
 renderer traces. The live sketch is opt-in and target-unverified; never use private

@@ -300,9 +300,11 @@ one hardware-independent helper; the remaining application is not a testable cor
 | --- | --- |
 | [Sketch](../xiao-ee02-e-paper-calendar.ino) | Global EPaper instance; boot orchestration, dividers and retained panel drawing/update, display sleep and ESP timer deep sleep. No filesystem initialization; `loop()` is empty. |
 | [calendar.h](../calendar.h) | Wi-Fi/NTP time synchronization, calendar date math/grid rendering, HTTPS Apps Script retrieval, volatile event array, subset sorting and event drawing. |
-| [weather.h](../weather.h) | Current weather, short forecast and grouped daily forecast retrieval; volatile state; legacy icon/forecast rendering; network orchestration that also calls calendar retrieval. Shared POD declarations are in [application/weather_values.h](../application/weather_values.h), unchanged in fields/layout. |
+| [weather.h](../weather.h) | Legacy icon/weather/forecast rendering and unchanged Wi-Fi orchestration that also calls calendar retrieval; includes the graphics-free acquisition header after private credentials. |
+| [application/weather_acquisition.h](../application/weather_acquisition.h) | Existing current/short/daily weather requests, parsing/grouping and single sketch-TU static observation store, without graphics. Uses unchanged [weather_values.h](../application/weather_values.h) PODs and existing constants/key declaration. Legacy insecure transport remains unresolved. |
 | [data_acquisition.h](../data_acquisition.h) | Synchronous, independent fetch sequencing after Wi-Fi connection; reports four individual bool results, disconnects, and returns current-weather success. Uses callbacks without Arduino dependencies or retained state. |
-| [battery.h](../battery.h) | ADC enable/sample, assumed voltage conversion, discharge-curve interpolation and battery drawing. |
+| [battery.h](../battery.h) | Unchanged legacy battery drawing, including two measurements, through the extracted measurement functions. |
+| [application/battery_measurement.h](../application/battery_measurement.h) | Graphics-free ADC enable/sample/disable, assumed voltage conversion and existing discharge-curve interpolation; no retained observation or automatic sampling. |
 | [constants.h](../constants.h) | Location/timezone/NTP, retained panel/divider layout, event limit and sleep interval. These defaults are implementation observations. |
 | [driver.h](../driver.h) | Declares board-screen 510/T133A01 and EE02 selection; propagation through the intended display library/build is unresolved. |
 | [google-calendar-api.gs](../google-calendar-api.gs) | Separate Google Apps Script deployment; query-key authentication and today's events from CalendarApp calendars. |
@@ -925,8 +927,11 @@ scratch-to-framebuffer reuse; no drawing occurs while acquisition scratch is liv
 
 The nonrecurring profile below is unchanged: no recurrence, floating/TZID timestamp
 conversion, cancellation/revision selection or general source acceptance is added.
-The production sketch, deterministic preview, weather, battery and sleep remain
-unchanged. The coordinator below now supplies calendar selection, rolling-window
+Production weather acquisition/storage behavior, battery and sleep behavior remain
+unchanged. Weather POD declarations are shared through application/weather_values.h.
+The deterministic preview now composes the full dashboard through
+FiveDayDashboardRenderer; the production sketch still uses legacy graphics and has
+not migrated. The coordinator below now supplies calendar selection, rolling-window
 construction and sequential refresh. Its opt-in live sketch supplies development
 Wi-Fi/fresh SNTP configuration and the render handoff. Production orchestration,
 private settings UI, refresh scheduling and full dashboard integration remain absent;
@@ -1399,11 +1404,53 @@ No URL, acquisition object, parser or framebuffer pointer is returned/retained.
 
 The exact three POD declarations moved from weather.h to
 [weather_values.h](../application/weather_values.h); names, fields, array capacities,
-order and meanings are unchanged. Production static weather arrays, fetch/parsing,
-provider behavior, legacy TLS and legacy EPaper drawing remain otherwise byte-identical.
-There is one observation store, not copied renderer weather. Host layout assertions
-and an exact declaration comparison cover the extraction without claiming target ABI
-or firmware compilation. Battery ADC, conversion/calibration and pin control are untouched.
+order and meanings are unchanged. The production observation extraction below separates
+acquisition/measurement from legacy graphics while preserving behavior. There is one
+existing sketch-TU observation store, not copied renderer weather. Host layout
+assertions and an exact declaration comparison cover the POD extraction without
+claiming target ABI or firmware compilation. Battery ADC, conversion/calibration and
+pin control retain their original implementation.
+
+#### Production acquisition and measurement boundary
+
+[weather_acquisition.h](../application/weather_acquisition.h) now contains the existing
+three bool fetch functions and the same internal-linkage weather/forecast arrays.
+It requires the existing key declaration before inclusion and has no graphics,
+fonts, panel ownership or Wi-Fi orchestration dependency. `weather.h` includes it
+after private credentials and remains the compatibility entry for all legacy drawing
+and `updateWeather()`. No new initialization or network call is introduced. Storage
+ownership remains the existing single sketch translation unit; this is not a new
+multi-translation-unit storage framework. Consumers pass the actual arrays to the
+existing dashboard Inputs, with explicit counts/lifetimes, rather than copying them.
+
+The fetch implementations preserve request URLs, JSON fields, validity/failure
+behavior, forecast grouping, timezone assumptions, retries, logging and insecure TLS.
+Two comparisons explicitly cast the nonnegative loop index to size_t, matching the
+preexisting conversion against ArduinoJson's size_t array size and satisfying strict
+host warnings. This is not a transport-security repair; do not advertise these
+weather requests as authenticated or extend them into a new production lifecycle.
+
+[battery_measurement.h](../application/battery_measurement.h) contains the exact
+existing curve, conversion and ADC/GPIO sequence. `battery.h` retains unchanged
+drawing and its separate logging sample. No ADC is read by the dashboard. The
+measurement API returns millivolts, not validity; future orchestration must supply
+validity separately, distinguishing an unavailable/zero reading from valid low
+charge. No calibration, zero-sentinel policy or power sequencing is changed here.
+
+Current extraction evidence: strict graphics-free syntax compilation without graphics
+include paths; focused host fetch failure/request checks, all curve thresholds and
+interpolation, ADC scaling and enable/delay/sample/disable order; direct production
+array-to-dashboard rendering with immutable inputs and invalid/valid-low battery
+cases. Strict and ASan/UBSan observation, acquisition-orchestration and dashboard
+regressions passed. The JSON facade supplies declarations and parse failure only:
+unchanged successful parsing/grouping is supported by direct source comparison,
+not a replacement parser test. All 24 legacy weather drawing/orchestration bodies
+and battery measurement/drawing bodies compare unchanged; moved fetch bodies match
+apart from the two equivalent index conversions. Include/symbol checks establish
+one observation definition per existing sketch translation unit. No live requests,
+private credentials, target compilation, physical ADC/display, memory or power
+measurements were used. Production wake-cycle migration and weather TLS stabilization
+remain separate outcomes; see [host commands](../AGENTS.md#commands-and-validation).
 
 #### Geometry and drawing
 
@@ -3316,7 +3363,7 @@ not the unselected final week-view layout.
 NTP uses the configured pool server and POSIX timezone. OpenWeatherMap supplies
 current weather plus overlapping `cnt=5`/`cnt=40` forecast responses. Forecast
 hours/dates are taken from `dt_txt` without explicit timezone normalization
-(weather.h lines 164–178,604–632). Apps Script uses deployment-local date/time
+(weather_acquisition.h, fetchForecastData()/fetchDailyForecastData()). Apps Script uses deployment-local date/time
 operations; live deployment/calendar zone alignment is unverified.
 
 Apps Script truncates while enumerating calendars at eight events; firmware
@@ -3355,8 +3402,9 @@ memory fit and driver compatibility have not been established.
 
 Source names battery ADC input A0 and measurement enable A5, comments these as
 GPIO1/GPIO6, pulls enable high, waits 5ms, and assumes a 2:1 divider with linear
-3.3V/4095 scaling (battery.h lines 9–10,48–63). Those are unverified board/ADC
-assumptions; drawing samples again for logging (line 114).
+3.3V/4095 scaling (application/battery_measurement.h, readBatteryMillivolts()).
+Those are unverified board/ADC assumptions; battery.h drawBattery() still samples
+again for logging.
 Display power/sleep is delegated to EPaper. No verified EE02 power-enable pin,
 polarity, sequencing or sleep retention contract is established. Do not infer that
 `epaper.sleep()` removes panel supply or guarantees low system current.
@@ -3366,7 +3414,8 @@ polarity, sequencing or sleep retention contract is established. Do not infer th
 **Current production-source observations:** Wi-Fi/API secrets come from intentionally ignored
 local credentials.h. Apps Script contains a placeholder API_KEY that operators
 must privately configure. HTTPS paths call `setInsecure()` in calendar.h:146,
-weather.h:44/124/525. Thus certificate-based server authentication is disabled;
+all three fetch functions in application/weather_acquisition.h. Thus
+certificate-based server authentication is disabled;
 encrypted production transport is not authenticated trust. The separate ICS HTTPS
 API above requires CA-chain/hostname verification and caller-verified wall time; it
 does not repair these legacy paths or establish physical TLS validation.

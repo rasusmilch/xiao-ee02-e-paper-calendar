@@ -87,7 +87,9 @@ is historical evidence, not current architecture or requirements authority.
 - Compose the five-day calendar, retained weather/short and daily forecasts,
   today's snapshot events and supplied battery observation through one read-only
   bounded GFX2 dashboard renderer. Share existing weather records without changing
-  acquisition, distinguish unavailable values and presentation overflow, and exercise
+  acquisition behavior; separate existing weather acquisition and battery measurement
+  from legacy graphics for direct observation reuse. Distinguish unavailable values
+  and presentation overflow, and exercise
   the full deterministic ICS-driven screen before one borrowed-framebuffer refresh.
   Leave production migration, month-grid retention, final layout and hardware
   validation separate.
