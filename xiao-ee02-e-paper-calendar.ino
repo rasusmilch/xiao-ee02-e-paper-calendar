@@ -3,7 +3,8 @@
 // - USB CDC on Boot: Enabled
 // - PSRAM : OPI PSRAM
 // - Partition Scheme: Default with spiffs (3MB APP/1.5MB SPIFFS)
-// esp32 core: 4.0.0-alpha1
+// historical prototype core: 4.0.0-alpha1
+// Weather HTTPS now requires inspected 3.3.12 / Core Debug None; target unverified.
 // libraries:
 // - https://github.com/Seeed-Studio/Seeed_GFX/tree/master : 2.0.3
 // - ArduinoJson: 7.4.3
@@ -59,8 +60,11 @@ uint64_t getDeepSleepDuration() {
 void setup() {
   Serial.begin(115200);
 
-  syncTime();
-  updateWeather();
+  const bool weatherClockTrusted = syncTime();
+  // Private credentials.h supplies a caller-owned const char WEATHER_CA_PEM[].
+  const WeatherHttps::Trust weatherTrust = {
+      weatherClockTrusted, WEATHER_CA_PEM, sizeof(WEATHER_CA_PEM)};
+  updateWeather(weatherTrust);
 
   epaper.begin();
   epaper.setRotation(1);

@@ -513,7 +513,7 @@ void drawWeather(EPaper &epaperRef) {
 // ============================================================
 // Connect, fetch, disconnect
 // ============================================================
-bool updateWeather() {
+bool updateWeather(const WeatherHttps::Trust& trust) {
   WiFi.begin(SSID, PASSWORD);
   int retry = 0;
   while (WiFi.status() != WL_CONNECTED && retry < 100) {
@@ -527,14 +527,14 @@ bool updateWeather() {
     Serial.println("Weather: WiFi connected, fetching data...");
   }
   return acquireDataSources(
-      wifiConnected, fetchWeatherData,
-      []() -> bool {
+      wifiConnected, [&trust]() -> bool { return fetchWeatherData(trust); },
+      [&trust]() -> bool {
         Serial.println("Fetching forecast data...");
-        return fetchForecastData();
+        return fetchForecastData(trust);
       },
-      []() -> bool {
+      [&trust]() -> bool {
         Serial.println("Fetching daily forecast data...");
-        return fetchDailyForecastData();
+        return fetchDailyForecastData(trust);
       },
       []() -> bool {
         Serial.println("Fetching calendar events...");

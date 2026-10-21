@@ -18,5 +18,6 @@ public: size_t size() const{return 0;} JsonValue operator[](int) const{return {}
 class DeserializationError {
 public: explicit operator bool() const{return true;} const char* c_str() const{return "synthetic parse rejection";}
 };
-inline DeserializationError deserializeJson(JsonDocument&,const String&){return {};}
+namespace ObservationHost {inline unsigned& parses(){static unsigned count=0;return count;}}
+inline DeserializationError deserializeJson(JsonDocument&,const String&){++ObservationHost::parses();return {};}
 #endif

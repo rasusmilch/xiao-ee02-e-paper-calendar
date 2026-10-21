@@ -24,7 +24,10 @@ extern SerialSink serial;
 #define Serial ObservationHost::serial
 inline void pinMode(int pin,int mode){ObservationHost::action(0,pin,mode);}
 inline void digitalWrite(int pin,int value){ObservationHost::action(1,pin,value);}
-inline void delay(unsigned long ms){ObservationHost::action(2,0,int(ms));}
+namespace ObservationHost {
+inline void (*&delayHook())(unsigned long){static void (*hook)(unsigned long)=nullptr;return hook;}
+}
+inline void delay(unsigned long ms){if(ObservationHost::delayHook())ObservationHost::delayHook()(ms);else ObservationHost::action(2,0,int(ms));}
 inline int analogRead(int pin){ObservationHost::action(3,pin,ObservationHost::adc);return ObservationHost::adc;}
 inline int digitalRead(int){return HIGH;}
 inline unsigned long millis(){static unsigned long ms=0;return ++ms;}

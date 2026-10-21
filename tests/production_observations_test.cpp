@@ -13,7 +13,6 @@ static const char* OPENWEATHER_API_KEY="synthetic-nonsecret-fixture";
 
 namespace ObservationHost {
 Action actions[16];size_t actionCount=0;int adc=0;SerialSink serial;
-unsigned insecureCalls=0,begins=0,requestGets=0,ends=0;int httpCode=503;std::string request;
 }
 bool psramFound(){return true;}
 void* ps_malloc(size_t n){return std::malloc(n);}
@@ -31,22 +30,24 @@ void fetchEntryPoints(){
  const char* suffix[]={"weather?q=Lohr%20am%20Main,DE&appid=synthetic-nonsecret-fixture&units=metric",
    "forecast?q=Lohr%20am%20Main,DE&appid=synthetic-nonsecret-fixture&units=metric&cnt=5",
    "forecast?q=Lohr%20am%20Main,DE&appid=synthetic-nonsecret-fixture&units=metric&cnt=40"};
- bool(*operations[])()={fetchWeatherData,fetchForecastData,fetchDailyForecastData};
- for(int code:{503,200})for(size_t i=0;i<3;++i){httpCode=code;assert(!operations[i]());
-  assert(request==std::string("https://api.openweathermap.org/data/2.5/")+suffix[i]);
+ const char ca[]="synthetic-not-a-certificate";
+ const WeatherHttps::Trust trust={true,ca,sizeof(ca)};
+ bool(*operations[])(const WeatherHttps::Trust&)={fetchWeatherData,fetchForecastData,fetchDailyForecastData};
+ for(int code:{503,200})for(size_t i=0;i<3;++i){https().status=code;assert(!operations[i](trust));
+  assert(https().request==std::string("https://api.openweathermap.org/data/2.5/")+suffix[i]);
   assert(!weatherData.valid && !forecastData[0].valid && !dailyForecastData[0].valid);
  }
- assert(begins==6 && requestGets==6 && ends==6 && insecureCalls==6); // Preserved known defect, no real TLS.
+ assert(https().begins==6 && https().requests==6 && https().ends==6 && https().caCalls==6 && https().stops==6);
  // Existing fetch failures do not clear previously valid observations. This is
  // preserved RAM behavior, not a freshness/retention guarantee for the redesign.
  weatherData={true,"01d","Prior synthetic observation","Prior fetch",10,60,0,1};
  forecastData[0]={true,"12:00","01d",12,6};dailyForecastData[0]={true,"Friday","01d","Prior clear",12,6};
  const auto prior=weatherData;const auto forecast=forecastData[0];const auto daily=dailyForecastData[0];
- httpCode=503;
- for(auto operation:operations)assert(!operation());
+ https().status=503;
+ for(auto operation:operations)assert(!operation(trust));
  assert(!std::memcmp(&prior,&weatherData,sizeof(prior)) && !std::memcmp(&forecast,&forecastData[0],sizeof(forecast)) &&
      !std::memcmp(&daily,&dailyForecastData[0],sizeof(daily)));
- assert(begins==9 && requestGets==9 && ends==9 && insecureCalls==9);
+ assert(https().begins==9 && https().requests==9 && https().ends==9 && https().caCalls==9 && https().stops==9);
 }
 void curveAndSampling(){
  using namespace ObservationHost;

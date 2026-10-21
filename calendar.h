@@ -37,24 +37,8 @@ int dayOfWeek(int year, int month, int day) {
   return (timeinfo.tm_wday + 6) % 7; // convert Sunday=0 to Monday=0
 }
 
-// Synchronize system time with an NTP server using configured timezone
-void syncTime() {
-  WiFi.begin(SSID, PASSWORD);
-  for (int i = 0; i < 100 && WiFi.status() != WL_CONNECTED; i++) {
-    delay(100);
-  }
-  if (WiFi.status() == WL_CONNECTED) {
-    configTzTime(TIMEZONE, NTP_SERVER);
-    struct tm t;
-    int retry = 0;
-    while (!getLocalTime(&t) && retry < 20) {
-      delay(500);
-      retry++;
-    }
-  }
-  WiFi.disconnect(true);
-  WiFi.mode(WIFI_OFF);
-}
+// Legacy boot time attempt, separated for a focused fresh-notification test.
+#include "application/legacy_time_sync.h"
 
 // Draw the monthly calendar on the e-paper display
 void drawCalendar(EPaper &epaper) {

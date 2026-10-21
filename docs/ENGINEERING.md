@@ -299,9 +299,10 @@ one hardware-independent helper; the remaining application is not a testable cor
 | Component | Responsibility and dependencies |
 | --- | --- |
 | [Sketch](../xiao-ee02-e-paper-calendar.ino) | Global EPaper instance; boot orchestration, dividers and retained panel drawing/update, display sleep and ESP timer deep sleep. No filesystem initialization; `loop()` is empty. |
-| [calendar.h](../calendar.h) | Wi-Fi/NTP time synchronization, calendar date math/grid rendering, HTTPS Apps Script retrieval, volatile event array, subset sorting and event drawing. |
+| [calendar.h](../calendar.h) | Includes the legacy boot time entry point; calendar date math/grid rendering, unchanged insecure HTTPS Apps Script retrieval, volatile event array, subset sorting and event drawing. |
+| [application/legacy_time_sync.h](../application/legacy_time_sync.h) | Existing boot Wi-Fi attempt and configured NTP/TZ, with finite fresh-SNTP notification gate returning transient weather time trust; no RTC/persistent trust. |
 | [weather.h](../weather.h) | Legacy icon/weather/forecast rendering and unchanged Wi-Fi orchestration that also calls calendar retrieval; includes the graphics-free acquisition header after private credentials. |
-| [application/weather_acquisition.h](../application/weather_acquisition.h) | Existing current/short/daily weather requests, parsing/grouping and single sketch-TU static observation store, without graphics. Uses unchanged [weather_values.h](../application/weather_values.h) PODs and existing constants/key declaration. Legacy insecure transport remains unresolved. |
+| [application/weather_acquisition.h](../application/weather_acquisition.h) | Existing current/short/daily weather requests, parsing/grouping and single sketch-TU static observation store, without graphics. Uses unchanged [weather_values.h](../application/weather_values.h) PODs and existing constants/key declaration. Explicit trusted time and CA spans authenticate weather HTTPS; no redirects/fallback. |
 | [data_acquisition.h](../data_acquisition.h) | Synchronous, independent fetch sequencing after Wi-Fi connection; reports four individual bool results, disconnects, and returns current-weather success. Uses callbacks without Arduino dependencies or retained state. |
 | [battery.h](../battery.h) | Unchanged legacy battery drawing, including two measurements, through the extracted measurement functions. |
 | [application/battery_measurement.h](../application/battery_measurement.h) | Graphics-free ADC enable/sample/disable, assumed voltage conversion and existing discharge-curve interpolation; no retained observation or automatic sampling. |
@@ -927,8 +928,8 @@ scratch-to-framebuffer reuse; no drawing occurs while acquisition scratch is liv
 
 The nonrecurring profile below is unchanged: no recurrence, floating/TZID timestamp
 conversion, cancellation/revision selection or general source acceptance is added.
-Production weather acquisition/storage behavior, battery and sleep behavior remain
-unchanged. Weather POD declarations are shared through application/weather_values.h.
+Production weather parsing/storage, battery and sleep behavior remain unchanged;
+weather authentication and the narrow fresh-time gate are described below. Weather POD declarations are shared through application/weather_values.h.
 The deterministic preview now composes the full dashboard through
 FiveDayDashboardRenderer; the production sketch still uses legacy graphics and has
 not migrated. The coordinator below now supplies calendar selection, rolling-window
@@ -1391,6 +1392,77 @@ also a development entry point; coordinated production device integration and br
 recurrence/timezone normalization, production GFX2 migration and physical validation
 remain separate independently authorized outcomes.
 
+### Authenticated production weather HTTPS
+
+[weather_acquisition.h](../application/weather_acquisition.h) requires
+`const WeatherHttps::Trust&` for each current/short/daily fetch. Trust contains a
+caller-asserted trusted-wall-clock boolean and a caller-owned readable CA PEM span
+(pointer and size including its sole terminal NUL). The span stays unchanged/alive
+through the call; there is no retained security context. Reject untrusted time,
+null/empty spans, address overflow, embedded NUL and missing terminal NUL before
+constructing clients or attempting DNS/requests. Readability itself is a caller
+precondition, not something C++ can probe safely. Malformed admitted PEM must fail
+in the TLS implementation, never trigger weaker trust.
+
+Each WiFiClientSecure (the inspected 3.3.12 alias of NetworkClientSecure) receives
+setCACert before HTTPClient::begin(client, unchangedHttpsUrl). Explicitly disable
+redirects using HTTPC_DISABLE_FOLLOW_REDIRECTS; all redirects/non-200 responses fail.
+There is no alternative hostname/IP, insecure retry, downgrade or credential
+forwarding. Check begin and the body-transfer result, end HTTP and stop the secure
+socket on all admitted terminal paths. Core 3.3.12 getString discards writeToStream
+errors, so readPayload uses that same String-backed StreamString with a checked
+writeToStream result and moves its String base into the existing JSON input. There
+is no second payload copy or JSON/schema/observation transaction redesign. Complete
+parsing/grouping code remains unchanged; failed transport cannot publish a partial
+new observation. Prior valid RAM observations are not cleared or declared fresh.
+
+The inspected [Arduino-ESP32 3.3.12 source](https://github.com/espressif/arduino-esp32/tree/3.3.12)
+shows HTTPClient connecting with its original _host, NetworkClientSecure retaining
+that hostname through DNS/TLS, and ssl_client using VERIFY_REQUIRED, the CA chain,
+mbedtls_ssl_set_hostname (verification/SNI) and verification-result checking. setCACert
+also clears insecure mode. No different board/core package was installed or selected
+silently: the weather header enforces this inspected version on ESP32. Historical
+prototype alpha-core annotations are not compatibility evidence. Core Debug Level
+None is enforced: HTTPClient debug/verbose logs include URI/full URL and upstream
+DNS error logs can expose hostnames. Application messages contain generic status
+codes, not key/query/CA contents. Independently configured IDF/platform logging and
+private operator diagnostics still need review; no universal leak-proof claim follows.
+
+Private ignored credentials.h must supply `const char WEATHER_CA_PEM[]` as an actual
+NUL-terminated array. The sketch passes its exact sizeof span and the local boolean
+returned by [legacy_time_sync.h](../application/legacy_time_sync.h). No CA is embedded
+or read from private configuration during host validation. Provisioning an appropriate
+CA is required; rotation/update/storage architecture remains Open.
+
+The existing boot time attempt now returns bool: Wi-Fi waits at most 100 × 100 ms;
+when connected, stop any prior SNTP service, reset the atomic callback bridge, set
+immediate mode, register notification before configTzTime with the unchanged server/TZ,
+and wait at most 20 × 500 ms for a fresh event. The inspected pinned IDF notification
+follows system UTC update in immediate mode. Stop SNTP, unregister this boot-owned
+notification slot, copy the result and clear the bridge before Wi-Fi disconnect/off.
+No notification on this attempt means false even if the clock was previously valid.
+This exclusive legacy boot slot has no callback getter/restoration API; it is not
+shared with another time owner. No per-request NTP, persistent/RTC trust or final
+resync policy is introduced. Ordinary configured NTP is not authenticated time.
+
+The boot order remains time attempt → current/short/daily weather → independent
+legacy calendar → existing render → sleep. updateWeather synchronously captures
+trust by reference. acquireDataSources accepts those callables without allocation
+or retention and preserves order, report-before-disconnect, Wi-Fi gate and
+current-weather-only return semantics. Weather admission failure cannot suppress
+legacy calendar; that separate request still has insecure TLS/retries/redirects.
+No ICS TLS, observation schema, battery, graphics or sleep policy changed.
+
+Strict C++11 and ASan/UBSan weather tests cover ten trust rejections per operation,
+CA/call order, unchanged destinations, begin/connect/status/redirect/transfer/parser
+failures, cleanup, retained observations, independent calendar and fresh/timeout/
+stale-time/Wi-Fi notification cases. Existing observation compatibility, all 16
+acquisition outcomes and dashboard regressions pass. The JSON facade only rejects;
+unchanged successful parsing/grouping is verified by source comparison, not claimed
+as real-parser execution. Host TLS fakes do not validate certificates, SNI or SNTP
+cryptographically/on-device. Target compilation, live requests, physical EE02,
+runtime memory/power and actual CA interoperability remain owner-deferred.
+
 ### Read-only GFX2 dashboard composition
 
 [FiveDayDashboardRenderer](../application/five_day_dashboard_renderer.h) provides
@@ -1414,21 +1486,23 @@ pin control retain their original implementation.
 #### Production acquisition and measurement boundary
 
 [weather_acquisition.h](../application/weather_acquisition.h) now contains the existing
-three bool fetch functions and the same internal-linkage weather/forecast arrays.
+three bool fetch functions (now taking an explicit WeatherHttps::Trust argument)
+and the same internal-linkage weather/forecast arrays.
 It requires the existing key declaration before inclusion and has no graphics,
 fonts, panel ownership or Wi-Fi orchestration dependency. `weather.h` includes it
 after private credentials and remains the compatibility entry for all legacy drawing
-and `updateWeather()`. No new initialization or network call is introduced. Storage
+and `updateWeather(trust)`. No new initialization or extra network call is introduced. Storage
 ownership remains the existing single sketch translation unit; this is not a new
 multi-translation-unit storage framework. Consumers pass the actual arrays to the
 existing dashboard Inputs, with explicit counts/lifetimes, rather than copying them.
 
-The fetch implementations preserve request URLs, JSON fields, validity/failure
-behavior, forecast grouping, timezone assumptions, retries, logging and insecure TLS.
-Two comparisons explicitly cast the nonnegative loop index to size_t, matching the
-preexisting conversion against ArduinoJson's size_t array size and satisfying strict
-host warnings. This is not a transport-security repair; do not advertise these
-weather requests as authenticated or extend them into a new production lifecycle.
+The fetch implementations preserve request URLs, successful JSON fields,
+validity semantics, forecast grouping and timezone assumptions. Authentication now
+requires explicit CA/time admission, disables redirects and rejects failed transfers
+before parsing; see the weather HTTPS contract above. Two comparisons explicitly
+cast the nonnegative loop index to size_t, matching the preexisting conversion
+against ArduinoJson's size_t array size. This does not introduce a new production
+dashboard lifecycle or change weather observations/freshness retention.
 
 [battery_measurement.h](../application/battery_measurement.h) contains the exact
 existing curve, conversion and ADC/GPIO sequence. `battery.h` retains unchanged
@@ -1437,7 +1511,8 @@ measurement API returns millivolts, not validity; future orchestration must supp
 validity separately, distinguishing an unavailable/zero reading from valid low
 charge. No calibration, zero-sentinel policy or power sequencing is changed here.
 
-Current extraction evidence: strict graphics-free syntax compilation without graphics
+Historical observation-extraction evidence (before weather TLS stabilization):
+strict graphics-free syntax compilation without graphics
 include paths; focused host fetch failure/request checks, all curve thresholds and
 interpolation, ADC scaling and enable/delay/sample/disable order; direct production
 array-to-dashboard rendering with immutable inputs and invalid/valid-low battery
@@ -1449,8 +1524,8 @@ and battery measurement/drawing bodies compare unchanged; moved fetch bodies mat
 apart from the two equivalent index conversions. Include/symbol checks establish
 one observation definition per existing sketch translation unit. No live requests,
 private credentials, target compilation, physical ADC/display, memory or power
-measurements were used. Production wake-cycle migration and weather TLS stabilization
-remain separate outcomes; see [host commands](../AGENTS.md#commands-and-validation).
+measurements were used. Production wake-cycle migration remains separate; current
+weather TLS evidence is above. See [host commands](../AGENTS.md#commands-and-validation).
 
 #### Geometry and drawing
 
@@ -1537,7 +1612,7 @@ The extended test facade records primitive bounding boxes, not rasterized pixels
 See AGENTS.md for executable commands. No host syntax-only sketch or target build is
 claimed. Arduino compilation, flashing, physical EE02, runtime headroom and power
 remain owner-deferred and unverified. Production dashboard/acquisition migration,
-weather security stabilization, final monthly-grid/layout decisions and device
+remaining calendar transport security, final monthly-grid/layout decisions and device
 validation remain future independently authorized work.
 
 ### Bounded streaming ICS ingestion
@@ -3330,13 +3405,15 @@ complete temporal conformance, source acceptance or ESP32 runtime performance.
 ### Boot to sleep flow
 
 1. Start Serial. No filesystem mount, formatting or artwork initialization occurs.
-2. `syncTime()` opens Wi-Fi, uses `configTzTime(TIMEZONE, NTP_SERVER)`, tries local
-   time acquisition, and disconnects/turns Wi-Fi off. It returns no synchronization
-   status (calendar.h lines 41–57).
-3. `updateWeather()` opens Wi-Fi again with the existing bounded connection wait.
+2. `syncTime()` opens Wi-Fi, uses the configured NTP server/TZ and a fresh SNTP
+   notification gate, then stops/unregisters SNTP and disconnects/turns Wi-Fi off.
+   Its local boolean is weather time-trust evidence for this boot attempt only.
+3. `updateWeather(trust)` opens Wi-Fi again with the existing bounded connection wait.
    On connection success, `acquireDataSources()` calls current weather, short
    forecast, daily forecast and calendar fetch functions once each, in that order,
-   regardless of individual bool results. Each fetch owns its own inputs; forecast
+   regardless of individual bool results. All weather fetches require the same
+   explicit trusted-time/CA span; a missing prerequisite does not suppress calendar.
+   Each fetch owns its own inputs; forecast
    and calendar requests do not require current-weather success. Four outcomes
    are reported with source-only failure messages, then Wi-Fi disconnects/off.
    The return value still reports current-weather success only. Wi-Fi failure
@@ -3346,10 +3423,10 @@ complete temporal conformance, source acceptance or ESP32 runtime performance.
    events, battery and weather, then unconditionally call `update()` and `sleep()`.
    No displayed-content comparison exists. The cleared former artwork region is
    reserved for the future production five-day calendar; the production sketch invokes
-   no replacement renderer or placeholder (sketch lines 65–87).
+   no replacement renderer or placeholder.
 5. Calculate sleep from local time and `DEEP_SLEEP_HOURS`, avoiding 00:00–04:59;
    failed time acquisition falls back to the interval. Enable timer wake and enter
-   deep sleep if nonzero (sketch lines 25–57,89–99). Actual wake behavior is unverified.
+   deep sleep if nonzero. Actual wake behavior is unverified.
 
 Retained panel coordinates and divider endpoints are unchanged. `DAILY_FCST_X=10`
 replaces the forecast's former artwork-named origin. Neutral divider constants keep
@@ -3393,8 +3470,11 @@ These are observed limitations, not approved degraded-operation policy.
 
 The target is XIAO ESP32-S3 Plus (Xtensa ESP32-S3), Seeed EE02, and a 13.3-inch
 six-color Spectra 6 T133A01 panel with intended 1600x1200 layout. Documented Arduino
-inputs are XIAO_ESP32S3_PLUS, USB CDC enabled, OPI PSRAM, Default with spiffs
-(3MB APP/1.5MB SPIFFS), and ESP32 core 4.0.0-alpha1 (sketch lines 1–6).
+inputs are XIAO_ESP32S3_PLUS, USB CDC enabled, OPI PSRAM and Default with spiffs
+(3MB APP/1.5MB SPIFFS). The historical prototype named ESP32 core 4.0.0-alpha1;
+the authenticated weather header now requires the inspected 3.3.12 API and Core
+Debug None. No installed core, dependency pin or board package was changed, and
+this requirement is not a successful production build or compatibility claim.
 The partition setting is unchanged even though the application no longer uses
 SPIFFS. No erasure, formatting, repartitioning or migration accompanies retirement.
 Exact FQBN/menu keys, physical flash/PSRAM capacity, partition CSV, actual linker
@@ -3413,12 +3493,13 @@ polarity, sequencing or sleep retention contract is established. Do not infer th
 
 **Current production-source observations:** Wi-Fi/API secrets come from intentionally ignored
 local credentials.h. Apps Script contains a placeholder API_KEY that operators
-must privately configure. HTTPS paths call `setInsecure()` in calendar.h:146,
-all three fetch functions in application/weather_acquisition.h. Thus
-certificate-based server authentication is disabled;
-encrypted production transport is not authenticated trust. The separate ICS HTTPS
-API above requires CA-chain/hostname verification and caller-verified wall time; it
-does not repair these legacy paths or establish physical TLS validation.
+must privately configure. The three weather requests now require explicit CA/time
+trust, certificate-chain/hostname verification and no redirects/fallback as described
+above. The separate Apps Script fetchCalendarEvents() in calendar.h still calls
+setInsecure(), follows redirects and retries; that encrypted traffic is not
+authenticated trust. The ICS HTTPS API separately requires CA-chain/hostname
+verification and caller-verified wall time. None establishes physical TLS validation
+or makes every production endpoint secure.
 
 Calendar/API keys travel in query URLs. Apps Script deployment instructions
 execute as the deploying account with access set to
@@ -3515,10 +3596,11 @@ measurement or successful firmware build is available to support readiness.
   heap/stack measurements, orientation and physical panel behavior remain pending.
   Isolated compilation establishes neither a complete production build nor memory
   reliability on EE02. Graphics-foundation selection is no longer Open.
-- **Alpha core reproducibility unverified:** cached package metadata includes
-  4.0.0-alpha1, but availability, complete installation, exact board recipes and
-  a successful production build are unverified. Separately, the isolated GFX2
-  fixture uses the available stable 3.3.12 toolchain; this changes no production settings.
+- **Production core compatibility unverified:** the historical prototype named
+  4.0.0-alpha1 without a successful reproducible production build. Weather HTTPS
+  now requires inspected 3.3.12 APIs/Core Debug None, matching the separately tested
+  isolated GFX2 toolchain contract. No package was upgraded and no production build
+  was attempted; full legacy graphics/core compatibility remains unverified.
 - **No complete build/regression baseline:** documented library versions are not
   compatible revision proof; credentials/configuration, memory and partition fit
   remain prerequisites for a verified complete build. Host coverage includes integrated multi-calendar refresh/render traces
@@ -3531,8 +3613,9 @@ measurement or successful firmware build is available to support readiness.
   insufficient response-state distinctions, volatile events and unresolved timezone
   alignment limit confidence. The target calendar snapshot is wake-cycle-only;
   weather freshness/RTC-retention details remain Open.
-- **Security:** insecure TLS remains and requires stabilization; removing artwork
-  does not establish authenticated trust for weather or calendar traffic.
+- **Security:** weather/ICS TLS require explicit CA/time trust, with target execution
+  unverified. Apps Script calendar TLS remains insecure and redirect-following;
+  certificate rotation/update and final RTC time trust remain Open.
 - **Intermediate display:** the reserved former artwork region is temporarily empty.
   Artwork removal is not a complete or independently releasable display design;
   the future week view and measured memory/display behavior remain unverified.

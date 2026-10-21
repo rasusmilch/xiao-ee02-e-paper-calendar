@@ -5,22 +5,68 @@
 #include <Arduino.h>
 #include <ArduinoJson.h>
 #include <HTTPClient.h>
+#include <StreamString.h>
 #include <WiFiClientSecure.h>
 #include <string.h>
 #include <time.h>
+#include <stdint.h>
+#include <utility>
 
-// Existing production acquisition, not an authenticated transport. Caller supplies
+#if defined(ARDUINO_ARCH_ESP32)
+#include <esp_arduino_version.h>
+#if ESP_ARDUINO_VERSION_MAJOR != 3 || ESP_ARDUINO_VERSION_MINOR != 3 || ESP_ARDUINO_VERSION_PATCH != 12
+#error "Weather HTTPS requires the inspected Arduino-ESP32 3.3.12 API"
+#endif
+#if !defined(ARDUHAL_LOG_LEVEL) || ARDUHAL_LOG_LEVEL != 0
+#error "Weather HTTPS requires Core Debug Level None: platform HTTP logs can expose API queries"
+#endif
+#endif
+
+// Authenticated production weather acquisition. Caller supplies
 // the existing OPENWEATHER_API_KEY declaration before including (weather.h does
 // this via its private credentials.h). No graphics, Wi-Fi orchestration or panel.
 // Preserve the sketch translation unit's existing internal-linkage observations;
 // include this guarded header instead of redeclaring/copying their storage.
+namespace WeatherHttps {
+// Caller guarantees the entire span is readable and remains alive/unchanged until
+// the fetch returns. caBytes includes exactly one terminal NUL. No trust is retained.
+struct Trust {
+  bool clockTrusted;
+  const char* caPem;
+  size_t caBytes;
+};
+inline bool admitted(const Trust& trust) {
+  if (!trust.clockTrusted || !trust.caPem || trust.caBytes < 2)
+    return false;
+  const uintptr_t address = reinterpret_cast<uintptr_t>(trust.caPem);
+  // Require a representable end for the whole caller-declared span.
+  if (trust.caBytes > UINTPTR_MAX - address)
+    return false;
+  return trust.caPem[trust.caBytes - 1] == '\0' &&
+         memchr(trust.caPem, '\0', trust.caBytes - 1) == nullptr;
+}
+
+// HTTPClient::getString() discards writeToStream's failure result in core 3.3.12.
+// Use the same String-backed stream, check transfer completion, then move its
+// String storage: one payload buffer, unchanged JSON input/interpretation.
+inline bool readPayload(HTTPClient& http, String& payload) {
+  StreamString received;
+  if (http.writeToStream(&received) < 0)
+    return false;
+  payload = std::move(static_cast<String&>(received));
+  return true;
+}
+} // namespace WeatherHttps
+
 static WeatherData weatherData = {false, "", "", "", 0.0f, 0, 0.0f, 0.0f};
 static ForecastEntry forecastData[FORECAST_COUNT] = {};
 static DailyForecastEntry dailyForecastData[DAILY_FCST_COUNT] = {};
 
-bool fetchWeatherData() {
+bool fetchWeatherData(const WeatherHttps::Trust& trust) {
+  if (!WeatherHttps::admitted(trust))
+    return false;
   WiFiClientSecure client;
-  client.setInsecure();
+  client.setCACert(trust.caPem);
 
   char encodedLocation[128];
   const char *src = WX_LOCATION;
@@ -43,15 +89,28 @@ bool fetchWeatherData() {
            "https://api.openweathermap.org/data/2.5/"
            "weather?q=%s&appid=%s&units=metric",
            encodedLocation, OPENWEATHER_API_KEY);
-  http.begin(client, url);
+  http.setFollowRedirects(HTTPC_DISABLE_FOLLOW_REDIRECTS);
+  if (!http.begin(client, url)) {
+    http.end();
+    client.stop();
+    Serial.println("Weather HTTPS initialization failed");
+    return false;
+  }
   int code = http.GET();
   if (code != HTTP_CODE_OK) {
     http.end();
+    client.stop();
     Serial.printf("Weather API returned %d\n", code);
     return false;
   }
-  String payload = http.getString();
+  String payload;
+  const bool received = WeatherHttps::readPayload(http, payload);
   http.end();
+  client.stop();
+  if (!received) {
+    Serial.println("Weather HTTPS transfer failed");
+    return false;
+  }
 
   JsonDocument doc;
   DeserializationError err = deserializeJson(doc, payload);
@@ -95,9 +154,11 @@ bool fetchWeatherData() {
   return true;
 }
 
-bool fetchForecastData() {
+bool fetchForecastData(const WeatherHttps::Trust& trust) {
+  if (!WeatherHttps::admitted(trust))
+    return false;
   WiFiClientSecure client;
-  client.setInsecure();
+  client.setCACert(trust.caPem);
 
   char encodedLocation[128];
   const char *src = WX_LOCATION;
@@ -120,15 +181,28 @@ bool fetchForecastData() {
            "https://api.openweathermap.org/data/2.5/"
            "forecast?q=%s&appid=%s&units=metric&cnt=5",
            encodedLocation, OPENWEATHER_API_KEY);
-  http.begin(client, url);
+  http.setFollowRedirects(HTTPC_DISABLE_FOLLOW_REDIRECTS);
+  if (!http.begin(client, url)) {
+    http.end();
+    client.stop();
+    Serial.println("Weather HTTPS initialization failed");
+    return false;
+  }
   int code = http.GET();
   if (code != HTTP_CODE_OK) {
     http.end();
+    client.stop();
     Serial.printf("Forecast API returned %d\n", code);
     return false;
   }
-  String payload = http.getString();
+  String payload;
+  const bool received = WeatherHttps::readPayload(http, payload);
   http.end();
+  client.stop();
+  if (!received) {
+    Serial.println("Weather HTTPS transfer failed");
+    return false;
+  }
 
   JsonDocument doc;
   DeserializationError err = deserializeJson(doc, payload);
@@ -159,9 +233,11 @@ bool fetchForecastData() {
   return true;
 }
 
-bool fetchDailyForecastData() {
+bool fetchDailyForecastData(const WeatherHttps::Trust& trust) {
+  if (!WeatherHttps::admitted(trust))
+    return false;
   WiFiClientSecure client;
-  client.setInsecure();
+  client.setCACert(trust.caPem);
 
   char encodedLocation[128];
   const char *src = WX_LOCATION;
@@ -184,15 +260,28 @@ bool fetchDailyForecastData() {
            "https://api.openweathermap.org/data/2.5/"
            "forecast?q=%s&appid=%s&units=metric&cnt=40",
            encodedLocation, OPENWEATHER_API_KEY);
-  http.begin(client, url);
+  http.setFollowRedirects(HTTPC_DISABLE_FOLLOW_REDIRECTS);
+  if (!http.begin(client, url)) {
+    http.end();
+    client.stop();
+    Serial.println("Weather HTTPS initialization failed");
+    return false;
+  }
   int code = http.GET();
   if (code != HTTP_CODE_OK) {
     http.end();
+    client.stop();
     Serial.printf("Daily forecast API returned %d\n", code);
     return false;
   }
-  String payload = http.getString();
+  String payload;
+  const bool received = WeatherHttps::readPayload(http, payload);
   http.end();
+  client.stop();
+  if (!received) {
+    Serial.println("Weather HTTPS transfer failed");
+    return false;
+  }
 
   JsonDocument doc;
   DeserializationError err = deserializeJson(doc, payload);

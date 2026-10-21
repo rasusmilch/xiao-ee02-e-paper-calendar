@@ -274,6 +274,23 @@ direct composition. Host checks do not validate actual weather services, ADC
 calibration, target libraries, firmware linkage or device operation. Target and
 physical validation remain owner-deferred for this extraction.
 
+The production weather HTTPS regression uses the actual three fetch functions and
+legacy boot time gate with narrow HTTP/TLS/SNTP stand-ins. No real cryptography,
+NTP, credentials or successful JSON decoding is claimed. Core 3.3.12 source inspection
+and unchanged parsing/grouping comparison supplement the host checks:
+
+```
+g++ -std=c++11 -Wall -Wextra -Werror -pedantic -Itests/observations_host tests/weather_https_test.cpp -o /tmp/ee02-weather-https-test
+/tmp/ee02-weather-https-test
+g++ -std=c++11 -Wall -Wextra -Werror -pedantic -fsanitize=address,undefined -fno-omit-frame-pointer -Itests/observations_host tests/weather_https_test.cpp -o /tmp/ee02-weather-https-sanitized
+/tmp/ee02-weather-https-sanitized
+```
+
+Run the existing observation, acquisition-orchestration and dashboard regressions
+for this boundary. Production weather builds require caller-owned CA array input,
+the inspected 3.3.12 API and Core Debug None; no dependency upgrade is authorized
+by these commands. Target builds, live network and hardware remain owner-deferred.
+
 The integrated multi-calendar regression runs actual window construction, source
 selection, HTTPS/HTTP/ICS processing, snapshot transactions, scratch poisoning and
 renderer traces. The live sketch is opt-in and target-unverified; never use private

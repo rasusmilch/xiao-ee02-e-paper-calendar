@@ -14,6 +14,12 @@ is historical evidence, not current architecture or requirements authority.
 - Attempt current weather, both forecasts, and calendar acquisition independently
   on a successful data-acquisition Wi-Fi connection, so one source's failure does
   not suppress the others; preserve the current-weather-only return result.
+- Authenticate the three production OpenWeatherMap HTTPS requests with explicit
+  caller CA material, a fresh per-boot SNTP notification gate and original-hostname
+  verification. Reject missing trust, redirects and transfer failures without insecure
+  fallback; preserve independent weather/forecast/calendar outcomes, parsing and
+  observation ownership. Leave Apps Script calendar TLS, certificate-update policy,
+  final RTC trust and target/hardware verification unresolved.
 - Validate incremental source repairs with static and focused host behavior checks,
   with complete firmware compilation and hardware validation controlled by the owner
   at milestones; compilation remains preferred and uncompiled compatibility unverified.
