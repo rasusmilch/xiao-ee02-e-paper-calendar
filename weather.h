@@ -9,6 +9,21 @@
 #include <string.h>
 #include <time.h>
 
+// Production compatibility: same defaults, now measured within request bounds.
+inline WeatherHttps::Request legacyWeatherRequest() {
+  return {WX_LOCATION, WeatherHttps::boundedLength(WX_LOCATION, 128),
+          OPENWEATHER_API_KEY, WeatherHttps::boundedLength(OPENWEATHER_API_KEY, 256)};
+}
+inline bool fetchWeatherData(const WeatherHttps::Trust& trust) {
+  return fetchWeatherData(trust, legacyWeatherRequest());
+}
+inline bool fetchForecastData(const WeatherHttps::Trust& trust) {
+  return fetchForecastData(trust, legacyWeatherRequest());
+}
+inline bool fetchDailyForecastData(const WeatherHttps::Trust& trust) {
+  return fetchDailyForecastData(trust, legacyWeatherRequest());
+}
+
 // External reference to the global EPaper instance
 extern EPaper epaper;
 

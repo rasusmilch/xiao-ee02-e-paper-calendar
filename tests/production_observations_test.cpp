@@ -32,8 +32,9 @@ void fetchEntryPoints(){
    "forecast?q=Lohr%20am%20Main,DE&appid=synthetic-nonsecret-fixture&units=metric&cnt=40"};
  const char ca[]="synthetic-not-a-certificate";
  const WeatherHttps::Trust trust={true,ca,sizeof(ca)};
- bool(*operations[])(const WeatherHttps::Trust&)={fetchWeatherData,fetchForecastData,fetchDailyForecastData};
- for(int code:{503,200})for(size_t i=0;i<3;++i){https().status=code;assert(!operations[i](trust));
+ const WeatherHttps::Request request={WX_LOCATION,std::strlen(WX_LOCATION),OPENWEATHER_API_KEY,std::strlen(OPENWEATHER_API_KEY)};
+ bool(*operations[])(const WeatherHttps::Trust&,const WeatherHttps::Request&)={fetchWeatherData,fetchForecastData,fetchDailyForecastData};
+ for(int code:{503,200})for(size_t i=0;i<3;++i){https().status=code;assert(!operations[i](trust,request));
   assert(https().request==std::string("https://api.openweathermap.org/data/2.5/")+suffix[i]);
   assert(!weatherData.valid && !forecastData[0].valid && !dailyForecastData[0].valid);
  }
@@ -44,7 +45,7 @@ void fetchEntryPoints(){
  forecastData[0]={true,"12:00","01d",12,6};dailyForecastData[0]={true,"Friday","01d","Prior clear",12,6};
  const auto prior=weatherData;const auto forecast=forecastData[0];const auto daily=dailyForecastData[0];
  https().status=503;
- for(auto operation:operations)assert(!operation(trust));
+ for(auto operation:operations)assert(!operation(trust,request));
  assert(!std::memcmp(&prior,&weatherData,sizeof(prior)) && !std::memcmp(&forecast,&forecastData[0],sizeof(forecast)) &&
      !std::memcmp(&daily,&dailyForecastData[0],sizeof(daily)));
  assert(https().begins==9 && https().requests==9 && https().ends==9 && https().caCalls==9 && https().stops==9);

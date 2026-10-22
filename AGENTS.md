@@ -291,6 +291,25 @@ for this boundary. Production weather builds require caller-owned CA array input
 the inspected 3.3.12 API and Core Debug None; no dependency upgrade is authorized
 by these commands. Target builds, live network and hardware remain owner-deferred.
 
+The live-dashboard integration fixture executes the actual development sketch setup
+using public synthetic config (never an ignored private file), real calendar parsing/
+publication and real Panel_EPaper borrow/refresh/end, with narrow network/SNTP/ADC
+stand-ins. Its first include path supplies scripted decoded weather values, NOT a
+JSON parser; those branches establish coordination, not JSON validity or actual TLS.
+The remaining paths deliberately combine existing observation, graphics and secure
+adapter facades. Run timezone-mutating cases serially:
+
+```
+g++ -std=c++11 -Wall -Wextra -Werror -pedantic -Itests/live_dashboard_host -Itests/observations_host -Itests/renderer_host -Itests/gfx2_host -Itests/https_arduino_host -Ithird_party/Seeed_GFX2/src tests/live_dashboard_refresh_test.cpp third_party/Seeed_GFX2/src/panel/Panel_EPaper.cpp third_party/Seeed_GFX2/src/runtime/DisplayInstance.cpp third_party/Seeed_GFX2/src/driver/epaper/SeeedEPaperProfiles.cpp -Wl,--wrap=free,--wrap=time -o /tmp/ee02-live-dashboard-test
+/tmp/ee02-live-dashboard-test
+g++ -std=c++11 -Wall -Wextra -Werror -pedantic -fsanitize=address,undefined -fno-omit-frame-pointer -Itests/live_dashboard_host -Itests/observations_host -Itests/renderer_host -Itests/gfx2_host -Itests/https_arduino_host -Ithird_party/Seeed_GFX2/src tests/live_dashboard_refresh_test.cpp third_party/Seeed_GFX2/src/panel/Panel_EPaper.cpp third_party/Seeed_GFX2/src/runtime/DisplayInstance.cpp third_party/Seeed_GFX2/src/driver/epaper/SeeedEPaperProfiles.cpp -Wl,--wrap=free,--wrap=time -o /tmp/ee02-live-dashboard-sanitized
+/tmp/ee02-live-dashboard-sanitized
+```
+
+Run weather HTTPS/request-input, observation, multi-calendar, dashboard and workspace
+regressions for the directly composed behavior. Target build, real weather/ICS/TLS,
+Newlib/SNTP/ADC, physical panel, headroom and power remain owner-deferred/unverified.
+
 The integrated multi-calendar regression runs actual window construction, source
 selection, HTTPS/HTTP/ICS processing, snapshot transactions, scratch poisoning and
 renderer traces. The live sketch is opt-in and target-unverified; never use private

@@ -2,7 +2,7 @@
 
 Battery-powered EE02 five-day calendar and weather dashboard.
 
-The [original prototype article](https://www.makerguides.com/e-paper-wall-calendar-with-ai-generated-artwork-and-weather-display/) describes the historical artwork-based firmware. AI artwork generation, processing, caching and rendering have been removed. The production sketch still leaves the former artwork region empty. Separate deterministic and opt-in live development sketches exercise the reusable calendar pipeline and borrowed GFX2 framebuffer; the deterministic preview also composes the retained weather, forecast, today-event and battery panels. The live sketch is target-unverified; neither establishes the live wall-calendar milestone or final display design.
+The [original prototype article](https://www.makerguides.com/e-paper-wall-calendar-with-ai-generated-artwork-and-weather-display/) describes the historical artwork-based firmware. AI artwork generation, processing, caching and rendering have been removed. The production sketch still leaves the former artwork region empty. Separate deterministic and opt-in live development sketches exercise the reusable calendar pipeline and borrowed GFX2 framebuffer; both compose the retained weather, forecast, today-event and battery panels, using synthetic observations or opt-in acquisition respectively. The live sketch is target-unverified; neither establishes the live wall-calendar milestone or final display design.
 
 ## Approved product direction (production integration pending)
 
@@ -319,35 +319,70 @@ keeping all five dates. Complete empty calendars and unavailable sources retain
 their distinct messages. The coordinator does not render or schedule refreshes.
 
 [Live development sketch](previews/live_calendar_refresh/live_calendar_refresh.ino)
-is an opt-in, calendar-only DEVELOPMENT DEMONSTRATION, outside production compilation.
-Copy [the synthetic template](previews/live_calendar_refresh/live_demo_config.example.h)
+is an opt-in integrated-dashboard DEVELOPMENT DEMONSTRATION, outside production
+compilation. Copy [the synthetic template](previews/live_calendar_refresh/live_demo_config.example.h)
 to `previews/live_calendar_refresh/live_demo_config.h` (exact path Git ignored).
-Privately supply Wi-Fi, POSIX TZ, NTP server, trusted CA PEM, enabled flags, labels
-and HTTPS ICS URLs, then set `configured=true`. Never reuse production credentials.h,
-commit this file or print its contents. Missing configuration is a compile error;
-the unedited template refuses runtime opt-in. URLs can contain access tokens.
+Privately supply Wi-Fi, POSIX TZ, NTP server, calendar CA PEM, enabled flags, labels
+and HTTPS ICS URLs, then set `configured=true`. If a private file already exists, add the template's new fields without replacing
+its existing values. Weather uses separate development
+`weatherEnabled`, `weatherLocation`, `weatherApiKey` and `weatherCaPem` fields.
+Use NUL-terminated arrays as in the template; the sketch measures within their
+capacities, rejecting unterminated inputs rather than sending a shortened value.
+Weather and calendar CAs may differ (or contain the same approved trust material).
+Disabled weather needs no usable key/location/CA; zero selected calendars needs no
+calendar CA. Missing/invalid enabled weather inputs fail only weather, allowing
+properly configured calendars to proceed. Never reuse production credentials.h,
+commit the private file or print its contents. Missing configuration is a compile
+error; the unedited template refuses runtime opt-in. URLs can contain access tokens.
 
-For a future owner-authorized target check, use the existing explicit vendored GFX2
-library-selection procedure with this sketch directory, XIAO ESP32-S3 Plus, OPI
-PSRAM, Arduino-ESP32 **3.3.12** and Core Debug Level **None**. Keep build products
-outside the repository. This new sketch has **not** been target-compiled or run.
-Do not substitute the production prototype's historical alpha core settings.
+One invocation validates configuration, connects Wi-Fi once, requires one freshly
+observed SNTP event, configures/verifies display TZ and allocates one workspace.
+It then attempts current weather, short forecast and daily forecast independently,
+followed by actual FiveDayCalendarRefresh processing of selected calendars in order.
+All use the same fresh time evidence, without another NTP session per request.
+The existing observation arrays feed the dashboard directly; calendar sources retain
+independent Complete/Incomplete outcomes and snapshot-owned titles. Weather failures
+do not suppress calendars, and calendar failures do not discard available weather.
+Zero selected calendars still show **No calendars selected** alongside weather.
+Unsupported recurrence, floating/TZID times, redirects, cancellation/revision and
+other unimplemented ICS semantics still fail the affected source.
 
-The demo uses finite Wi-Fi/NTP prerequisite waits. It registers the inspected SNTP
-notification before starting immediate-mode synchronization and requires a fresh
-session notification before trusting system UTC; plausible dates/getLocalTime alone
-are insufficient. SNTP is ordinary caller-configured network time, not an authenticated
-time service. After acquisition it closes sockets, stops SNTP, verifies Wi-Fi shutdown,
-poisons scratch and invokes the existing borrowed-framebuffer render path at most
-once. Render/refresh and shutdown results stay separate; uncertain shutdown retains
-workspace memory without reuse/free. No deep sleep or recurring scheduler is added.
+Read battery millivolts once, disable the divider on return and convert through the
+existing curve. Positive measurements supply valid charge (including valid 0% at
+low voltage); zero/unavailable measurements show N/A. No legacy drawBattery call or
+ADC operation occurs inside dashboard rendering. After every acquisition, close the
+calendar adapter and weather clients, stop SNTP and confirm Wi-Fi off. An unconfirmed
+shutdown or interrupted shared calendar coordinator forbids rendering; it is not a
+completed schedule. A normally completed all-failed calendar refresh may render
+weather plus the calendar-unavailable indication.
 
-Host tests run actual multi-feed HTTP/ICS normalization, transaction rollback,
-scratch poisoning and renderer traces, including DST repeated times. No real feed,
-Arduino build, physical EE02, runtime headroom or power test was performed. The
-deterministic example preview stays synthetic and unchanged. Recurrence, floating/
-TZID conversion, redirects, cancellation/revision resolution, provider authentication,
-settings and production weather/calendar/display integration remain unfinished.
+Only then poison/reuse scratch and call FiveDayDashboardRenderer through the same
+workspace's borrowed framebuffer. Five rolling dates, today details, source warnings,
+weather, both forecasts, battery and overflow indications compose before at most one
+refresh. The DEVELOPMENT label occupies unassigned historical month-grid space;
+monthly-grid retention and final agenda/grid/layout stay Open. Operation and shutdown
+results remain separate; uncertain shutdown retains memory without reuse/free.
+No deep sleep, automatic retry, periodic scheduler or persistent settings are added.
+
+For future owner-authorized target checks, use explicit vendored GFX2 selection,
+XIAO ESP32-S3 Plus/OPI PSRAM, inspected Arduino-ESP32 **3.3.12** and Core Debug **None**.
+No package or production build configuration was changed. The shared fresh-SNTP gate
+uses ordinary configured NTP, not cryptographically authenticated time; plausible
+dates/getLocalTime alone are insufficient. TLS still requires CA and original-hostname
+verification, with no insecure fallback or redirects. Keep keys/URLs/CA and private
+contents out of logs; Core Debug None does not prove every independent platform
+logging configuration safe.
+
+A strict C++11/ASan/UBSan host fixture executes the actual sketch setup with synthetic
+network/SNTP/ADC stand-ins, real multi-feed HTTP/ICS normalization and snapshot
+publication, scratch poisoning, real panel borrow/retention code and dashboard traces.
+Weather success branches use explicitly supplied decoded-value fixtures, **not a real
+JSON parser**; they establish orchestration only. Target compilation, real services,
+physical EE02, runtime headroom and power remain owner-deferred and unverified.
+The deterministic example remains synthetic and unchanged. Production still uses
+Apps Script/TFT_eSPI and its existing sleep cycle; the insecure Apps Script path is
+not used by this demo and remains unresolved. This does not complete production
+migration, provider interoperability, RTC trust, final configuration or hardware readiness.
 See the [refresh contract](docs/ENGINEERING.md#integrated-multi-calendar-refresh)
 and [host commands](AGENTS.md#commands-and-validation).
 
@@ -457,7 +492,7 @@ The deterministic preview below now composes this whole dashboard from its real
 synthetic ICS pipeline plus synthetic weather/battery observations before the single
 workspace-managed refresh. Its historical month-grid area is blank except for the
 EXAMPLE DATA notice; monthly-grid retention and final agenda/grid/layout remain Open.
-The live-calendar demonstration stays calendar-only and unchanged. Strict C++11 and
+The opt-in live demonstration now composes the same panels from acquisition outputs. Strict C++11 and
 ASan/UBSan host traces exercise panel bounds and immutable inputs, including a real
 ICS ingestion/staging/producer-to-dashboard case. Target compilation, physical EE02,
 runtime headroom and power checks remain owner-deferred and unverified. Production
@@ -469,10 +504,17 @@ and [host commands](AGENTS.md#commands-and-validation).
 ### Production observation interfaces (graphics-free)
 
 [weather_acquisition.h](application/weather_acquisition.h) exposes the existing
-`fetchWeatherData(trust)`, `fetchForecastData(trust)` and `fetchDailyForecastData(trust)` independently
-of TFT_eSPI/EPaper/GFX2. Include the existing `OPENWEATHER_API_KEY` declaration before
-it; the legacy `weather.h` compatibility entry still supplies this through private
-`credentials.h`. The guarded header owns the same sketch-translation-unit static
+`fetchWeatherData(trust, request)`, `fetchForecastData(trust, request)` and
+`fetchDailyForecastData(trust, request)` independently of TFT_eSPI/EPaper/GFX2 or
+private credentials. `WeatherHttps::Request` borrows location/key byte spans with
+explicit lengths excluding NUL; neither span is retained. Location is percent-encoded
+(except unreserved characters and the existing comma separator), controls/NUL are
+rejected and keys must be nonempty unreserved ASCII. Encoded location must fit the
+existing 128-byte buffer and the complete URL the existing 256-byte buffer; exhaustion
+rejects before network activity instead of truncating. The original hostname and
+production example paths/queries remain unchanged. Legacy `weather.h` retains the
+one-argument fetch entry points, choosing WX_LOCATION and OPENWEATHER_API_KEY from
+existing constants/private credentials with bounded length checks. The guarded header owns the same sketch-translation-unit static
 `weatherData`, `forecastData[FORECAST_COUNT]` and
 `dailyForecastData[DAILY_FCST_COUNT]`, using the shared PODs. It creates no second
 store, performs no acquisition at initialization, and does not change request order,

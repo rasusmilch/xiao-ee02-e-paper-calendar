@@ -114,8 +114,11 @@ is historical evidence, not current architecture or requirements authority.
   reconcile selected source outcomes and distinguish interrupted refreshes, empty
   schedules and no calendar selection. Provide an opt-in development-only live
   EE02 demonstration with private configuration, a fresh SNTP notification gate,
-  network shutdown before one borrowed-framebuffer render and unchanged retention
-  safeguards. Keep the deterministic preview and production dashboard intact;
+  one Wi-Fi session for independent authenticated weather/forecasts and sequential
+  calendars, explicit development weather location/key/CA inputs, one battery sample,
+  and network shutdown before full dashboard composition through one borrowed
+  framebuffer refresh with unchanged retention safeguards. Keep the deterministic
+  preview and legacy production dashboard intact;
   target builds, live-feed and physical operation remain unverified.
 - Add bounded standalone raw HTTP response framing and strict RFC 5545 logical-line
   unfolding in borrowed scratch storage. Require exact supported body completion,

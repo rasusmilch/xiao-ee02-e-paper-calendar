@@ -12,4 +12,5 @@ inline void esp_sntp_set_time_sync_notification_cb(void (*callback)(struct timev
 inline void configTzTime(const char* tz,const char* server){auto& b=ObservationHost::boot();
     assert(tz && server && b.callback && b.mode==SNTP_SYNC_MODE_IMMED);
     ++b.starts;b.sntpEnabled=true;b.order.push_back(3);}
+inline void configTime(long offset,int daylight,const char* server){assert(offset==0 && daylight==0);configTzTime("UTC0",server);}
 #endif

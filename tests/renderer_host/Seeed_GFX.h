@@ -16,6 +16,11 @@ public:
     size_t rectangles=0;
     Seeed_GFX() { glyphs.reserve(20000); shapes.reserve(20000); }
     explicit Seeed_GFX(IPanel& p) : Seeed_GFX() { panel=&p; }
+    using Observer=void(*)(const Seeed_GFX&);
+    static Observer& observer(){static Observer value=nullptr;return value;}
+    ~Seeed_GFX(){if(observer())observer()(*this);}
+    void setRotation(uint8_t r){if(panel)panel->setRotation(r);}
+    void fillScreen(uint32_t color){fillRect(0,0,width(),height(),color);}
     bool begin() { return panel && panel->begin(); }
     int16_t width() const { return 1600; }
     int16_t height() const { return 1200; }

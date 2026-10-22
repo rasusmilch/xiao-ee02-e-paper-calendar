@@ -13,7 +13,8 @@ Action actions[16];size_t actionCount=0;int adc=0;SerialSink serial;
 }
 namespace {
 using namespace ObservationHost;
-using Operation=bool(*)(const WeatherHttps::Trust&);
+using Operation=bool(*)(const WeatherHttps::Trust&,const WeatherHttps::Request&);
+const WeatherHttps::Request request={WX_LOCATION,std::strlen(WX_LOCATION),OPENWEATHER_API_KEY,std::strlen(OPENWEATHER_API_KEY)};
 const Operation operations[]={fetchWeatherData,fetchForecastData,fetchDailyForecastData};
 const char ca[]="synthetic-not-a-real-CA";
 const WeatherHttps::Trust trusted={true,ca,sizeof(ca)};
@@ -21,7 +22,7 @@ void unchangedFailure(Operation operation,const WeatherHttps::Trust& trust){
     const auto weather=weatherData;
     ForecastEntry forecast[FORECAST_COUNT];DailyForecastEntry daily[DAILY_FCST_COUNT];
     std::memcpy(forecast,forecastData,sizeof(forecast));std::memcpy(daily,dailyForecastData,sizeof(daily));
-    assert(!operation(trust));
+    assert(!operation(trust,request));
     assert(!std::memcmp(&weather,&weatherData,sizeof(weather)));
     assert(!std::memcmp(forecast,forecastData,sizeof(forecast)));
     assert(!std::memcmp(daily,dailyForecastData,sizeof(daily)));
@@ -61,13 +62,43 @@ void httpOutcomes(){
         assert(parses()==parsed+unsigned(scenario==6)); // Transfer failure cannot reach parsing.
     }
 }
+void requestParameters(){
+    const char location[]="Example City,XX",key[]="synthetic-key";
+    const char badControl[]={'A','\n'},missingNul[]={'a','b'};
+    const WeatherHttps::Request invalid[]={
+        {nullptr,1,key,sizeof(key)-1},{location,0,key,sizeof(key)-1},
+        {location,SIZE_MAX,key,sizeof(key)-1},{badControl,sizeof(badControl),key,sizeof(key)-1},
+        {location,sizeof(location)-1,nullptr,4},{location,sizeof(location)-1,key,0},
+        {location,sizeof(location)-1,"a&b",3},{location,sizeof(location)-1,"a\0b",3},
+        {reinterpret_cast<const char*>(UINTPTR_MAX-1),2,key,sizeof(key)-1}};
+    for(const auto& bad:invalid)for(auto operation:operations){https()={};
+        assert(!operation(trusted,bad) && !https().begins && !https().resolutions);}
+    assert(WeatherHttps::boundedLength(missingNul,sizeof(missingNul))==0);
+    assert(WeatherHttps::boundedLength(key,sizeof(key))==sizeof(key)-1);
+    for(size_t i=0;i<3;++i){
+        std::string largeLocation(128,'A');WeatherHttps::Request input={largeLocation.data(),largeLocation.size(),key,sizeof(key)-1};
+        https()={};assert(!operations[i](trusted,input) && !https().begins);
+        largeLocation.assign(43,' ');input.location=largeLocation.data();input.locationBytes=largeLocation.size();
+        assert(!operations[i](trusted,input) && !https().begins); // Encoding would exceed 127 bytes.
+        // Independent exact URL length reference, then one byte beyond it.
+        const std::string base=std::string("https://api.openweathermap.org/data/2.5/")+
+            (i?"forecast":"weather")+"?q=A&appid=&units=metric"+(i==1?"&cnt=5":i==2?"&cnt=40":"");
+        std::string longKey(255-base.size(),'k');input={"A",1,longKey.data(),longKey.size()};
+        https()={};assert(!operations[i](trusted,input) && https().begins==1 && https().request.size()==255);
+        longKey+='k';input.apiKey=longKey.data();input.apiKeyBytes=longKey.size();
+        https()={};assert(!operations[i](trusted,input) && !https().begins);
+    }
+    const char encodedLocation[]="A &B/XX";
+    https()={};assert(!fetchWeatherData(trusted,{encodedLocation,sizeof(encodedLocation)-1,key,sizeof(key)-1}));
+    assert(https().request=="https://api.openweathermap.org/data/2.5/weather?q=A%20%26B%2FXX&appid=synthetic-key&units=metric");
+}
 void independentTrustFailures(){
     https()={};std::vector<int> order;
     const WeatherHttps::Trust rejected={false,ca,sizeof(ca)};
     const bool result=acquireDataSources(true,
-        [&](){order.push_back(0);return fetchWeatherData(rejected);},
-        [&](){order.push_back(1);return fetchForecastData(rejected);},
-        [&](){order.push_back(2);return fetchDailyForecastData(rejected);},
+        [&](){order.push_back(0);return fetchWeatherData(rejected,request);},
+        [&](){order.push_back(1);return fetchForecastData(rejected,request);},
+        [&](){order.push_back(2);return fetchDailyForecastData(rejected,request);},
         [&](){order.push_back(3);return true;},
         [&](const DataAcquisitionResults& r){order.push_back(4);assert(!r.weather && !r.forecast && !r.dailyForecast && r.calendar);},
         [&](){order.push_back(5);});
@@ -98,5 +129,5 @@ void freshTime(){
     delayHook()=nullptr;
 }
 }
-int main(){admission();httpOutcomes();independentTrustFailures();freshTime();
+int main(){admission();httpOutcomes();requestParameters();independentTrustFailures();freshTime();
     std::puts("PASS: weather trust admission, authenticated call order, redirect refusal/cleanup, independent calendar and fresh boot notification gate (host stand-ins, no actual TLS/JSON success)");}

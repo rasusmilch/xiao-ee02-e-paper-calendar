@@ -1046,43 +1046,74 @@ with five dates. Complete empty and all-failed sources keep distinct existing me
 #### Live development sketch and memory handoff
 
 [Opt-in live sketch](../previews/live_calendar_refresh/live_calendar_refresh.ino)
-is calendar-only and outside production compilation. It requires private ignored
-live_demo_config.h beside the sketch; the tracked
-[template](../previews/live_calendar_refresh/live_demo_config.example.h) has only
-synthetic values, empty CA and configured=false. No credentials.h reuse, user settings
-store or credentials are added. Whole URLs (including host/query) are sensitive;
-Serial emits status codes/counts/indices only, never labels, requests or contents.
-Use the existing explicit vendored GFX2 selection, XIAO ESP32-S3 Plus/OPI settings,
-Arduino-ESP32 3.3.12 and Core Debug None for future authorized target validation.
+now coordinates the full dashboard, outside production compilation. Its private
+ignored live_demo_config.h is still required; the tracked
+[template](../previews/live_calendar_refresh/live_demo_config.example.h) is synthetic,
+configured=false, with empty CA/key values and weather disabled. No credentials.h
+reuse, production settings authority or persistence is added. Development fields
+weatherEnabled/location/apiKey/weatherCaPem are independent of the existing calendar
+sources and caPem. Use actual arrays (not pointers) so sizeof spans are explicit; location/key length
+is measured within each array, rejecting missing termination without sending a prefix.
+Empty weather settings are harmless when disabled; no enabled calendars are required
+for weather-only demonstration, and zero selection needs no calendar CA.
 
-The inspected 3.3.12 package index pins IDF library release v5.5-b774170f-v3.
-Its esp_sntp.h notification API and sntp.c immediate-mode callback follow system time
-update. The sketch stops any previous SNTP service, resets a session-local atomic,
-sets immediate mode, registers notification before configTime and waits finitely
-for that fresh event. A plausible year/getLocalTime alone is insufficient. Wi-Fi
-setup also has a finite prerequisite wait, with persistence disabled. Missing fresh
-sync forbids window construction, calendar connection and display. This development
-gate uses ordinary configured NTP; it does not authenticate the NTP server, establish
-production RTC validity or implement daily synchronization. Configure TZ/tzset after
-sync and verify the same explicit context with the real builder before allocation;
-the coordinator builds its own initialization input from that trusted observation.
+The one existing Wi-Fi session and fresh SNTP notification serve all acquisitions.
+The inspected 3.3.12/IDF immediate-mode callback follows system time update; register
+before configTime, wait finitely, stop/unregister SNTP, configure TZ/tzset and verify
+the same explicit timezone with FiveDayWindow before allocation. Missing notification
+or Wi-Fi forbids weather/calendar requests and fabricated dates. Ordinary NTP is
+not authenticated time, nor proof of final production RTC validity/daily-sync policy.
 
-One workspace holds temporary labels, then sequential source-local parser/stage/
-receive/TEXT slices. One independent snapshot survives them. After the coordinator
-finishes, the demo closes the adapter, stops SNTP, verifies Wi-Fi off, poisons scratch
-and calls workspace.render with FiveDayRenderer/FiveDayPosixTime. Only then is the
-960,000-byte prefix borrowed. It draws in x/y 10..1034, retains the 1044 dividers and
-places the development label below the calendar. No weather/battery mockups, secondary
-framebuffer or independent ordering/date code is added. At most one e-paper refresh
-occurs. Operation/shutdown are checked separately; uncertain hardware shutdown keeps
-Retained storage alive without reuse/free. Healthy release uses existing APIs. There
-is no retry, polling loop, deep-sleep schedule or production dashboard migration.
+Allocate one workspace; attempt actual current, short and daily weather requests
+independently with explicit request views and their own CA; invoke the unchanged
+calendar-only FiveDayCalendarRefresh with its separate CA and sequential selected
+sources. Failed/missing weather inputs do not suppress valid calendars. Failed
+calendars do not discard weather. Snapshot labels/titles remain independent of the
+workspace, and weather uses the original single arrays. Weather requests do not
+reconnect Wi-Fi or start NTP; the demo does not call legacy updateWeather or Apps Script.
 
-TLS, synchronous uncancellable DNS, operation/inactivity timeouts and the absence of
-an overall deadline are unchanged. Slow successful DNS/TLS/progress/producer work
-remains accepted, processingMs stays zero, and the semantic producer profile below
-is unchanged. Real feeds may still fail for recurrence, TZID/floating time, redirects,
-cancellations, revisions, privacy/tentative semantics or unsupported metadata.
+Sample battery once after calendars; the existing measurement disables the divider
+before returning. A positive measured value is converted by voltageToPercent, with
+valid low/0% distinct from zero/unavailable N/A. Dashboard rendering never samples ADC.
+Close all clients (weather closes synchronously; explicitly close calendar adapter),
+stop SNTP, disconnect and verify Wi-Fi off before poisoning scratch. Failed network
+shutdown forbids drawing. A normally completed refresh, including all-Incomplete or
+zero sources, can display weather alongside the appropriate calendar message; a
+shared coordinator interruption explicitly exits without a fabricated schedule.
+
+Reuse/poison the same workspace, then call workspace.render once, delegating full
+composition to FiveDayDashboardRenderer and FiveDayPosixTime. It borrows actual
+weatherData/forecastData/dailyForecastData, the snapshot, explicit trusted UTC and
+one measured battery input. The existing provisional geometry/dividers are unchanged;
+the development notice uses unassigned historical month-grid space (x1054/y590).
+No copied observation/event store, legacy event array or second framebuffer exists.
+At most one refresh occurs. Preserve separate operation/shutdown results; Retained
+memory is neither freed nor reused. No sleep, recurring scheduler or retries are added.
+
+Use the existing explicit vendored GFX2 selection, XIAO ESP32-S3 Plus/OPI PSRAM,
+inspected Arduino-ESP32 3.3.12 and Core Debug None for future authorized target checks.
+All HTTPS uses CA-chain/original-hostname verification with no insecure fallback,
+downgrade or redirects. Full URLs, keys, query strings, CA and event contents are not
+printed by the sketch; its own diagnostics use generic counts/statuses. Existing
+weather fetch routines retain their nonsecret weather-observation diagnostics.
+Core Debug None remains required because platform HTTP logs can expose credentials;
+independently configured IDF/logging
+still needs review. DNS, operation/inactivity timeouts, acceptance of slow success and
+processingMs=0 stay unchanged. Existing nonrecurring semantic limits still reject
+recurrence, floating/TZID time, overrides/cancellations and unsupported metadata.
+
+The actual-sketch host regression uses synthetic configuration without reading or
+creating a private file. It runs the real calendar adapter/orchestrator, raw
+Content-Length/chunked framing, parser/stage/producer, snapshot, poison, panel borrow,
+refresh/end and full dashboard. Scripted TLS/SNTP/ADC and supplied decoded weather
+values exercise 21 success/independent-failure, disabled/missing settings, zero-source,
+DST/today, low/unavailable battery, no-network-on-prerequisite-failure, shutdown refusal,
+shared interruption and Retained cases. These weather fixtures are not a JSON parser
+and prove no real JSON/schema or cryptographic behavior. Strict C++11 and ASan/UBSan
+pass; target compilation, live services, physical EE02 and runtime headroom/power
+remain owner-deferred. The deterministic preview and production lifecycle are unchanged.
+Final dashboard layout, monthly-grid retention, RTC/configuration and provider scope
+remain Open; this is a development invocation, not production migration.
 
 #### Validation boundaries
 
@@ -1093,16 +1124,17 @@ and zero audited C++ new calls cover coordinator processing. Cases cover compact
 mapping, disabled/invalid URLs, complete/partial/all-failed/no-selection schedules,
 shared interruption, exact records/labels, source rollback, capacity failure,
 same UID across calendars, DST repeated hours, bounded overflow and scratch lifetime.
-Fresh strict C++11 and ASan/UBSan runs passed 48 integrated cases and the existing
+Historical calendar-coordinator validation: strict C++11 and ASan/UBSan passed 48 integrated cases and the existing
 window (156), snapshot, HTTPS source (323), secure-adapter, ingestion (1,361),
 structure (565), staging (618), nonrecurring producer (228), renderer (25) and
 workspace regressions. The exact temporary label-descriptor capacity and its next
 entry are exercised as arithmetic bounds, not suggested operating calendar counts.
 Existing workspace regressions independently cover actual panel borrow/retention
 with their hardware stand-ins. Commands are in AGENTS.md; host trace/fake I/O proves
-neither real DNS/TLS nor vendor rasterization. The live sketch received source/API
-inspection, not a host-facade or target build. No actual private config or real feed
-was used. Arduino compilation, physical EE02, RTC, memory/headroom and power tests
+neither real DNS/TLS nor vendor rasterization. At that calendar-only checkpoint,
+the live sketch received source/API inspection only. The current actual-sketch host
+fixture above adds integrated dashboard traces, not a target build. No actual private
+config or real feed was used. Arduino compilation, physical EE02, RTC, memory/headroom and power tests
 remain owner-deferred and unverified. The deterministic preview is unchanged.
 Production weather, forecast, detailed events, battery, legacy acquisition, graphics
 and sleep remain intact. Coordinated dashboard integration, real-source/physical
@@ -1395,7 +1427,9 @@ remain separate independently authorized outcomes.
 ### Authenticated production weather HTTPS
 
 [weather_acquisition.h](../application/weather_acquisition.h) requires
-`const WeatherHttps::Trust&` for each current/short/daily fetch. Trust contains a
+explicit WeatherHttps::Trust and WeatherHttps::Request inputs for each
+current/short/daily fetch; weather.h retains the production one-argument wrappers.
+Trust contains a
 caller-asserted trusted-wall-clock boolean and a caller-owned readable CA PEM span
 (pointer and size including its sole terminal NUL). The span stays unchanged/alive
 through the call; there is no retained security context. Reject untrusted time,
@@ -1427,6 +1461,17 @@ None is enforced: HTTPClient debug/verbose logs include URI/full URL and upstrea
 DNS error logs can expose hostnames. Application messages contain generic status
 codes, not key/query/CA contents. Independently configured IDF/platform logging and
 private operator diagnostics still need review; no universal leak-proof claim follows.
+
+WeatherHttps::Request contains borrowed location/key pointers and exact byte counts
+excluding NUL. Before client construction, reject null/empty/overflowing spans,
+controls/NUL, non-unreserved ASCII keys, encoded location overflow (128-byte buffer)
+and complete URL overflow (256-byte buffer), never sending a truncated key/location.
+Location bytes use percent encoding except unreserved characters and the existing
+comma separator; the production location and example key retain their exact URL
+representation. Direct development calls use their own inputs without changing
+constants or default credentials. The provider hostname, paths, query names/units,
+JSON tails, grouping and observation ownership stay unchanged. This bounded request
+profile is not a final device settings schema; no request pointers are retained.
 
 Private ignored credentials.h must supply `const char WEATHER_CA_PEM[]` as an actual
 NUL-terminated array. The sketch passes its exact sizeof span and the local boolean
@@ -1486,11 +1531,11 @@ pin control retain their original implementation.
 #### Production acquisition and measurement boundary
 
 [weather_acquisition.h](../application/weather_acquisition.h) now contains the existing
-three bool fetch functions (now taking an explicit WeatherHttps::Trust argument)
-and the same internal-linkage weather/forecast arrays.
-It requires the existing key declaration before inclusion and has no graphics,
-fonts, panel ownership or Wi-Fi orchestration dependency. `weather.h` includes it
-after private credentials and remains the compatibility entry for all legacy drawing
+three explicit-input bool fetch functions and the same internal-linkage observation
+arrays, without a key declaration, graphics, fonts, panel or Wi-Fi orchestration
+dependency. `weather.h` supplies the existing one-argument production fetch wrappers
+using WX_LOCATION and OPENWEATHER_API_KEY after private credentials, with bounded
+length checks. It remains the compatibility entry for all legacy drawing
 and `updateWeather(trust)`. No new initialization or extra network call is introduced. Storage
 ownership remains the existing single sketch translation unit; this is not a new
 multi-translation-unit storage framework. Consumers pass the actual arrays to the
@@ -1598,15 +1643,16 @@ source outcomes and scratch poisoning. It now supplies synthetic weather, counte
 forecasts and battery values to this dashboard in one draw callback, then lets the
 workspace refresh once and check shutdown separately. Retained restrictions remain
 unchanged. EXAMPLE DATA is visible in the provisional month area. The opt-in live
-calendar sketch is unchanged and remains calendar-only.
+dashboard sketch now composes the same panels through the integrated acquisition path above.
 
-The focused strict C++11/ASan/UBSan host regression covers all panels, viewport/region
+Original dashboard-composition evidence: its strict C++11/ASan/UBSan host regression
+covers all panels, viewport/region
 bounds, malformed fixed text, observation failures, battery edges, today ordering,
 source states, DST repeated times, overflow, immutable inputs and audited allocation
 absence. A real byte-fragmented HTTP/ICS → producer → snapshot case survives stage
 release and scratch poisoning before dashboard drawing. Existing renderer, snapshot,
 workspace and nonrecurring producer regressions cover directly composed guarantees.
-Final strict and sanitizer runs passed 56 dashboard compositions, 25 existing
+At that checkpoint strict and sanitizer runs passed 56 dashboard compositions, 25 existing
 calendar-renderer checks, snapshot/workspace lifecycle checks and 228 producer cases.
 The extended test facade records primitive bounding boxes, not rasterized pixels.
 See AGENTS.md for executable commands. No host syntax-only sketch or target build is

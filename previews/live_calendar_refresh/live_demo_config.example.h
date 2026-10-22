@@ -10,6 +10,11 @@ static const char wifiPassword[]="EXAMPLE_PASSWORD";
 static const char posixTimezone[]="UTC0"; // Example only: choose your display TZ.
 static const char ntpServer[]="ntp.example.invalid";
 static const char caPem[]=""; // Caller-provided trusted CA PEM, including terminal NUL.
+// Independent development weather settings. Empty fields are fine when disabled.
+static const bool weatherEnabled=false;
+static const char weatherLocation[]="Example City,XX";
+static const char weatherApiKey[]="";
+static const char weatherCaPem[]=""; // May use different CA material from calendars.
 static const char firstUrl[]="https://example.invalid/personal.ics";
 static const char secondUrl[]="https://example.invalid/shared.ics";
 static const char disabledUrl[]="https://example.invalid/disabled.ics";

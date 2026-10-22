@@ -12,14 +12,19 @@ struct HttpsState {
     std::string request,host,payload;
     unsigned port=0;
     std::vector<int> order;
+    std::vector<int> statuses;
+    std::vector<std::string> requestHistory;
+    std::vector<const char*> caHistory;
+    void (*checkPhase)()=nullptr;
 };
 inline HttpsState& https(){static HttpsState value;return value;}
 }
 class WiFiClientSecure {
 public:
     void setInsecure()=delete;
-    void setCACert(const char* ca){auto& s=ObservationHost::https();s.ca=ca;++s.caCalls;s.order.push_back(1);}
+    void setCACert(const char* ca){auto& s=ObservationHost::https();s.ca=ca;s.caHistory.push_back(ca);++s.caCalls;s.order.push_back(1);}
     int connect(const char* host,uint16_t port){auto& s=ObservationHost::https();
+        if(s.checkPhase)s.checkPhase();
         s.host=host;s.port=port;++s.resolutions;s.order.push_back(4);
         ++s.connections;s.order.push_back(5);return s.connectOk?1:0;}
     void stop(){auto& s=ObservationHost::https();++s.stops;s.order.push_back(9);}

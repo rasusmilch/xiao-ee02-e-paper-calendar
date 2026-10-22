@@ -1,4 +1,4 @@
-// DEVELOPMENT DEMONSTRATION: calendar only; target/physical behavior UNVERIFIED.
+// DEVELOPMENT DEMONSTRATION: integrated dashboard; target/physical behavior UNVERIFIED.
 // Opt-in live network activity on YOUR board only. Never used by production or
 // the deterministic preview. No retries, scheduler, deep sleep or mock panels.
 #include <WiFi.h>
@@ -7,14 +7,19 @@
 #include "../../application/five_day_calendar_refresh.h"
 #include "../../application/five_day_posix_time.h"
 #include "../../application/ics_https_arduino.h"
+#include "../../application/weather_acquisition.h"
+#include "../../application/battery_measurement.h"
+#include "../../application/five_day_dashboard_renderer.h"
 
 #if !defined(CONFIG_IDF_TARGET_ESP32S3) || !defined(ARDUINO_XIAO_ESP32S3_PLUS)
 #error "Select XIAO ESP32-S3 Plus with OPI PSRAM; Arduino-ESP32 3.3.12, Core Debug Level None"
 #endif
+#ifndef EE02_LIVE_DEMO_CONFIG_H
 #if __has_include("live_demo_config.h")
 #include "live_demo_config.h"
 #else
 #error "Live demo disabled: copy live_demo_config.example.h to ignored live_demo_config.h and configure locally"
+#endif
 #endif
 
 static FiveDaySnapshot snapshot;
@@ -22,7 +27,9 @@ static Ee02PsramWorkspace workspace;
 static IcsHttpsArduino::Adapter secure;
 static FiveDayPosixTime::Context displayZone={LiveDemoConfig::posixTimezone};
 static std::atomic<bool> freshSync(false);
-static FiveDayRenderer::Report rendering;
+static FiveDayDashboardRenderer::Report rendering;
+static FiveDayDashboardRenderer::Battery battery={false,0};
+static int64_t observedUtc=0;
 static bool renderingAttempted=false;
 
 // The inspected immediate-mode SNTP implementation updates system UTC before
@@ -60,15 +67,17 @@ static GfxResult poison(uint8_t* bytes,size_t n,void*) { memset(bytes,0xa5,n); r
 static GfxResult draw(Seeed_GFX& display,void*) {
   display.setRotation(1);
   display.fillScreen(TFT_WHITE); // Demo composition only; renderer stays bounded.
-  display.drawLine(1044,10,1044,1180,TFT_BLACK);
-  display.drawLine(10,1044,1034,1044,TFT_BLACK);
-  display.setFreeFont(nullptr);
-  const char* notice="LIVE ICS CALENDAR DEMO - DEVELOPMENT";
-  for(size_t i=0;notice[i];++i) display.drawChar(10+int32_t(i)*12,1060,notice[i],TFT_RED,TFT_WHITE,2);
   renderingAttempted=true;
-  rendering=FiveDayRenderer::render(display,snapshot,{10,10,1025,1025},{FiveDayPosixTime::convert,&displayZone});
-  return rendering.status==FiveDayRenderer::Status::Drawn?GfxResult::success():
-    GfxResult(GfxError::InvalidArgument,"live calendar rendering failed");
+  const FiveDayDashboardRenderer::Inputs input={&weatherData,forecastData,FORECAST_COUNT,
+    dailyForecastData,DAILY_FCST_COUNT,battery,true,observedUtc};
+  rendering=FiveDayDashboardRenderer::render(display,snapshot,{FiveDayPosixTime::convert,&displayZone},
+    input,FiveDayDashboardRenderer::ee02PreviewGeometry());
+  if(rendering.status!=FiveDayDashboardRenderer::Status::Drawn)
+    return GfxResult(GfxError::InvalidArgument,"live dashboard rendering failed");
+  display.setFreeFont(nullptr);
+  const char* notice="LIVE DASHBOARD - DEVELOPMENT";
+  for(size_t i=0;notice[i];++i) display.drawChar(1054+int32_t(i)*12,590,notice[i],TFT_RED,TFT_WHITE,2);
+  return GfxResult::success();
 }
 static void releaseHealthy() {
   if(workspace.state()==Ee02PsramWorkspace::State::Scratch) workspace.release();
@@ -79,9 +88,9 @@ static void releaseHealthy() {
 }
 void setup() {
   Serial.begin(115200);
-  Serial.println("LIVE ICS CALENDAR DEVELOPMENT DEMONSTRATION - target unverified");
+  Serial.println("LIVE DASHBOARD DEVELOPMENT DEMONSTRATION - target unverified");
   if(!LiveDemoConfig::configured || !*LiveDemoConfig::wifiSsid || !*LiveDemoConfig::posixTimezone ||
-     !*LiveDemoConfig::ntpServer || !*LiveDemoConfig::caPem || !LiveDemoConfig::wifiWaitMs || !LiveDemoConfig::ntpWaitMs) {
+     !*LiveDemoConfig::ntpServer || !LiveDemoConfig::wifiWaitMs || !LiveDemoConfig::ntpWaitMs) {
     Serial.println("Demo configuration missing or opt-in disabled"); return;
   }
   WiFi.persistent(false); // No routine configuration/event writes to NVS.
@@ -115,6 +124,18 @@ void setup() {
   if(!workspace.allocate(LiveDemoConfig::workspaceBytes).ok()) {
     Serial.println("Demo workspace allocation failed"); networkOff(); return;
   }
+  observedUtc=nowUtc;
+  if(LiveDemoConfig::weatherEnabled) {
+    const WeatherHttps::Trust trust={trusted,LiveDemoConfig::weatherCaPem,sizeof(LiveDemoConfig::weatherCaPem)};
+    const WeatherHttps::Request request={LiveDemoConfig::weatherLocation,
+      WeatherHttps::boundedLength(LiveDemoConfig::weatherLocation,sizeof(LiveDemoConfig::weatherLocation)),
+      LiveDemoConfig::weatherApiKey,
+      WeatherHttps::boundedLength(LiveDemoConfig::weatherApiKey,sizeof(LiveDemoConfig::weatherApiKey))};
+    const bool current=fetchWeatherData(trust,request);
+    const bool shortForecast=fetchForecastData(trust,request);
+    const bool daily=fetchDailyForecastData(trust,request);
+    Serial.printf("Weather current=%u short=%u daily=%u\n",unsigned(current),unsigned(shortForecast),unsigned(daily));
+  }
   const FiveDayCalendarRefresh::Limits limits={LiveDemoConfig::maxConfiguredSources,
     LiveDemoConfig::recordCapacity,LiveDemoConfig::textCapacity,acquisitionLimits()};
   const auto transport=secure.transport();
@@ -122,6 +143,8 @@ void setup() {
     LiveDemoConfig::sources,sizeof(LiveDemoConfig::sources)/sizeof(LiveDemoConfig::sources[0]),limits,
     WiFi.status()==WL_CONNECTED,{reinterpret_cast<const uint8_t*>(LiveDemoConfig::caPem),sizeof(LiveDemoConfig::caPem)},
     transport,IcsHttpsArduino::Adapter::monotonicMs,nullptr,sourceResult);
+  const int millivolts=readBatteryMillivolts(); // One sample; divider is disabled on return.
+  battery={millivolts>0,millivolts>0?voltageToPercent(millivolts):0};
   if(!networkOff()) { // All sockets, SNTP and Wi-Fi finish BEFORE framebuffer borrowing.
     Serial.println("Demo network shutdown unconfirmed; no display refresh"); releaseHealthy(); return;
   }

@@ -16,6 +16,7 @@ inline void action(int operation,int pin,int value) {
     actions[actionCount++]={operation,pin,value};
 }
 struct SerialSink {
+    void begin(unsigned long) {}
     template<class... T> void printf(const char*,T...) {}
     void println(const char*) {}
 };
