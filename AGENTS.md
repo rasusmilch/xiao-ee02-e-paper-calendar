@@ -157,7 +157,7 @@ Run repository commands from its root. Verified local inspection invocations:
 - `git status --short` and `git ls-files`: working tree and tracked inventory.
 - `git diff --check` / `git diff --cached --check`: unstaged/staged whitespace.
 - `git diff --stat` / `git diff --name-status`: changed scope.
-- `git check-ignore -v --no-index credentials.h`: credential exclusion.
+- `git check-ignore -v --no-index credentials.h device_config.h previews/live_calendar_refresh/live_demo_config.h`: private-config exclusion; old ignored files are preserved.
 - `git check-ignore -v --no-index docs/ENGINEERING.md`: should return status 1
   with no match; separately use `git ls-files --error-unmatch docs/ENGINEERING.md`
   to establish tracking.
@@ -174,7 +174,7 @@ development. Complete firmware compilation and hardware validation are
 owner-controlled milestone activities; compilation is preferred but is not a
 prerequisite for initial source repairs. Uncompiled changes do not establish
 firmware compatibility. No CI or hosted build infrastructure is required.
-Tests: the focused acquisition regression exercises production orchestration:
+Tests: the retained legacy acquisition regression exercises the inactive reference helper:
 
 ```
 g++ -std=c++11 -Wall -Wextra -Werror -pedantic tests/data_acquisition_test.cpp -o /tmp/ee02-data-acquisition-test
@@ -291,8 +291,9 @@ for this boundary. Production weather builds require caller-owned CA array input
 the inspected 3.3.12 API and Core Debug None; no dependency upgrade is authorized
 by these commands. Target builds, live network and hardware remain owner-deferred.
 
-The live-dashboard integration fixture executes the actual development sketch setup
-using public synthetic config (never an ignored private file), real calendar parsing/
+The canonical-application integration fixture (retaining the existing test filename)
+executes the actual root setup, including checked timer sleep
+using public synthetic DeviceConfig (never an ignored private file), real calendar parsing/
 publication and real Panel_EPaper borrow/refresh/end, with narrow network/SNTP/ADC
 stand-ins. Its first include path supplies scripted decoded weather values, NOT a
 JSON parser; those branches establish coordination, not JSON validity or actual TLS.
@@ -300,11 +301,22 @@ The remaining paths deliberately combine existing observation, graphics and secu
 adapter facades. Run timezone-mutating cases serially:
 
 ```
-g++ -std=c++11 -Wall -Wextra -Werror -pedantic -Itests/live_dashboard_host -Itests/observations_host -Itests/renderer_host -Itests/gfx2_host -Itests/https_arduino_host -Ithird_party/Seeed_GFX2/src tests/live_dashboard_refresh_test.cpp third_party/Seeed_GFX2/src/panel/Panel_EPaper.cpp third_party/Seeed_GFX2/src/runtime/DisplayInstance.cpp third_party/Seeed_GFX2/src/driver/epaper/SeeedEPaperProfiles.cpp -Wl,--wrap=free,--wrap=time -o /tmp/ee02-live-dashboard-test
-/tmp/ee02-live-dashboard-test
-g++ -std=c++11 -Wall -Wextra -Werror -pedantic -fsanitize=address,undefined -fno-omit-frame-pointer -Itests/live_dashboard_host -Itests/observations_host -Itests/renderer_host -Itests/gfx2_host -Itests/https_arduino_host -Ithird_party/Seeed_GFX2/src tests/live_dashboard_refresh_test.cpp third_party/Seeed_GFX2/src/panel/Panel_EPaper.cpp third_party/Seeed_GFX2/src/runtime/DisplayInstance.cpp third_party/Seeed_GFX2/src/driver/epaper/SeeedEPaperProfiles.cpp -Wl,--wrap=free,--wrap=time -o /tmp/ee02-live-dashboard-sanitized
-/tmp/ee02-live-dashboard-sanitized
+g++ -std=c++11 -Wall -Wextra -Werror -pedantic -Itests/live_dashboard_host -Itests/observations_host -Itests/renderer_host -Itests/gfx2_host -Itests/https_arduino_host -Ithird_party/Seeed_GFX2/src tests/live_dashboard_refresh_test.cpp third_party/Seeed_GFX2/src/panel/Panel_EPaper.cpp third_party/Seeed_GFX2/src/runtime/DisplayInstance.cpp third_party/Seeed_GFX2/src/driver/epaper/SeeedEPaperProfiles.cpp -Wl,--wrap=free,--wrap=time -o /tmp/ee02-application-test
+/tmp/ee02-application-test
+g++ -std=c++11 -Wall -Wextra -Werror -pedantic -fsanitize=address,undefined -fno-omit-frame-pointer -Itests/live_dashboard_host -Itests/observations_host -Itests/renderer_host -Itests/gfx2_host -Itests/https_arduino_host -Ithird_party/Seeed_GFX2/src tests/live_dashboard_refresh_test.cpp third_party/Seeed_GFX2/src/panel/Panel_EPaper.cpp third_party/Seeed_GFX2/src/runtime/DisplayInstance.cpp third_party/Seeed_GFX2/src/driver/epaper/SeeedEPaperProfiles.cpp -Wl,--wrap=free,--wrap=time -o /tmp/ee02-application-sanitized
+/tmp/ee02-application-sanitized
 ```
+
+Generate the actual-root include graph by adding `-M` to the same integration-test
+compile inputs (omit linked .cpps, -Wl and executable output), then inspect dependencies
+for retired headers. Inspect linked symbols with `nm -C /tmp/ee02-application-test`;
+allow vendored Panel_EPaper, but reject legacy TFT_eSPI/EPaper global, calendar.h,
+weather.h, battery.h, constants.h, Apps Script and old month/sleep functions.
+The root is the canonical application; the retired live sketch must not become a
+parallel implementation. Private device_config.h is provisional, not a settings
+schema. Fresh NTP per wake and explicit positive sleep seconds are interim; unsafe
+network/panel/Retained states must not enter sleep. Timer tests use host stand-ins,
+not actual wake hardware.
 
 Run weather HTTPS/request-input, observation, multi-calendar, dashboard and workspace
 regressions for the directly composed behavior. Target build, real weather/ICS/TLS,
@@ -312,8 +324,8 @@ Newlib/SNTP/ADC, physical panel, headroom and power remain owner-deferred/unveri
 
 The integrated multi-calendar regression runs actual window construction, source
 selection, HTTPS/HTTP/ICS processing, snapshot transactions, scratch poisoning and
-renderer traces. The live sketch is opt-in and target-unverified; never use private
-demo configuration or real feeds during host validation. Run TZ-mutating tests serially:
+renderer traces. The canonical root is opt-in and target-unverified; never use private
+device configuration or real feeds during host validation. Run TZ-mutating tests serially:
 
 ```
 g++ -std=c++11 -Wall -Wextra -Werror -pedantic -Itests/renderer_host -Itests/gfx2_host -Ithird_party/Seeed_GFX2/src tests/five_day_calendar_refresh_test.cpp -Wl,--wrap=free -o /tmp/ee02-calendar-refresh-test
@@ -324,8 +336,8 @@ g++ -std=c++11 -Wall -Wextra -Werror -pedantic -fsanitize=address,undefined -fno
 
 Compose the existing window, snapshot, HTTPS/adapter, ingestion, structure, staging,
 producer, renderer and workspace regressions for this integrated lifecycle. Inspect
-the demo's private-config exclusion, fresh SNTP gate, network shutdown and borrowed
-framebuffer lifecycle separately. Host traces/stand-ins do not establish target TLS,
+the root's device-config exclusion, fresh SNTP gate, network shutdown, timer return
+and borrowed-framebuffer lifecycle separately. Host traces/stand-ins do not establish target TLS,
 Newlib, SNTP, physical display or operating capacities. Target compilation, live-feed
 requests, flashing and runtime/power measurements are owner-deferred for this unit.
 

@@ -1,6 +1,13 @@
 #ifndef EE02_WEATHER_VALUES_H
 #define EE02_WEATHER_VALUES_H
 
+// Existing weather-only capacities and English date labels. Kept here so active
+// acquisition need not import legacy location/time/sleep or graphics constants.
+static const int FORECAST_COUNT = 5;
+static const int DAILY_FCST_COUNT = 5;
+static const char* const FULL_DAY_NAMES[] = {"Sunday", "Monday", "Tuesday", "Wednesday",
+                                           "Thursday", "Friday", "Saturday"};
+
 // Shared observation declarations, extracted unchanged from weather.h.
 // Acquisition owns these values; renderers borrow them without a second store.
 struct WeatherData {

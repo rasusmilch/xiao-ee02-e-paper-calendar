@@ -1,7 +1,6 @@
 #pragma once
 
 #include "weather_values.h"
-#include "../constants.h"
 #include <Arduino.h>
 #include <ArduinoJson.h>
 #include <HTTPClient.h>

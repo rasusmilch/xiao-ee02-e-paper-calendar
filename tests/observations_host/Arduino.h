@@ -17,6 +17,7 @@ inline void action(int operation,int pin,int value) {
 }
 struct SerialSink {
     void begin(unsigned long) {}
+    void flush() {}
     template<class... T> void printf(const char*,T...) {}
     void println(const char*) {}
 };

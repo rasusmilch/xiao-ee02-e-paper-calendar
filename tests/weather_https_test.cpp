@@ -1,3 +1,4 @@
+#include "../constants.h" // Historical default-request regression only.
 // Synthetic configuration only. No credentials.h, legacy graphics or real network.
 static const char* OPENWEATHER_API_KEY="synthetic-weather-key";
 static const char* SSID="synthetic-network";

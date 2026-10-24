@@ -1,3 +1,4 @@
+#include "../constants.h" // Historical default-request regression only.
 // No credentials.h, TFT_eSPI.h or legacy weather.h/battery.h. The API key is
 // synthetic configuration supplied by this translation unit, never a real secret.
 static const char* OPENWEATHER_API_KEY="synthetic-nonsecret-fixture";

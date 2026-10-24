@@ -1,4 +1,5 @@
 #pragma once
+#include "application/weather_values.h"
 
 // ============================================================
 // Central constants shared across all modules
@@ -18,10 +19,6 @@ const char *MONTH_NAMES[] = {"January",   "February", "March",    "April",
 
 // Weekday abbreviations starting with Monday (EU calendar convention)
 const char *DAY_NAMES[] = {"Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"};
-
-// Full day names for weather display
-const char *FULL_DAY_NAMES[] = {"Sunday",   "Monday", "Tuesday", "Wednesday",
-                                "Thursday", "Friday", "Saturday"};
 
 // Weather condition name mapping (OWM icon code prefix -> human readable)
 struct WeatherCondition {
@@ -65,7 +62,6 @@ const int CAL_COLS = 7;
 #define ICON_DAILY 6
 
 // Forecast
-#define FORECAST_COUNT 5
 
 // Daily forecast section (lower left)
 // Area: x=10..1034, y=1044..1190 (146px tall)
@@ -73,7 +69,6 @@ const int DAILY_FCST_X = 10;
 const int DAILY_FCST_Y = 1054;
 const int DAILY_FCST_H = 130;
 const int DAILY_FCST_AREA_W = 1024;
-const int DAILY_FCST_COUNT = 5;
 const int DAILY_FCST_CELL_W = DAILY_FCST_AREA_W / DAILY_FCST_COUNT; // ~204
 
 // Weather section (upper right: x=1054..1580, y=10..600)

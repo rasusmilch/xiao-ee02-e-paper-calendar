@@ -8,17 +8,24 @@ is historical evidence, not current architecture or requirements authority.
 
 - Permanently remove AI artwork generation, processing, caching and rendering,
   including OpenAI credential requirements, PNGdec and application SPIFFS use.
-  Preserve retained panels, divider geometry, independent acquisition and sleep
-  behavior; reserve the former artwork region for the future five-day calendar.
-  Its temporarily empty state is not an independently releasable display design.
-- Attempt current weather, both forecasts, and calendar acquisition independently
-  on a successful data-acquisition Wi-Fi connection, so one source's failure does
-  not suppress the others; preserve the current-weather-only return result.
+  Replace the former artwork region with the rolling five-day calendar while
+  retaining weather/forecasts, today details and battery capability. Keep final
+  geometry, agenda/grid and historical monthly-grid retention Open.
+- Make the root sketch the canonical GFX2 application by promoting the reviewed
+  integrated path and retiring its duplicate live preview entry point/template.
+  Use one Wi-Fi session/fresh SNTP observation per wake, independent weather and
+  sequential authenticated ICS calendars, one battery sample, one independent
+  snapshot and one borrowed-framebuffer dashboard refresh. Add private opt-in
+  provisional device configuration and checked explicit timer deep sleep after
+  verified network/panel quiescence and legal storage release; refuse sleep for
+  Retained/unsafe shutdown or timer rejection. Remove active Apps Script/TFT_eSPI,
+  six-event/month-grid and legacy night-dead-zone execution without a fallback.
+  Preserve ignored old user configuration and inactive source as reference.
 - Authenticate the three production OpenWeatherMap HTTPS requests with explicit
   caller CA material, a fresh per-boot SNTP notification gate and original-hostname
   verification. Reject missing trust, redirects and transfer failures without insecure
   fallback; preserve independent weather/forecast/calendar outcomes, parsing and
-  observation ownership. Leave Apps Script calendar TLS, certificate-update policy,
+  observation ownership. Retire insecure Apps Script from active execution; leave certificate-update policy,
   final RTC trust and target/hardware verification unresolved.
 - Validate incremental source repairs with static and focused host behavior checks,
   with complete firmware compilation and hardware validation controlled by the owner
@@ -45,27 +52,27 @@ is historical evidence, not current architecture or requirements authority.
   runtime memory reliability and hardware behavior unverified.
 - Add one commit-pinned Seeed_GFX2 vendor baseline with upstream
   licensing and an isolated EE02/T133A01 compile/link fixture using explicit Arduino
-  library selection. Preserve the active Seeed_GFX/TFT_eSPI production implementation;
+  library selection. Retain the superseded Seeed_GFX/TFT_eSPI files only as inactive reference;
   validate isolated compilation/linkage with XIAO ESP32-S3 Plus/OPI PSRAM while
   retaining explicit hardware and production-integration evidence limits.
 - Extend the locally maintained GFX2 panel with pre-initialization borrowing of
   caller-owned native T133A01 framebuffer storage, bounded initialization, ownership-
   safe cleanup and explicit unsupported-mode/mirroring failures. Preserve the
   ordinary owned-buffer path; cover borrowing, lifecycle failures and reset with
-  focused host ownership tests. Production renderer migration remains pending.
+  focused host ownership tests and canonical root composition; target/hardware validation remains pending.
 - Add one capacity-parameterized application-owned PSRAM workspace with scoped
   direct scratch access and a scoped handoff to the existing EE02 framebuffer borrow.
   Preserve operation/shutdown results, prohibit memory reuse/free after uncertain
   hardware shutdown, and validate bounded prefix/tail handling and repeated healthy
   lifecycle operations. Exercise 2 MiB only as an isolated provisional evaluation;
-  retain production graphics and defer production calendar integration.
+  use the same workspace in the canonical root while deferring measured operating capacities.
 - Add an independently allocated, capacity-parameterized PSRAM five-day snapshot
   owning normalized UTC intervals/points, civil-date all-day occurrences, complete
   UTF-8 text and source outcomes. Hide staged records until complete publication;
   roll back failed sources without damaging earlier calendars, and distinguish
   valid empty success from Pending/Incomplete. Reject invalid input and exhaustion
   without truncation or false completeness. Validate synthetic transactions and
-  independence through scratch-to-framebuffer reuse; preserve production acquisition,
+  independence through scratch-to-framebuffer reuse and canonical root acquisition;
   keep capacities provisional and leave timezone/provider normalization unimplemented.
 - Connect staged ICS to transactional five-day snapshot publication for a closed
   nonrecurring VEVENT profile: exact decoded UID uniqueness, UTC timestamps,
@@ -88,7 +95,7 @@ is historical evidence, not current architecture or requirements authority.
   trusted UTC and configured POSIX TZ using independently resolved local midnights,
   variable-length days, earliest repeated midnight and atomic rejection of missing
   midnight/context. Generate and verify the deterministic preview's original window;
-  preserve production graphics/acquisition and defer
+  compose it in the canonical root and defer
   broader normalization, final presentation, target compatibility and physical validation.
 - Compose the five-day calendar, retained weather/short and daily forecasts,
   today's snapshot events and supplied battery observation through one read-only
@@ -97,7 +104,7 @@ is historical evidence, not current architecture or requirements authority.
   from legacy graphics for direct observation reuse. Distinguish unavailable values
   and presentation overflow, and exercise
   the full deterministic ICS-driven screen before one borrowed-framebuffer refresh.
-  Leave production migration, month-grid retention, final layout and hardware
+  Leave final RTC/configuration/recovery, month-grid retention, final layout and hardware
   validation separate.
 - Add a reusable single-source authenticated HTTPS acquisition path streaming raw
   Content-Length/chunked responses through existing ingestion, staging and the
@@ -107,19 +114,18 @@ is historical evidence, not current architecture or requirements authority.
   allow slow successful work without an overall duration cutoff, and expose the
   ingestion total-time opt-out while retaining positive-budget behavior. Refuse
   redirects safely, preserve source rollback and independent snapshot ownership,
-  and leave production integration and target/physical validation deferred.
+  and compose it in the root while leaving target/physical validation deferred.
 - Compose trusted rolling local dates, enabled-source compaction, one independent
   snapshot and sequential authenticated HTTPS/ICS processing into a reusable
   multi-calendar refresh. Preserve successful calendars across source failures,
   reconcile selected source outcomes and distinguish interrupted refreshes, empty
-  schedules and no calendar selection. Provide an opt-in development-only live
-  EE02 demonstration with private configuration, a fresh SNTP notification gate,
-  one Wi-Fi session for independent authenticated weather/forecasts and sequential
-  calendars, explicit development weather location/key/CA inputs, one battery sample,
-  and network shutdown before full dashboard composition through one borrowed
-  framebuffer refresh with unchanged retention safeguards. Keep the deterministic
-  preview and legacy production dashboard intact;
-  target builds, live-feed and physical operation remain unverified.
+  schedules and no calendar selection. Reuse that integrated development path as
+  the canonical root, with separate caller-provided weather/calendar trust and
+  request inputs, network shutdown before graphics, checked timer sleep and unchanged
+  Retained safeguards. Keep the deterministic preview independent. Fresh NTP each
+  wake and explicit refresh seconds are conservative interim parameters, not final
+  RTC/daily-sync/default/energy policy. Live services, root target compilation,
+  physical behavior and release readiness remain unverified.
 - Add bounded standalone raw HTTP response framing and strict RFC 5545 logical-line
   unfolding in borrowed scratch storage. Require exact supported body completion,
   preserve octets across arbitrary read boundaries and fail explicitly on malformed,

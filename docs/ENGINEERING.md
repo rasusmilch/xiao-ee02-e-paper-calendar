@@ -35,22 +35,20 @@ Use a small separation of hardware-independent application logic from drivers
 when needed for meaningful tests. A large abstraction framework requires a
 demonstrated necessity case against the simpler alternative.
 
-Seeed_GFX2 with a local external-framebuffer ownership extension is Selected for
-the target; the current Seeed_GFX/TFT_eSPI integration has not migrated. Other
-library upgrades or framework migrations are not assumed prerequisites. Resolve
-compatibility through evidence. The five-day UI redesign and device-side multi-calendar
-support remain incomplete in production. A reusable snapshot renderer and dedicated
-deterministic preview now implement the isolated display path below, without final
-presentation policy or live normalization. Artwork retirement is implemented; the
-production sketch still leaves that region empty. Neither this intermediate state
-nor the example preview is the completed live calendar product.
-Legacy defaults establish no target policy; exact GFX2/core/board integration
-remains unverified and this selection alone does not authorize implementation.
+Seeed_GFX2 with the maintained external-framebuffer extension is the active root
+implementation as well as the selected architecture. The owner approved fresh root
+replacement; legacy operational compatibility is not a requirement. The canonical
+sketch now composes the reviewed calendar/weather/battery/dashboard components and
+checked timer sleep. It does not use TFT_eSPI, Apps Script, a six-event store or the
+legacy monthly grid. Retained legacy files are inactive reference material. Target
+compatibility and physical operation remain unverified; final UI/month retention,
+RTC validity/daily NTP, configuration, provider expansion and recovery remain Open
+or unimplemented as specified below. The deterministic preview stays independent.
 
-## Approved target architecture (not yet implemented)
+## Approved target architecture (partially implemented)
 
-The target below is approved product direction, distinct from the existing firmware
-described in the next sections. A roadmap is not implementation authorization.
+The target below is approved product direction; the canonical root implements its
+current supported subset, with the remaining policies/evidence identified below. A roadmap is not implementation authorization.
 
 ### Display and event model
 
@@ -115,21 +113,18 @@ recurrence-local coverage, source-wide recurrence-local composition, selected TZ
 reference-local identity matching, source-wide VEVENT TZID identity coverage and a
 reusable snapshot renderer/deterministic EE02 preview and restricted nonrecurring
 ICS-to-snapshot producer, authenticated streaming HTTPS acquisition API and rolling
-local five-day window builder, multi-calendar refresh/live development sketch and
+local five-day window builder, multi-calendar refresh/canonical root cycle and
 read-only GFX2 dashboard composition implemented;
-production integration and hardware validation pending.** The owner-selected architecture
+canonical root composition and timer sleep implemented; hardware/final-policy validation pending.** The owner-selected architecture
 uses Seeed_GFX2 with a locally maintained external-framebuffer ownership extension,
 one application-owned PSRAM arena, and a separate fixed-capacity five-day occurrence
-snapshot in PSRAM. Both allocations are volatile across deep sleep. Current firmware
-still uses the global TFT_eSPI/EPaper object and ordinary event/weather storage;
-it uses none of the GFX2 borrowing extension, arena, normalized snapshot or streaming ICS pipeline.
-Contradictory engineering evidence must trigger explicit review and adjudication,
-not silent architectural substitution. Generic authenticated HTTPS acquisition now
-composes the restricted producer below; a synchronous multi-calendar coordinator
-composes window/selection/acquisition and an opt-in live sketch supplies the display
-handoff. Coordinated production device integration
-and general component/source semantic validation remain unimplemented. Operating
-capacities and measured device performance remain Open.
+snapshot in PSRAM. Both allocations are volatile across deep sleep. The root now
+uses this ownership model for sequential authenticated HTTPS ICS acquisition and
+GFX2 dashboard composition, with authenticated weather and one battery sample. The
+former live demonstration was promoted, not kept as a parallel application. Contrary
+engineering evidence still requires review/adjudication rather than an alternative
+allocation model. General source semantics, final capacities, RTC/configuration/
+recovery/provider policy and target measurements remain incomplete/Open.
 
 #### Ownership and wake-cycle sequence
 
@@ -191,7 +186,7 @@ DMA is neither required by the selection nor established as supported. Verify ex
 core/board configuration propagation, packaging, transfer/alignment requirements
 and physical EE02 operation before claiming compatibility; do not substitute
 arbitrary versions. The local [borrowing implementation](#local-t133a01-framebuffer-borrowing)
-extends the imported baseline; production does not yet use it.
+extends the imported baseline and is now used by the canonical root.
 
 #### Provisional evaluation budgets
 
@@ -291,28 +286,100 @@ selected.
 
 ## Current architecture and responsibilities
 
-**Current-source observations:** a single Arduino sketch includes headers that mix
-data acquisition, mutable state, application logic, and rendering. These are source
-responsibilities, not isolated layers. Acquisition sequencing is separated into
-one hardware-independent helper; the remaining application is not a testable core.
+The root is the sole canonical live entry point. It promotes the integrated
+implementation from the retired live sketch; no compatibility mode selects the old
+application. The independent deterministic preview remains synthetic. No header's
+presence in application/ alone makes it an active dependency; the root include graph
+and explicit vendored-library selection establish the active path.
 
 | Component | Responsibility and dependencies |
 | --- | --- |
-| [Sketch](../xiao-ee02-e-paper-calendar.ino) | Global EPaper instance; boot orchestration, dividers and retained panel drawing/update, display sleep and ESP timer deep sleep. No filesystem initialization; `loop()` is empty. |
-| [calendar.h](../calendar.h) | Includes the legacy boot time entry point; calendar date math/grid rendering, unchanged insecure HTTPS Apps Script retrieval, volatile event array, subset sorting and event drawing. |
-| [application/legacy_time_sync.h](../application/legacy_time_sync.h) | Existing boot Wi-Fi attempt and configured NTP/TZ, with finite fresh-SNTP notification gate returning transient weather time trust; no RTC/persistent trust. |
-| [weather.h](../weather.h) | Legacy icon/weather/forecast rendering and unchanged Wi-Fi orchestration that also calls calendar retrieval; includes the graphics-free acquisition header after private credentials. |
-| [application/weather_acquisition.h](../application/weather_acquisition.h) | Existing current/short/daily weather requests, parsing/grouping and single sketch-TU static observation store, without graphics. Uses unchanged [weather_values.h](../application/weather_values.h) PODs and existing constants/key declaration. Explicit trusted time and CA spans authenticate weather HTTPS; no redirects/fallback. |
-| [data_acquisition.h](../data_acquisition.h) | Synchronous, independent fetch sequencing after Wi-Fi connection; reports four individual bool results, disconnects, and returns current-weather success. Uses callbacks without Arduino dependencies or retained state. |
-| [battery.h](../battery.h) | Unchanged legacy battery drawing, including two measurements, through the extracted measurement functions. |
-| [application/battery_measurement.h](../application/battery_measurement.h) | Graphics-free ADC enable/sample/disable, assumed voltage conversion and existing discharge-curve interpolation; no retained observation or automatic sampling. |
-| [constants.h](../constants.h) | Location/timezone/NTP, retained panel/divider layout, event limit and sleep interval. These defaults are implementation observations. |
-| [driver.h](../driver.h) | Declares board-screen 510/T133A01 and EE02 selection; propagation through the intended display library/build is unresolved. |
-| [google-calendar-api.gs](../google-calendar-api.gs) | Separate Google Apps Script deployment; query-key authentication and today's events from CalendarApp calendars. |
+| [Root sketch](../xiao-ee02-e-paper-calendar.ino) | One Wi-Fi/SNTP attempt, rolling window, explicit-input weather, multi-calendar coordinator, one battery sample, network/scratch/graphics handoff, checked resource release and timer deep sleep. |
+| [device_config.example.h](../device_config.example.h) | Synthetic provisional private device_config.h contract; no usable credentials, configured=false and refreshSeconds=0. Not an NVS/settings schema. |
+| [five_day_calendar_refresh.h](../application/five_day_calendar_refresh.h) | Enabled-source compaction, one independent snapshot, sequential streaming acquisition and per-source transaction reconciliation. |
+| [weather_acquisition.h](../application/weather_acquisition.h) | Authenticated explicit-request current/short/daily weather and single observation store; unchanged JSON/grouping; no legacy configuration include. |
+| [weather_values.h](../application/weather_values.h) | Unchanged POD layouts plus the existing weather-only counts/weekday labels, extracted so active acquisition imports no old location/time/sleep settings. |
+| [battery_measurement.h](../application/battery_measurement.h) | Unchanged GPIO/ADC sequence and curve; one root sample, no drawing. |
+| [five_day_dashboard_renderer.h](../application/five_day_dashboard_renderer.h) | Read-only snapshot/observation composition within provisional geometry, no acquisition or panel ownership. |
+| [psram_workspace.h](../application/psram_workspace.h) | Exclusive scratch/framebuffer phases, separate operation/end results, Retained restrictions. |
+
+Inactive reference files remain: calendar.h, weather.h, battery.h, constants.h,
+driver.h, data_acquisition.h, application/legacy_time_sync.h and google-calendar-api.gs.
+Their legacy defaults, Apps Script endpoint, monthly grid, six-event array, two-read
+battery drawing and dead-zone sleep do not execute in the root. No archival cleanup
+or ignored-user-config migration is performed.
+
+### Canonical root wake cycle and sleep boundary
+
+Private ignored device_config.h supplies explicit opt-in, Wi-Fi, NTP/POSIX timezone,
+selected HTTPS ICS descriptors/calendar CA, weather enabled/location/key/CA, workspace/
+snapshot/source limits, finite prerequisite waits and positive refreshSeconds. The
+synthetic template disables opt-in, leaves prerequisites empty, disables all calendar
+entries/weather and sets refreshSeconds=0; changing only configured cannot initiate
+placeholder acquisition. Required strings are bounded arrays with checked termination.
+No credentials.h or legacy WX_LOCATION/TIMEZONE/sleep constant is configuration authority.
+
+Check positive seconds, uint64 microsecond multiplication and signed IDF duration
+representability before networking. No shorter/default interval is substituted. One
+Wi-Fi connection and fresh immediate-mode SNTP notification serve each wake; register
+before starting configTime, wait finitely, require this attempt's event, then stop/
+unregister and clear the bridge. Use its one UTC observation for CA verification,
+local window construction and weather/calendar prerequisites. Apply configured TZ
+and verify actual conversion/window invariants. This conservative fresh-NTP-per-wake
+gate is interim, with unmeasured energy cost, not the final approximately-daily RTC
+policy. Ordinary configured NTP is not cryptographically authenticated time.
+
+Allocate one workspace, call the three existing weather operations independently
+with explicit request views and weather CA, then call FiveDayCalendarRefresh with
+calendar CA. Complete/Incomplete/empty/zero-selection semantics remain authoritative;
+unsupported recurrence/TZID/floating/override/cancellation and other unresolved profile
+semantics fail affected sources. A shared coordinator interruption exits without
+rendering a false schedule. One later failed calendar cannot remove earlier records.
+Weather arrays are the original single store, not declared fresh merely by valid=true.
+
+Read battery once; divider is disabled on return. Positive millivolts use the existing
+curve (including legitimate 0%); zero/unavailable gives invalid/N/A. Close calendar
+transport, finish weather clients, stop SNTP, disconnect and verify Wi-Fi off before
+scratch reuse. Then poison scratch, borrow only the validated framebuffer prefix,
+compose with the existing dashboard/POSIX converter and refresh at most once. The
+month area is unassigned/blank, no permanent DEVELOPMENT label appears, and final
+month retention/layout/agenda-grid policy stays Open.
+
+CycleStatus and SleepStatus are transient scalar diagnostics, not persistent state
+or a scheduler. Refreshed means display completion, not all-source success. Log
+original source counts and independent operation/shutdown codes.
+Missing config or invalid interval admits no acquisition/sleep. Wi-Fi/time/window/
+workspace/shared-calendar failures may take the explicitly configured retry sleep
+only after verified network shutdown and legal release. A renderer failure may sleep
+if panel end was checked/healthy and workspace is Scratch. Unconfirmed networking,
+unchecked/failed panel shutdown, Retained state or failed release refuses sleep.
+Retained workspace is never freed/reused; the independent snapshot may be released.
+The empty loop performs no application polling/retry or new recovery behavior.
+
+After quiescence and release, check esp_sleep_enable_timer_wakeup(sleepUs)==ESP_OK,
+flush diagnostics and call esp_deep_sleep_start(). The inspected Arduino-ESP32 3.3.12
+IDF base b774170f sleep_modes.c checks the hardware counter against the current
+LP-slow frequency; no fixed hardware-duration guess is made here. Rejection produces
+TimerWakeFailure and no sleep. The interval is post-cycle sleep duration, not a
+fixed acquisition cadence. It has no legacy midnight dead zone. Target timer behavior,
+electrical panel quiescence, PSRAM retention risks and power still need measurements.
+
+The adapted tests/live_dashboard_refresh_test.cpp compiles and invokes the actual
+root with public synthetic configuration and narrow network/SNTP/ADC/timer facades,
+real calendar framing/parser/stage/producer and actual panel borrow/end software.
+Current strict C++11 and ASan/UBSan runs pass 31 root boot/sleep cases.
+They cover normal/partial/all-failed/zero-selection, weather independence, missing CA,
+prerequisite/PSRAM/shared-coordinator/renderer errors, guard/lifetime checks, invalid/
+overflowing intervals, timer rejection, fresh trust each invocation and Retained
+sleep refusal. Supplied decoded weather values are not real JSON parsing; fake TLS,
+SNTP, ADC and sleep are not hardware proof. Target builds/live services/flashing,
+actual RTC/timer wake, memory headroom, battery calibration and panel/energy checks
+remain owner-controlled/deferred. Settings/NVS, recovery AP/three-failure screen,
+final RTC/provider/UI/capacity policies and release readiness are not implemented.
 
 ### Vendored GFX2 dependency baseline
 
-**Pinned import with local panel-ownership changes, isolated from production.**
+**Pinned import with local panel-ownership changes, now used by the canonical root; target validation remains scoped to historical isolated builds.**
 [third_party/Seeed_GFX2](../third_party/Seeed_GFX2/library.properties) contains the
 approved initial source pin from `https://github.com/Seeed-Studio/Seeed_GFX2`, commit
 `8f74b7aa91c4fcbc5ba2467bab4de4e7ce0eeeeb`. It was retrieved into a disposable
@@ -359,14 +426,13 @@ records the exact isolated XIAO ESP32-S3 Plus configuration and current evidence
 At source import, compilation was NOT RUN because matching tooling was unavailable.
 A subsequent disposable experiment compiled/linked the unmodified baseline using
 Arduino CLI 1.5.1 and Arduino-ESP32 3.3.12 with OPI PSRAM; it did not validate hardware.
-Existing production alpha-core/menu inputs remain unverified. With matching tooling,
+The historical alpha-core prototype remains unverified and inactive. With matching tooling,
 inspect verbose library/include/compiler paths and linked graphics symbols; confirm
 the vendored implementation and intended EE02/T133A01 configuration across library
 translation units and reject unintended GFX2 or legacy TFT_eSPI selection. Do not
-pass the new library to the existing production build or install a competing global
-copy. Both the vendor and smoke sketch are outside the production root/`src` sketch
-compilation layout; production includes, global EPaper, rendering and sleep are
-unchanged. Isolated compile evidence does not establish a complete production build.
+install a competing global copy. The isolated fixture stays outside root automatic
+compilation; the canonical root now explicitly selects vendored GFX2 too. Historical
+isolated compile evidence does not establish a root target build.
 
 **Imported ownership boundaries and subsequent local scope:**
 
@@ -387,8 +453,8 @@ unchanged. Isolated compile evidence does not establish a complete production bu
   Calculated native framebuffer storage is 960,000 bytes. No allocation peak,
   direct PSRAM DMA capability, alignment guarantee or transfer completion is measured.
 
-Keep production migration, the PSRAM arena, calendar parsing and five-day rendering
-as separate authorized outcomes; the extension changes none of those implementations.
+The extension itself does not change acquisition/normalization. Those components
+and the canonical root composition are described by their current owners below.
 
 Source-integrity, license/inventory, protected-file, smoke-scope and local Markdown
 checks cover this baseline. At import, full `git diff --cached --check` reported 1,438 inherited
@@ -479,18 +545,17 @@ host checking caught a masked pre-begin configuration error and an incorrect tes
 expectation about explicit mirror overrides; both were corrected before passing.
 Hardware validation still requires actual allocation/largest-block/stack/heap
 measurements, six colors/orientation, repeated initialization/update/sleep/wake and
-failure behavior on physical EE02. Production rendering and memory remain unchanged.
+failure behavior on physical EE02. That historical isolated evidence is not validation
+of the current root rendering/memory cycle.
 
 ### Application-owned PSRAM workspace
 
 [application/psram_workspace.h](../application/psram_workspace.h) implements
-`Ee02PsramWorkspace`, used by the isolated smoke fixture and dedicated calendar
-preview. Production still uses legacy `EPaper` and the six-event array; it invokes neither the isolated
-ingestion layer nor the structural parser.
-The independently allocated snapshot below is isolated from production.
-The header is outside root/`src` auto-compilation, has no global allocation and
-does not add GFX2 to the production sketch. This is the scoped application-memory
-outcome, not production migration or validated memory capacity.
+`Ee02PsramWorkspace`, used by the canonical root, deterministic preview and isolated
+fixture. It mediates source scratch and the sole borrowed framebuffer; the independent
+snapshot owns final records. No large allocation occurs at global construction:
+the root allocates after trusted time/window admission. Operating capacity and
+physical PSRAM/driver behavior remain unverified.
 
 One noncopyable/nonmovable owner holds one allocation, capacity and the minimal
 phase/error state. Plain allocation is insufficient for reusable checked access
@@ -606,9 +671,9 @@ and cannot independently certify those electrical operations.
 ### Normalized five-day occurrence snapshot
 
 [application/five_day_snapshot.h](../application/five_day_snapshot.h) implements
-`FiveDaySnapshot` independently from `Ee02PsramWorkspace`. Production still uses
-the legacy six-event array; this snapshot accepts normalized inputs, now also
-produced by the restricted staged-ICS producer below. One noncopyable/nonmovable
+`FiveDaySnapshot` independently from `Ee02PsramWorkspace`. The canonical root uses
+this snapshot and the restricted staged-ICS producer below; the old six-event
+array is inactive reference material. One noncopyable/nonmovable
 owner allocates the window, occurrence
 slots, complete source catalogue and shared text pool in **one PSRAM-only block**.
 `psramFound()` and the inspected core's `ps_malloc()` provide no internal-RAM
@@ -712,7 +777,8 @@ records external build/log paths. Verbose paths and ELF symbols establish vendor
 GFX2, actual snapshot/workspace, official EE02/T133A01 and borrowing linkage;
 board macro/OPI paths and layout assertions passed, without host shims or legacy
 TFT_eSPI. Reported flash/static RAM: **509,715/24,720 bytes**. The same three inherited
-graphics warnings remain; vendor/workspace and production files are unchanged.
+graphics warnings remained; that historical fixture unit left vendor/workspace and
+then-production files unchanged.
 During development the test allocator's malloc linkage and a stale expectation
 that misaddressed adds left a transaction healthy were corrected; final checks passed.
 
@@ -724,7 +790,7 @@ That fixture implements no ICS/provider/recurrence or three-consecutive-failures
 
 ### Rolling local five-day window
 
-**Reusable construction implemented; production clock/refresh integration and target
+**Reusable construction integrated into the canonical root; final RTC policy and target
 conversion behavior remain unverified.** [FiveDayWindow](../application/five_day_window.h)
 exposes `Status build(int64_t nowUtc, bool clockTrusted, const char* configuredPosixTimezone,
 FiveDaySnapshot::Window& output)`. It prepares one input window, without allocating
@@ -928,18 +994,13 @@ scratch-to-framebuffer reuse; no drawing occurs while acquisition scratch is liv
 
 The nonrecurring profile below is unchanged: no recurrence, floating/TZID timestamp
 conversion, cancellation/revision selection or general source acceptance is added.
-Production weather parsing/storage, battery and sleep behavior remain unchanged;
-weather authentication and the narrow fresh-time gate are described below. Weather POD declarations are shared through application/weather_values.h.
-The deterministic preview now composes the full dashboard through
-FiveDayDashboardRenderer; the production sketch still uses legacy graphics and has
-not migrated. The coordinator below now supplies calendar selection, rolling-window
-construction and sequential refresh. Its opt-in live sketch supplies development
-Wi-Fi/fresh SNTP configuration and the render handoff. Production orchestration,
-private settings UI, refresh scheduling and full dashboard integration remain absent;
-no provider interoperability is claimed. Arduino compilation, flashing, physical
-EE02 operation and runtime/energy
-measurements are owner-deferred and NOT RUN. Fresh host checks are listed in AGENTS;
-scripted transport and adapter stand-ins establish software behavior only.
+The canonical root now composes this acquisition API and the calendar coordinator
+with explicit weather requests, one battery sample, GFX2 composition and checked
+timer sleep. Weather PODs/JSON grouping and calendar semantic profile are unchanged.
+The deterministic preview remains synthetic. Final settings/RTC/recovery/provider
+scope and hardware validation remain incomplete. Target builds, flashing, physical
+EE02 and runtime/energy measurements remain deferred; host stand-ins establish
+software behavior only.
 
 Historical initial-acquisition strict C++11 and ASan/UBSan runs passed 88 composed acquisition cases and
 the separate adapter call-order regression. They cover Content-Length/chunked raw
@@ -1043,79 +1104,24 @@ another persistent phase machine. Zero selection still builds a window and initi
 one zero-source snapshot without acquisition; the renderer shows No calendars selected
 with five dates. Complete empty and all-failed sources keep distinct existing messages.
 
-#### Live development sketch and memory handoff
+#### Canonical root promotion and memory handoff
 
-[Opt-in live sketch](../previews/live_calendar_refresh/live_calendar_refresh.ino)
-now coordinates the full dashboard, outside production compilation. Its private
-ignored live_demo_config.h is still required; the tracked
-[template](../previews/live_calendar_refresh/live_demo_config.example.h) is synthetic,
-configured=false, with empty CA/key values and weather disabled. No credentials.h
-reuse, production settings authority or persistence is added. Development fields
-weatherEnabled/location/apiKey/weatherCaPem are independent of the existing calendar
-sources and caPem. Use actual arrays (not pointers) so sizeof spans are explicit; location/key length
-is measured within each array, rejecting missing termination without sending a prefix.
-Empty weather settings are harmless when disabled; no enabled calendars are required
-for weather-only demonstration, and zero selection needs no calendar CA.
-
-The one existing Wi-Fi session and fresh SNTP notification serve all acquisitions.
-The inspected 3.3.12/IDF immediate-mode callback follows system time update; register
-before configTime, wait finitely, stop/unregister SNTP, configure TZ/tzset and verify
-the same explicit timezone with FiveDayWindow before allocation. Missing notification
-or Wi-Fi forbids weather/calendar requests and fabricated dates. Ordinary NTP is
-not authenticated time, nor proof of final production RTC validity/daily-sync policy.
-
-Allocate one workspace; attempt actual current, short and daily weather requests
-independently with explicit request views and their own CA; invoke the unchanged
-calendar-only FiveDayCalendarRefresh with its separate CA and sequential selected
-sources. Failed/missing weather inputs do not suppress valid calendars. Failed
-calendars do not discard weather. Snapshot labels/titles remain independent of the
-workspace, and weather uses the original single arrays. Weather requests do not
-reconnect Wi-Fi or start NTP; the demo does not call legacy updateWeather or Apps Script.
-
-Sample battery once after calendars; the existing measurement disables the divider
-before returning. A positive measured value is converted by voltageToPercent, with
-valid low/0% distinct from zero/unavailable N/A. Dashboard rendering never samples ADC.
-Close all clients (weather closes synchronously; explicitly close calendar adapter),
-stop SNTP, disconnect and verify Wi-Fi off before poisoning scratch. Failed network
-shutdown forbids drawing. A normally completed refresh, including all-Incomplete or
-zero sources, can display weather alongside the appropriate calendar message; a
-shared coordinator interruption explicitly exits without a fabricated schedule.
-
-Reuse/poison the same workspace, then call workspace.render once, delegating full
-composition to FiveDayDashboardRenderer and FiveDayPosixTime. It borrows actual
-weatherData/forecastData/dailyForecastData, the snapshot, explicit trusted UTC and
-one measured battery input. The existing provisional geometry/dividers are unchanged;
-the development notice uses unassigned historical month-grid space (x1054/y590).
-No copied observation/event store, legacy event array or second framebuffer exists.
-At most one refresh occurs. Preserve separate operation/shutdown results; Retained
-memory is neither freed nor reused. No sleep, recurring scheduler or retries are added.
-
-Use the existing explicit vendored GFX2 selection, XIAO ESP32-S3 Plus/OPI PSRAM,
-inspected Arduino-ESP32 3.3.12 and Core Debug None for future authorized target checks.
-All HTTPS uses CA-chain/original-hostname verification with no insecure fallback,
-downgrade or redirects. Full URLs, keys, query strings, CA and event contents are not
-printed by the sketch; its own diagnostics use generic counts/statuses. Existing
-weather fetch routines retain their nonsecret weather-observation diagnostics.
-Core Debug None remains required because platform HTTP logs can expose credentials;
-independently configured IDF/logging
-still needs review. DNS, operation/inactivity timeouts, acceptance of slow success and
-processingMs=0 stay unchanged. Existing nonrecurring semantic limits still reject
-recurrence, floating/TZID time, overrides/cancellations and unsupported metadata.
-
-The actual-sketch host regression uses synthetic configuration without reading or
-creating a private file. It runs the real calendar adapter/orchestrator, raw
-Content-Length/chunked framing, parser/stage/producer, snapshot, poison, panel borrow,
-refresh/end and full dashboard. Scripted TLS/SNTP/ADC and supplied decoded weather
-values exercise 21 success/independent-failure, disabled/missing settings, zero-source,
-DST/today, low/unavailable battery, no-network-on-prerequisite-failure, shutdown refusal,
-shared interruption and Retained cases. These weather fixtures are not a JSON parser
-and prove no real JSON/schema or cryptographic behavior. Strict C++11 and ASan/UBSan
-pass; target compilation, live services, physical EE02 and runtime headroom/power
-remain owner-deferred. The deterministic preview and production lifecycle are unchanged.
-Final dashboard layout, monthly-grid retention, RTC/configuration and provider scope
-remain Open; this is a development invocation, not production migration.
+The integrated live-dashboard implementation from reviewed commit 4012b56 is now
+[xiao-ee02-e-paper-calendar.ino](../xiao-ee02-e-paper-calendar.ino). Its tracked
+preview entry point/template were retired to avoid two evolving refresh copies.
+The current lifecycle/configuration/sleep boundary is owned by the canonical-root
+section above. Old ignored previews/live_calendar_refresh/live_demo_config.h remains
+untouched and is not imported; private device_config.h is a new explicit input.
+The deterministic synthetic preview remains independent. No legacy compatibility
+mode, extra event/weather store, second framebuffer or persistent settings was added.
 
 #### Validation boundaries
+
+Historical integrated-demo evidence at reviewed 4012b56: strict C++11 and ASan/UBSan
+passed 21 actual-sketch cycles with real calendar publication/panel ownership and
+scripted decoded weather, no target/physical/real-service evidence. The canonical
+root fixture above extends that same test environment with checked sleep and failure
+handoff, rather than preserving a duplicate application.
 
 The focused host regression runs real selection → generated window → multiple
 HTTPS acquisitions → ingestion/structure/stage/producer → snapshot → poisoning →
@@ -1132,13 +1138,12 @@ entry are exercised as arithmetic bounds, not suggested operating calendar count
 Existing workspace regressions independently cover actual panel borrow/retention
 with their hardware stand-ins. Commands are in AGENTS.md; host trace/fake I/O proves
 neither real DNS/TLS nor vendor rasterization. At that calendar-only checkpoint,
-the live sketch received source/API inspection only. The current actual-sketch host
-fixture above adds integrated dashboard traces, not a target build. No actual private
+the live sketch received source/API inspection only. The subsequent integrated-demo fixture added dashboard traces; the adapted current
+fixture now invokes the root and timer-sleep path, not a target build. No actual private
 config or real feed was used. Arduino compilation, physical EE02, RTC, memory/headroom and power tests
 remain owner-deferred and unverified. The deterministic preview is unchanged.
-Production weather, forecast, detailed events, battery, legacy acquisition, graphics
-and sleep remain intact. Coordinated dashboard integration, real-source/physical
-validation, final layout and other Open policies remain future work.
+The root has since replaced legacy acquisition/graphics/sleep. Real-service/physical
+validation, final RTC/configuration/recovery/UI/provider policies remain incomplete.
 
 ### Restricted nonrecurring ICS-to-snapshot producer
 
@@ -1300,16 +1305,15 @@ also passed strict and sanitizer runs, retaining their scoped evidence limits. N
 Arduino compilation and physical EE02 testing for this producer/updated preview are
 explicitly owner-deferred and NOT RUN. Historical fixture/renderer evidence does not
 prove compatibility of this delta. Host facades do not establish physical glyphs,
-refresh, runtime headroom, energy or ESP32 performance. Coordinated live device integration,
-recurrence, timezone transition resolution, revision/cancellation processing, broader
-metadata support,
-production GFX2 migration and final presentation policy remain separate work. No live
+refresh, runtime headroom, energy or ESP32 performance. The canonical root now composes the live source/display cycle. Recurrence,
+timezone transition resolution, revision/cancellation processing, broader metadata,
+final RTC/configuration/recovery/UI policy and physical validation remain separate work. No live
 wall-calendar or physical-display milestone is claimed.
 
 ### Five-day snapshot renderer and EE02 preview
 
-**Reusable rendering path implemented; deterministic and opt-in live development
-sketches compose it. Production migration and final presentation remain unimplemented.**
+**Reusable rendering path composed by the canonical root and independent deterministic
+preview. Final presentation policy and target/hardware behavior remain unverified.**
 [FiveDayRenderer](../application/five_day_renderer.h) accepts a const FiveDaySnapshot,
 Seeed_GFX, a half-open rectangular region, an explicit local-time conversion context
 and a preview GLCD scale (1–3). It returns Drawn, InvalidSnapshot, InvalidRegion or
@@ -1387,7 +1391,8 @@ separately, retains restricted storage after uncertain shutdown and releases hea
 storage through the existing APIs. The validated 960,000-byte borrowed prefix and
 independent snapshot remain the only large owners; no owned-panel case is added.
 The 1600×1200 rotation places the agenda at inclusive x/y 10..1034, inside the existing
-1044 dividers. Production panels, acquisition, legacy event array and sleep are untouched.
+1044 dividers. It is independent of the canonical root acquisition/timer-sleep cycle;
+legacy event storage is not part of either GFX2 path.
 
 #### Validation and limitations
 
@@ -1419,16 +1424,15 @@ no new physical evidence follows from these runs. Commands are in AGENTS.md.
 
 The final grid/agenda and waking-hour decisions remain Open. This example preview
 is a controlled intermediate display path, not a separate permanent application or
-the first live wall-calendar milestone. The opt-in live sketch described above is
-also a development entry point; coordinated production device integration and broader ICS-to-snapshot support,
-recurrence/timezone normalization, production GFX2 migration and physical validation
+the first live wall-calendar milestone. The former live sketch is now the canonical root. Broader ICS-to-snapshot support,
+recurrence/timezone normalization, final RTC/settings/recovery and physical validation
 remain separate independently authorized outcomes.
 
 ### Authenticated production weather HTTPS
 
 [weather_acquisition.h](../application/weather_acquisition.h) requires
 explicit WeatherHttps::Trust and WeatherHttps::Request inputs for each
-current/short/daily fetch; weather.h retains the production one-argument wrappers.
+current/short/daily fetch; inactive weather.h retains historical one-argument wrappers.
 Trust contains a
 caller-asserted trusted-wall-clock boolean and a caller-owned readable CA PEM span
 (pointer and size including its sole terminal NUL). The span stays unchanged/alive
@@ -1473,30 +1477,12 @@ constants or default credentials. The provider hostname, paths, query names/unit
 JSON tails, grouping and observation ownership stay unchanged. This bounded request
 profile is not a final device settings schema; no request pointers are retained.
 
-Private ignored credentials.h must supply `const char WEATHER_CA_PEM[]` as an actual
-NUL-terminated array. The sketch passes its exact sizeof span and the local boolean
-returned by [legacy_time_sync.h](../application/legacy_time_sync.h). No CA is embedded
-or read from private configuration during host validation. Provisioning an appropriate
-CA is required; rotation/update/storage architecture remains Open.
-
-The existing boot time attempt now returns bool: Wi-Fi waits at most 100 × 100 ms;
-when connected, stop any prior SNTP service, reset the atomic callback bridge, set
-immediate mode, register notification before configTzTime with the unchanged server/TZ,
-and wait at most 20 × 500 ms for a fresh event. The inspected pinned IDF notification
-follows system UTC update in immediate mode. Stop SNTP, unregister this boot-owned
-notification slot, copy the result and clear the bridge before Wi-Fi disconnect/off.
-No notification on this attempt means false even if the clock was previously valid.
-This exclusive legacy boot slot has no callback getter/restoration API; it is not
-shared with another time owner. No per-request NTP, persistent/RTC trust or final
-resync policy is introduced. Ordinary configured NTP is not authenticated time.
-
-The boot order remains time attempt → current/short/daily weather → independent
-legacy calendar → existing render → sleep. updateWeather synchronously captures
-trust by reference. acquireDataSources accepts those callables without allocation
-or retention and preserves order, report-before-disconnect, Wi-Fi gate and
-current-weather-only return semantics. Weather admission failure cannot suppress
-legacy calendar; that separate request still has insecure TLS/retries/redirects.
-No ICS TLS, observation schema, battery, graphics or sleep policy changed.
+The root uses explicit request and CA spans from private ignored device_config.h,
+not credentials.h or the legacy WX_LOCATION defaults. It shares one fresh-session
+SNTP observation across weather/calendars/window building, as specified above.
+The retained legacy_time_sync.h and weather.h wrappers describe the retired boot
+sequence only; their callback/report tests remain useful historical regressions,
+not a second active application. No final RTC/CA-update policy is implied.
 
 Strict C++11 and ASan/UBSan weather tests cover ten trust rejections per operation,
 CA/call order, unchanged destinations, begin/connect/status/redirect/transfer/parser
@@ -1533,10 +1519,10 @@ pin control retain their original implementation.
 [weather_acquisition.h](../application/weather_acquisition.h) now contains the existing
 three explicit-input bool fetch functions and the same internal-linkage observation
 arrays, without a key declaration, graphics, fonts, panel or Wi-Fi orchestration
-dependency. `weather.h` supplies the existing one-argument production fetch wrappers
+dependency. Inactive `weather.h` retains the old one-argument fetch wrappers
 using WX_LOCATION and OPENWEATHER_API_KEY after private credentials, with bounded
-length checks. It remains the compatibility entry for all legacy drawing
-and `updateWeather(trust)`. No new initialization or extra network call is introduced. Storage
+length checks. It is an inactive reference entry for legacy drawing
+and `updateWeather(trust)`. The active root never includes it. Storage
 ownership remains the existing single sketch translation unit; this is not a new
 multi-translation-unit storage framework. Consumers pass the actual arrays to the
 existing dashboard Inputs, with explicit counts/lifetimes, rather than copying them.
@@ -1569,8 +1555,8 @@ and battery measurement/drawing bodies compare unchanged; moved fetch bodies mat
 apart from the two equivalent index conversions. Include/symbol checks establish
 one observation definition per existing sketch translation unit. No live requests,
 private credentials, target compilation, physical ADC/display, memory or power
-measurements were used. Production wake-cycle migration remains separate; current
-weather TLS evidence is above. See [host commands](../AGENTS.md#commands-and-validation).
+measurements were used. That historical extraction did not migrate the wake cycle;
+the canonical root now supplies that composition, with target/hardware still deferred. See [host commands](../AGENTS.md#commands-and-validation).
 
 #### Geometry and drawing
 
@@ -1642,8 +1628,8 @@ The deterministic EE02 preview retains its fixed trusted UTC, generated October
 source outcomes and scratch poisoning. It now supplies synthetic weather, counted
 forecasts and battery values to this dashboard in one draw callback, then lets the
 workspace refresh once and check shutdown separately. Retained restrictions remain
-unchanged. EXAMPLE DATA is visible in the provisional month area. The opt-in live
-dashboard sketch now composes the same panels through the integrated acquisition path above.
+unchanged. EXAMPLE DATA is visible in the provisional month area. The canonical root now composes the same panels through the integrated acquisition
+and checked sleep path above, without the development label.
 
 Original dashboard-composition evidence: its strict C++11/ASan/UBSan host regression
 covers all panels, viewport/region
@@ -1657,8 +1643,8 @@ calendar-renderer checks, snapshot/workspace lifecycle checks and 228 producer c
 The extended test facade records primitive bounding boxes, not rasterized pixels.
 See AGENTS.md for executable commands. No host syntax-only sketch or target build is
 claimed. Arduino compilation, flashing, physical EE02, runtime headroom and power
-remain owner-deferred and unverified. Production dashboard/acquisition migration,
-remaining calendar transport security, final monthly-grid/layout decisions and device
+remain owner-deferred and unverified. The historical dashboard-only evidence does not validate the now-composed root.
+Final monthly-grid/layout/RTC/settings/recovery decisions and device
 validation remain future independently authorized work.
 
 ### Bounded streaming ICS ingestion
@@ -1668,9 +1654,9 @@ acquisition and supported semantic publication.**
 [application/ics_ingestion.h](../application/ics_ingestion.h) implements one bounded
 raw HTTP response framer feeding the separate
 [application/ics_logical_lines.h](../application/ics_logical_lines.h) byte unfolder.
-Both are hardware-independent, noncopyable and allocation-free. The production
-Apps Script/JSON path, `Ee02PsramWorkspace`, `FiveDaySnapshot`, GFX2 and display
-lifecycle are unchanged. Lines are provisional until ingestion completes; even
+Both are hardware-independent, noncopyable and allocation-free. The root reuses
+these accepted interfaces and the independent workspace/snapshot/GFX2 ownership
+contracts without changing framing/unfolding semantics. Lines are provisional until ingestion completes; even
 Complete means supported framing/unfolding, **not complete, semantically valid ICS**.
 
 #### Raw HTTP contract
@@ -1836,14 +1822,14 @@ for its explicit supported profile, not general ICS semantics.
 **Implemented isolated syntax/structure; not a calendar importer.**
 [application/ics_structure.h](../application/ics_structure.h) adds `IcsStructure`
 without changing accepted ingestion, workspace, snapshot or vendor implementations.
-Production remains on Apps Script JSON and legacy graphics. Selective source-local
+The canonical root now composes the selective streaming path. Selective source-local
 staging, typed primitive decoding, selected VEVENT-local and timezone/observance-local
 checks plus source-local coverage, standalone core RECUR grammar, contextual RRULE
 validation, VEVENT/observance recurrence-local coverage and source-wide recurrence-local
 composition, selected TZID reference-local identity matching and source-wide VEVENT
 TZID identity coverage now exist below, along with a separate restricted nonrecurring
 semantic producer. General source-semantic validation, recurrence application, timezone
-resolution and production integration remain unimplemented.
+resolution remains unimplemented; the root supports only the explicitly closed producer profile.
 
 #### API, ownership and generic grammar
 
@@ -1990,8 +1976,8 @@ validation history remains distinct from this parser outcome.
 **Implemented isolated retention; not a calendar importer or semantic producer.**
 [application/ics_source_stage.h](../application/ics_source_stage.h) composes the
 accepted ingestion/structure callbacks without changing their implementations.
-It retains a declared VEVENT projection, not a complete source document. Production
-Apps Script acquisition, graphics, workspace and independent snapshot are unchanged.
+It retains a declared VEVENT projection, not a complete source document. Its
+standalone retention contract is unchanged by canonical root composition.
 
 #### Storage, API and lifetime
 
@@ -2192,7 +2178,8 @@ or compilation.
 **Implemented isolated representations and property-local checks; not complete
 component/event/source validation.** [application/ics_typed_values.h](../application/ics_typed_values.h)
 adds the `IcsTypedValues` namespace without changing accepted ingestion, structure,
-stage, workspace, snapshot or graphics implementations. Production remains unchanged.
+stage, workspace, snapshot or graphics interfaces. The canonical root now composes
+these accepted components rather than changing typed-value semantics.
 
 #### API, representation and context
 
@@ -2466,7 +2453,7 @@ software behavior and isolated linkage, not complete calendar or hardware correc
 stateless `IcsTimezoneLocal::validateTimezone(stage, calendarIndex, timezoneIndex,
 limits)` and `validateObservance(stage, timezoneIndex, observanceIndex, limits)`.
 Accepted ingestion, structure, stage, typed decoder, event validator, workspace,
-snapshot and production implementations are unchanged.
+snapshot and then-production implementations were unchanged by that standalone unit.
 
 #### Admission, ordering and schema
 
@@ -3450,67 +3437,42 @@ complete temporal conformance, source acceptance or ESP32 runtime performance.
 
 ### Boot to sleep flow
 
-1. Start Serial. No filesystem mount, formatting or artwork initialization occurs.
-2. `syncTime()` opens Wi-Fi, uses the configured NTP server/TZ and a fresh SNTP
-   notification gate, then stops/unregisters SNTP and disconnects/turns Wi-Fi off.
-   Its local boolean is weather time-trust evidence for this boot attempt only.
-3. `updateWeather(trust)` opens Wi-Fi again with the existing bounded connection wait.
-   On connection success, `acquireDataSources()` calls current weather, short
-   forecast, daily forecast and calendar fetch functions once each, in that order,
-   regardless of individual bool results. All weather fetches require the same
-   explicit trusted-time/CA span; a missing prerequisite does not suppress calendar.
-   Each fetch owns its own inputs; forecast
-   and calendar requests do not require current-weather success. Four outcomes
-   are reported with source-only failure messages, then Wi-Fi disconnects/off.
-   The return value still reports current-weather success only. Wi-Fi failure
-   returns false without fetching or running disconnect/off cleanup. The calendar
-   fetch's existing internal HTTP retry is unchanged.
-4. Begin/rotate/clear the display, draw existing dividers, daily forecast, monthly calendar,
-   events, battery and weather, then unconditionally call `update()` and `sleep()`.
-   No displayed-content comparison exists. The cleared former artwork region is
-   reserved for the future production five-day calendar; the production sketch invokes
-   no replacement renderer or placeholder.
-5. Calculate sleep from local time and `DEEP_SLEEP_HOURS`, avoiding 00:00–04:59;
-   failed time acquisition falls back to the interval. Enable timer wake and enter
-   deep sleep if nonzero. Actual wake behavior is unverified.
-
-Retained panel coordinates and divider endpoints are unchanged. `DAILY_FCST_X=10`
-replaces the forecast's former artwork-named origin. Neutral divider constants keep
-the margin at 10, vertical divider at x=1044 and left horizontal divider at y=1044.
-Its endpoints remain x=10..1034. The right horizontal divider retains x=1054 to
-display width minus 20 and y=display height / 2 - 30. These preserve current geometry,
-not the unselected final week-view layout.
+The canonical root wake-cycle section above owns the active sequence and its error/
+sleep boundary. It replaces the legacy syncTime/updateWeather/month-grid/dead-zone
+sequence, which remains visible only in inactive reference headers and Git history.
+There is one configured Wi-Fi session, fresh NTP on every wake, independent weather
+attempts, sequential selected ICS sources, one battery read, verified network/parser
+shutdown, exclusive dashboard borrow, checked panel end, release and timer sleep.
+No error screen, retry loop or recovery AP is introduced. Software status checks
+are not electrical shutdown or battery-life evidence.
 
 ### Service, data and storage boundaries
 
-NTP uses the configured pool server and POSIX timezone. OpenWeatherMap supplies
-current weather plus overlapping `cnt=5`/`cnt=40` forecast responses. Forecast
-hours/dates are taken from `dt_txt` without explicit timezone normalization
-(weather_acquisition.h, fetchForecastData()/fetchDailyForecastData()). Apps Script uses deployment-local date/time
-operations; live deployment/calendar zone alignment is unverified.
+NTP and POSIX TZ come solely from device_config.h. OpenWeatherMap still supplies
+current weather and cnt=5/cnt=40 forecasts, using the existing JSON fields and
+unchanged dt_txt grouping/time-label assumptions. The explicit request context
+chooses location/key without altering provider interpretation. Weather storage is
+the original single volatile arrays. Calendar URLs use the authenticated streaming
+ICS path and restricted producer, not Apps Script; source-owned titles and occurrence
+ranges reside only in the independent volatile snapshot. Data are rebuilt each wake.
 
-Apps Script truncates while enumerating calendars at eight events; firmware
-truncates at six before sorting by HH:MM (script lines 18,38–65; calendar.h
-lines 181–207). All-day output is `00:00`/`24:00`. Selection order, filtering and
-all-day priority remain Open. Successful JSON parsing alone does not distinguish
-an unauthorized/error response from a valid empty event collection. Events and
-weather live in ordinary static RAM; production uses no normalized snapshot.
+The current supported nonrecurring UTC/DATE profile is not full provider/recurrence/
+TZID/revision acceptance. Unsupported source semantics stay Incomplete even outside
+the window, never a fabricated empty success. All active calendar/weather HTTPS requires CA/time
+trust, original-hostname verification, no downgrade/insecure fallback and no redirects.
+Certificate renewal/provider auth policies remain Open.
 
-No OpenAI requests, artwork processing/rendering, application filesystem operations
-or persistent data cache remain. The removed artwork path owned the overlapping
-4MiB+1 response and variable-size decoded PNG PSRAM allocations, prompt strings,
-decoder/file state, static dither/error storage and row buffers. This establishes
-removed allocation sites, not measured memory savings or verified headroom. No new
-workspace, persistent state or framebuffer ownership mechanism is introduced into
-the production application; isolated workspace/borrowing/snapshot/ingestion code is described above.
-Display-driver/core allocations and actual stack/heap/PSRAM peaks remain unverified.
-Existing flash contents and the documented partition selection are untouched.
+There are no application filesystem, event-cache or routine NVS writes. The root
+sets Wi-Fi persistence false and disconnects without erasing stored configuration.
+Its new ignored provisional configuration is not a final NVS schema. Existing flash,
+partitions, private legacy credentials and ignored demo config are not migrated or
+erased. Calendar processing finishes before workspace framebuffer borrowing; no
+live stage aliases survive. Actual stack/heap/TLS/PSRAM peaks and energy are unmeasured.
 
-Weather failure no longer suppresses calendar or forecast acquisition on a
-connected session. Missing time still affects date/render paths; current-weather
-failure still causes `drawWeather()` to return before its nested short-forecast draw.
-The daily forecast, calendar, events and battery retain their separate sketch calls.
-These are observed limitations, not approved degraded-operation policy.
+Retained geometry comes from FiveDayDashboardRenderer::ee02PreviewGeometry(), not
+legacy constants.h. Final month retention, agenda/grid/waking hours and layout stay
+Open; the unassigned historical month area is blank. Today/source warnings, weather/
+forecast unavailable states and battery N/A/valid-low behavior remain explicit.
 
 ## Hardware platform and known configuration
 
@@ -3537,23 +3499,21 @@ polarity, sequencing or sleep retention contract is established. Do not infer th
 
 ## Security and credential boundaries
 
-**Current production-source observations:** Wi-Fi/API secrets come from intentionally ignored
-local credentials.h. Apps Script contains a placeholder API_KEY that operators
-must privately configure. The three weather requests now require explicit CA/time
-trust, certificate-chain/hostname verification and no redirects/fallback as described
-above. The separate Apps Script fetchCalendarEvents() in calendar.h still calls
-setInsecure(), follows redirects and retries; that encrypted traffic is not
-authenticated trust. The ICS HTTPS API separately requires CA-chain/hostname
-verification and caller-verified wall time. None establishes physical TLS validation
-or makes every production endpoint secure.
+**Current active root:** private device_config.h supplies caller-owned URLs, Wi-Fi,
+API keys and CA spans. Both weather and ICS require trusted time and authenticated
+chain/original-hostname TLS with no redirects, insecure retry or HTTP fallback.
+Core Debug None is enforced because upstream HTTP/DNS logging can disclose URL/query
+material; application diagnostics avoid keys, URLs, CA and private event titles.
+Existing weather routines retain nonsecret weather-observation logs. Separate IDF/
+platform diagnostics still need review, and host tests prove no cryptographic behavior.
+Ordinary SNTP is not authenticated time; certificate rotation/update, final RTC trust
+and physical-access/flash encryption remain unresolved.
 
-Calendar/API keys travel in query URLs. Apps Script deployment instructions
-execute as the deploying account with access set to
-Anyone, guarded in code by the query key. Private calendar information, endpoint
-information and API credentials may be exposed through service traffic or Serial
-diagnostics. No OpenAI credential is required by the application. Private local
-credentials are not rewritten by retirement; existing flash contents are not erased.
-Physical-access protection/flash encryption is not established.
+Inactive calendar.h still contains insecure Apps Script/redirect behavior; it is not
+in the root include/link graph and is not a fallback. google-calendar-api.gs and
+credentials.h references are historical only. These files/private configuration are
+not read, rewritten or erased by root replacement. Private calendar URLs may contain
+bearer-equivalent tokens and must never be printed or committed.
 
 **Development constraints:** keep live secrets and sensitive logs out of Git and
 shared evidence; do not inspect secret inventories or manufacture credentials to
@@ -3565,16 +3525,16 @@ it adds no NVS/flash writes. Its diagnostics contain codes and ordinals rather t
 content. Release invalidates views but is not secure erasure; physical-access
 protection and runtime content handling still require the existing security review.
 
-**Recommendation, not fully implemented:** authenticated TLS for every production endpoint and
-redirect, explicit clock/trust failure handling, bounded input validation and
-minimal diagnostic data. Trust-update mechanism, physical-access threat assumptions
-and recovery/retention policy require evidence or selection.
+Active weather/ICS TLS now requires explicit CA/time/hostname authentication and
+refuses redirects. Actual interoperability and platform diagnostics remain unverified.
+Trust-update mechanisms, physical-access assumptions and final recovery/retention
+policy still require evidence/selection. No legacy insecure endpoint is a fallback.
 
 ## Testing and validation strategy
 
 The [AGENTS command section](../AGENTS.md#commands-and-validation) owns actual
 command availability. The [focused host regression](../tests/data_acquisition_test.cpp)
-calls the production acquisition helper with fake fetch/report/disconnect callbacks.
+calls the inactive legacy acquisition helper with fake fetch/report/disconnect callbacks.
 It covers all 16 success/failure combinations, exactly-once invocation and order,
 individual outcomes, current-weather-only return semantics, and the Wi-Fi-failure
 gate without any network callbacks. Arduino's connection loop and adapters are
@@ -3630,23 +3590,23 @@ measurement or successful firmware build is available to support readiness.
 
 ## Known engineering limitations
 
-- **Seeed_GFX/EE02 compatibility unresolved:** sketch references master with version
+- **Inactive legacy Seeed_GFX compatibility:** the retired prototype referenced master with version
   2.0.3, not an immutable revision. The inspected V2.0.3 source selects an ILI9341
-  default and lacks EE02/510 configuration. driver.h is not explicitly included
-  by root application source; calendar.h repeats selection macros after the
-  sketch's first TFT_eSPI include. Correct library-wide configuration propagation
-  must be established, not assumed or patched by an unapproved upgrade.
-- **Selected GFX2 production integration/hardware unverified:** the pinned import,
+  default and lacks EE02/510 configuration. driver.h was not explicitly included
+  by the prototype; calendar.h repeats selection macros after the
+  prototype's first TFT_eSPI include. These old constraints are historical, not
+  dependencies of the new root. No legacy library is selected as a fallback.
+- **Canonical GFX2 root/hardware unverified:** the pinned import,
   local panel-borrowing extension, scoped application workspace, normalized snapshot, focused host ownership
-  tests and isolated exact-target compile/link evidence are present. Production migration, runtime PSRAM/
-  heap/stack measurements, orientation and physical panel behavior remain pending.
+  tests and isolated exact-target compile/link evidence are present. Root composition is implemented; runtime PSRAM/
+  heap/stack measurements, target compilation, orientation and physical panel behavior remain pending.
   Isolated compilation establishes neither a complete production build nor memory
   reliability on EE02. Graphics-foundation selection is no longer Open.
 - **Production core compatibility unverified:** the historical prototype named
   4.0.0-alpha1 without a successful reproducible production build. Weather HTTPS
   now requires inspected 3.3.12 APIs/Core Debug None, matching the separately tested
   isolated GFX2 toolchain contract. No package was upgraded and no production build
-  was attempted; full legacy graphics/core compatibility remains unverified.
+  was attempted; the canonical root target build remains unverified (legacy graphics are inactive).
 - **No complete build/regression baseline:** documented library versions are not
   compatible revision proof; credentials/configuration, memory and partition fit
   remain prerequisites for a verified complete build. Host coverage includes integrated multi-calendar refresh/render traces
@@ -3655,16 +3615,14 @@ measurement or successful firmware build is available to support readiness.
   checks, VEVENT/observance recurrence-local coverage and source-wide recurrence-local
   composition, selected TZID reference-local identity matching, source-wide VEVENT
   TZID identity coverage and snapshot-renderer call-trace tests; no CI is committed.
-- **Data reliability:** truncation before global sort,
-  insufficient response-state distinctions, volatile events and unresolved timezone
-  alignment limit confidence. The target calendar snapshot is wake-cycle-only;
-  weather freshness/RTC-retention details remain Open.
+- **Data coverage:** the closed producer profile rejects unresolved recurrence, TZID/
+  floating time, revisions/overrides and cancellations. Snapshot/weather data are
+  wake-cycle-only; weather dt_txt grouping and freshness/RTC retention remain limited.
 - **Security:** weather/ICS TLS require explicit CA/time trust, with target execution
-  unverified. Apps Script calendar TLS remains insecure and redirect-following;
+  unverified. inactive Apps Script code remains insecure and redirect-following;
   certificate rotation/update and final RTC time trust remain Open.
-- **Intermediate display:** the reserved former artwork region is temporarily empty.
-  Artwork removal is not a complete or independently releasable display design;
-  the future week view and measured memory/display behavior remain unverified.
+- **Provisional display:** the root now draws the five-day dashboard; final layout,
+  agenda/grid, month retention and physical appearance remain unverified/Open.
 - **Power/hardware:** repeated network operations, unconditional display update,
   unmeasured sleep current/power sequencing, and unverified battery/display behavior
   remain. Static review cannot determine physical refresh mode or electrical accuracy.
@@ -3700,12 +3658,12 @@ limits. Contrary engineering evidence requires explicit review and adjudication.
 **Recommendations not yet selected:** Arduino CLI as the reproducible production build route,
 immutable compatible pins for other dependencies, broader focused C++ host coverage, explicit
 production source-results/time normalization, durable configuration-save mechanisms and
-production-wide authenticated TLS integration. The separate generic ICS adapter
-implements the inspected CA/hostname-authenticated API without production lifecycle
-integration. The initial GFX2 source pin is approved and imported;
+expanded provider access and certificate-update mechanisms. The canonical root
+now composes inspected CA/hostname-authenticated weather/ICS APIs; actual TLS
+interoperability remains unverified. The initial GFX2 source pin is approved and imported;
 its local borrowing, scoped workspace and synthetic snapshot are implemented with isolated compile/link
-evidence. Production integration and physical memory/display behavior remain
-unverified, not grounds for a silent source upgrade.
+evidence. The root composition is now implemented; target compilation and physical
+memory/display behavior remain unverified, not grounds for a silent source upgrade.
 Routine helper organization/test tooling is an implementation-local choice; an
 upgrade, durable retention guarantee or product-policy change needs supporting
 evidence and approval. Unknown wiring/configuration/runtime facts require inspection
