@@ -1,31 +1,12 @@
 #ifndef EE02_DEVICE_CONFIG_H
 #define EE02_DEVICE_CONFIG_H
-// Copy to device_config.h at the repository root (Git ignored). Supply your own
-// values locally, then explicitly opt in. Never share that file or serial dumps
-// of its contents. This template contains no usable credentials or CA trust.
+// Build-only provisional inputs. Copy to ignored device_config.h and deliberately
+// enable this build. User settings load ONLY from NVS; no import/fallback occurs.
+// No usable CA trust is supplied. Certificate rotation remains Open.
 namespace DeviceConfig {
 static const bool configured=false;
-static const char wifiSsid[]="";
-static const char wifiPassword[]="";
-static const char posixTimezone[]=""; // Supply an explicit valid POSIX display timezone.
-static const char ntpServer[]="";
-static const char caPem[]=""; // Caller-provided trusted CA PEM, including terminal NUL.
-// Independent development weather settings. Empty fields are fine when disabled.
-static const bool weatherEnabled=false;
-static const char weatherLocation[]="Example City,XX";
-static const char weatherApiKey[]="";
-static const char weatherCaPem[]=""; // May use different CA material from calendars.
-static const char firstUrl[]="https://example.invalid/personal.ics";
-static const char secondUrl[]="https://example.invalid/shared.ics";
-static const char disabledUrl[]="https://example.invalid/disabled.ics";
-static const FiveDayCalendarRefresh::Source sources[]={
-    {false,{"Example personal",16},{reinterpret_cast<const uint8_t*>(firstUrl),sizeof(firstUrl)-1}},
-    {false,{"Example shared",14},{reinterpret_cast<const uint8_t*>(secondUrl),sizeof(secondUrl)-1}},
-    {false,{"Example disabled",16},{reinterpret_cast<const uint8_t*>(disabledUrl),sizeof(disabledUrl)-1}}
-};
-// Explicit positive seconds required. Zero intentionally refuses acquisition/sleep.
-// This is not a product default or a daily NTP/RTC policy.
-static const uint64_t refreshSeconds=0;
+static const char caPem[]="";
+static const char weatherCaPem[]="";
 // Provisional DEVELOPMENT evaluation bounds, not approved operating capacities.
 static const size_t maxConfiguredSources=8;
 static const size_t workspaceBytes=2097152;

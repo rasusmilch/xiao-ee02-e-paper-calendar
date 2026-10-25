@@ -42,7 +42,7 @@ sketch now composes the reviewed calendar/weather/battery/dashboard components a
 checked timer sleep. It does not use TFT_eSPI, Apps Script, a six-event store or the
 legacy monthly grid. Retained legacy files are inactive reference material. Target
 compatibility and physical operation remain unverified; final UI/month retention,
-RTC validity/daily NTP, configuration, provider expansion and recovery remain Open
+RTC validity/daily NTP, settings UI/future migration, provider expansion and recovery remain Open
 or unimplemented as specified below. The deterministic preview stays independent.
 
 ## Approved target architecture (partially implemented)
@@ -123,7 +123,7 @@ uses this ownership model for sequential authenticated HTTPS ICS acquisition and
 GFX2 dashboard composition, with authenticated weather and one battery sample. The
 former live demonstration was promoted, not kept as a parallel application. Contrary
 engineering evidence still requires review/adjudication rather than an alternative
-allocation model. General source semantics, final capacities, RTC/configuration/
+allocation model. General source semantics, final capacities, RTC/settings-UI/
 recovery/provider policy and target measurements remain incomplete/Open.
 
 #### Ownership and wake-cycle sequence
@@ -295,7 +295,8 @@ and explicit vendored-library selection establish the active path.
 | Component | Responsibility and dependencies |
 | --- | --- |
 | [Root sketch](../xiao-ee02-e-paper-calendar.ino) | One Wi-Fi/SNTP attempt, rolling window, explicit-input weather, multi-calendar coordinator, one battery sample, network/scratch/graphics handoff, checked resource release and timer deep sleep. |
-| [device_config.example.h](../device_config.example.h) | Synthetic provisional private device_config.h contract; no usable credentials, configured=false and refreshSeconds=0. Not an NVS/settings schema. |
+| [device_config.example.h](../device_config.example.h) | Inert build-only opt-in, CA material, evaluation capacities/limits and prerequisite waits; no user-setting fallback. |
+| [device_settings.h](../application/device_settings.h), [codec](../application/device_settings_codec.h), [NVS service](../application/device_settings_nvs.h) | Owned V1 user values, whole-candidate validation, safe presentation/secret edits and one namespace/key; read-only root loading, explicit changed saves/clear only. |
 | [five_day_calendar_refresh.h](../application/five_day_calendar_refresh.h) | Enabled-source compaction, one independent snapshot, sequential streaming acquisition and per-source transaction reconciliation. |
 | [weather_acquisition.h](../application/weather_acquisition.h) | Authenticated explicit-request current/short/daily weather and single observation store; unchanged JSON/grouping; no legacy configuration include. |
 | [weather_values.h](../application/weather_values.h) | Unchanged POD layouts plus the existing weather-only counts/weekday labels, extracted so active acquisition imports no old location/time/sleep settings. |
@@ -311,13 +312,13 @@ or ignored-user-config migration is performed.
 
 ### Canonical root wake cycle and sleep boundary
 
-Private ignored device_config.h supplies explicit opt-in, Wi-Fi, NTP/POSIX timezone,
-selected HTTPS ICS descriptors/calendar CA, weather enabled/location/key/CA, workspace/
-snapshot/source limits, finite prerequisite waits and positive refreshSeconds. The
-synthetic template disables opt-in, leaves prerequisites empty, disables all calendar
-entries/weather and sets refreshSeconds=0; changing only configured cannot initiate
-placeholder acquisition. Required strings are bounded arrays with checked termination.
-No credentials.h or legacy WX_LOCATION/TIMEZONE/sleep constant is configuration authority.
+After build-only opt-in, load the versioned NVS user record before networking. Missing,
+corrupt, incompatible or unreadable records do not acquire or choose a sleep interval.
+NVS owns Wi-Fi/time/calendar/weather/refresh values; no compile-time user-field fallback
+or private-file import exists. device_config.h supplies CA trust, evaluation capacities/
+limits and finite prerequisite wait ceilings only. Its tracked example is inert.
+Construct transient source views into the stable owned settings outside PSRAM scratch;
+keep them alive through acquisition/rendering. The settings service is not reentrant.
 
 Check positive seconds, uint64 microsecond multiplication and signed IDF duration
 representability before networking. No shorter/default interval is substituted. One
@@ -367,15 +368,100 @@ electrical panel quiescence, PSRAM retention risks and power still need measurem
 The adapted tests/live_dashboard_refresh_test.cpp compiles and invokes the actual
 root with public synthetic configuration and narrow network/SNTP/ADC/timer facades,
 real calendar framing/parser/stage/producer and actual panel borrow/end software.
-Current strict C++11 and ASan/UBSan runs pass 31 root boot/sleep cases.
+Current strict C++11 and ASan/UBSan runs pass 40 root boot/sleep cases, including
+missing/corrupt/future/I/O settings, read-only reboot/reload and changed runtime inputs.
 They cover normal/partial/all-failed/zero-selection, weather independence, missing CA,
 prerequisite/PSRAM/shared-coordinator/renderer errors, guard/lifetime checks, invalid/
 overflowing intervals, timer rejection, fresh trust each invocation and Retained
 sleep refusal. Supplied decoded weather values are not real JSON parsing; fake TLS,
 SNTP, ADC and sleep are not hardware proof. Target builds/live services/flashing,
 actual RTC/timer wake, memory headroom, battery calibration and panel/energy checks
-remain owner-controlled/deferred. Settings/NVS, recovery AP/three-failure screen,
+remain owner-controlled/deferred. Settings webpage, recovery AP/three-failure screen,
 final RTC/provider/UI/capacity policies and release readiness are not implemented.
+
+### Versioned NVS device settings
+
+application/device_settings.h defines one owned Values model. Capacities excluding NUL:
+SSID 32, password 64, POSIX TZ 127, NTP DNS hostname 253, weather location 127/API key
+128, eight calendars each with enabled flag, 64-byte UTF-8 label and 512-byte HTTPS URL.
+Positive u64 refresh seconds must fit signed microseconds. Open Wi-Fi uses an explicitly
+empty password; otherwise 8–63 printable ASCII bytes or a 64-hex PSK is admitted.
+All counted fields require an exact terminal NUL and no embedded NUL; declared lengths
+are checked before access. Enabled weather uses the unchanged request encoder's full
+location/URL budgets; URL admission reuses IcsHttpsSource, not another parser. Disabled
+blank URLs and zero selected sources are valid. Nonempty disabled URLs still must pass
+admission. Timezone syntax validity/provider interoperability are not proven by storage
+validation; actual root conversion/window checks remain mandatory.
+
+Codec V1 is explicit little endian: ASCII EE02 magic (4), u16 version (1), u16 header
+length (16), u32 total bytes, u32 IEEE CRC32, then u64 refresh, u8 weather enabled and
+u8 source count. Six strings (SSID/password/TZ/NTP/location/key) use u16 byte lengths
+then exact bytes without NUL; each source is u8 enabled followed by label/URL strings.
+No pointers/padding/descriptors are stored. CRC32 covers all bytes except offsets
+12–15 and is accidental-corruption detection only. Maximum shape is 5,417 bytes;
+MaxEncoded is 5,632. Trailing/truncated data, noncanonical booleans, bad lengths/counts,
+checksum/magic and invalid decoded values fail closed; validly framed unknown schemas
+return UnsupportedVersion. No migration or automatic erasure is implemented. Decoder
+work and output must be disjoint, output changes only on success, and copied strings
+survive destruction of input bytes. Values sizeof is 5,464 and Service sizeof is
+22,200 on this host; fixed service work lives outside the root task stack/PSRAM arena,
+not another durable source registry. Actual target RAM/stack headroom is unmeasured.
+
+Service uses exactly namespace ee02_settings and blob key config (both within NVS
+15-character limits). load opens NVS_READONLY, queries bounded blob length, reads,
+closes and decodes. Every wake is read-only. Missing, corrupt, future schema,
+not-initialized/open/read, write/commit/verify/clear and insufficient-space outcomes
+are distinct pointer-free codes. No component initializes/formats/erases a partition.
+Arduino-ESP32 3.3.12 initializes NVS before setup; its existing esp32-hal-misc.c can
+erase the default partition after ESP_ERR_NVS_NO_FREE_PAGES/NEW_VERSION_FOUND. This
+upstream behavior is unchanged; the settings adapter neither invokes nor claims to
+prevent it. No application error triggers whole-partition recovery.
+
+save validates the complete candidate before storage access, encodes deterministic
+bytes, reads/compares the existing record and skips equal writes. Changed saves call
+nvs_open(READWRITE), nvs_set_blob, nvs_commit, close, reopen/read/compare before active
+RAM replacement. Invalid/equal saves do not write/commit. No event/weather/time/battery/
+failure/wake state is stored. Failure retains current active RAM values; a failed
+commit/verification may already have persisted a complete replacement. Callers must
+reload to learn disk state rather than assume rollback. Service is synchronous,
+single-owner/nonreentrant, with no concurrency/HTTP session policy.
+
+Inspected Arduino 3.3.12 default.csv allocates 0x5000 (20 KiB) for NVS. The bounded
+record leaves room for replacement in that otherwise available partition, not a
+reservation against other consumers or proof of installed partition occupancy. The
+pinned IDF b774170f nvs_storage.cpp writes alternate blob chunks/index before removing
+the previous version; initialization removes orphan/inconsistent chunks. nvs_commit
+is required by the API although this implementation writes earlier. This supports
+one complete blob replacement without a custom journal; it is not a guarantee that
+errors leave flash unchanged or that every physical interruption retains a usable
+record. Insufficient free storage fails explicitly. No partition enlargement or
+storage backend replacement occurs. Actual board capacity, flash faults, endurance
+and interrupted-power recovery remain owner-unverified.
+
+presentation returns separate nonsecret fields and presence booleans; internal()
+is for trusted acquisition only and must not be used by future presentation code.
+Full calendar URLs remain visible, including query tokens, as selected; future
+open-AP/page exposure therefore remains a real privacy boundary. Explicit secret
+Keep/Replace/Clear semantics reject payloads on Keep/Clear and reject the reserved
+******** mask as Replace. Clear may empty Wi-Fi password for an open network; weather
+key clearing requires weather disabled. Complete candidate validation occurs before
+active/persistent replacement. clear erases only config, commits and verifies Missing;
+failed clear is not success. It is not wired to hardware, a webpage or recovery AP.
+No raw blob, saved password or saved API key exists in the presentation type. NVS is
+not encrypted/authenticated by this service; flash-access confidentiality is unproven.
+
+Host evidence: tests/device_settings_test.cpp executes 539 codec, truncated-record,
+length/UTF-8/capacity, NVS/error/replacement, presentation/secret-edit and clear checks;
+tests/live_dashboard_refresh_test.cpp executes 40 actual-root cycles including read-only
+loading, malformed/future/missing records, reboot and changed Wi-Fi/TZ/NTP/calendar
+views. Strict C++11 and ASan/UBSan pass. The NVS stand-in scripts buffered and immediate
+writes plus failed commit; partial bytes are rejected, never accepted as mixed values.
+It does not execute ESP32 flash/NVS or prove physical power-loss behavior. Weather
+success still uses decoded-value scripts, not real ArduinoJson. Relevant existing
+coordinator/weather/dashboard/workspace regressions pass. Target builds/services,
+actual TLS/ADC/panel/sleep, partition fit, memory and power remain deferred. Web/AP,
+first-boot provisioning, physical reset mapping, recovery and RTC lifecycle remain
+unimplemented; no automatic import of any ignored private file occurs.
 
 ### Vendored GFX2 dependency baseline
 
@@ -1111,9 +1197,10 @@ The integrated live-dashboard implementation from reviewed commit 4012b56 is now
 preview entry point/template were retired to avoid two evolving refresh copies.
 The current lifecycle/configuration/sleep boundary is owned by the canonical-root
 section above. Old ignored previews/live_calendar_refresh/live_demo_config.h remains
-untouched and is not imported; private device_config.h is a new explicit input.
+untouched and is not imported; device_config.h now provides only build inputs.
 The deterministic synthetic preview remains independent. No legacy compatibility
-mode, extra event/weather store, second framebuffer or persistent settings was added.
+mode, extra event/weather store or second framebuffer was added. Persistent user
+settings are now implemented separately by the V1 NVS service.
 
 #### Validation boundaries
 
@@ -1425,7 +1512,7 @@ no new physical evidence follows from these runs. Commands are in AGENTS.md.
 The final grid/agenda and waking-hour decisions remain Open. This example preview
 is a controlled intermediate display path, not a separate permanent application or
 the first live wall-calendar milestone. The former live sketch is now the canonical root. Broader ICS-to-snapshot support,
-recurrence/timezone normalization, final RTC/settings/recovery and physical validation
+recurrence/timezone normalization, final RTC/settings-UI/recovery and physical validation
 remain separate independently authorized outcomes.
 
 ### Authenticated production weather HTTPS
@@ -1477,8 +1564,8 @@ constants or default credentials. The provider hostname, paths, query names/unit
 JSON tails, grouping and observation ownership stay unchanged. This bounded request
 profile is not a final device settings schema; no request pointers are retained.
 
-The root uses explicit request and CA spans from private ignored device_config.h,
-not credentials.h or the legacy WX_LOCATION defaults. It shares one fresh-session
+The root uses owned NVS location/key values as explicit request spans and build-only
+CA material from ignored device_config.h, not credentials.h or legacy WX_LOCATION. It shares one fresh-session
 SNTP observation across weather/calendars/window building, as specified above.
 The retained legacy_time_sync.h and weather.h wrappers describe the retired boot
 sequence only; their callback/report tests remain useful historical regressions,
@@ -3448,7 +3535,7 @@ are not electrical shutdown or battery-life evidence.
 
 ### Service, data and storage boundaries
 
-NTP and POSIX TZ come solely from device_config.h. OpenWeatherMap still supplies
+NTP and POSIX TZ come solely from validated NVS user settings. OpenWeatherMap still supplies
 current weather and cnt=5/cnt=40 forecasts, using the existing JSON fields and
 unchanged dt_txt grouping/time-label assumptions. The explicit request context
 chooses location/key without altering provider interpretation. Weather storage is
@@ -3464,9 +3551,9 @@ Certificate renewal/provider auth policies remain Open.
 
 There are no application filesystem, event-cache or routine NVS writes. The root
 sets Wi-Fi persistence false and disconnects without erasing stored configuration.
-Its new ignored provisional configuration is not a final NVS schema. Existing flash,
-partitions, private legacy credentials and ignored demo config are not migrated or
-erased. Calendar processing finishes before workspace framebuffer borrowing; no
+Its ignored build configuration supplies no user-value authority; V1 settings are
+stored separately. Private legacy credentials and ignored demo config are not imported
+or erased. No flash partition/layout change is made. Calendar processing finishes before workspace framebuffer borrowing; no
 live stage aliases survive. Actual stack/heap/TLS/PSRAM peaks and energy are unmeasured.
 
 Retained geometry comes from FiveDayDashboardRenderer::ee02PreviewGeometry(), not
@@ -3499,8 +3586,8 @@ polarity, sequencing or sleep retention contract is established. Do not infer th
 
 ## Security and credential boundaries
 
-**Current active root:** private device_config.h supplies caller-owned URLs, Wi-Fi,
-API keys and CA spans. Both weather and ICS require trusted time and authenticated
+**Current active root:** owned validated NVS user settings supply URLs, Wi-Fi and
+API keys; private device_config.h supplies only CA/build-limit spans. Both weather and ICS require trusted time and authenticated
 chain/original-hostname TLS with no redirects, insecure retry or HTTP fallback.
 Core Debug None is enforced because upstream HTTP/DNS logging can disclose URL/query
 material; application diagnostics avoid keys, URLs, CA and private event titles.
@@ -3657,8 +3744,9 @@ limits. Contrary engineering evidence requires explicit review and adjudication.
 
 **Recommendations not yet selected:** Arduino CLI as the reproducible production build route,
 immutable compatible pins for other dependencies, broader focused C++ host coverage, explicit
-production source-results/time normalization, durable configuration-save mechanisms and
-expanded provider access and certificate-update mechanisms. The canonical root
+production source-results/time normalization, future configuration migration and
+expanded provider access and certificate-update mechanisms. V1 NVS whole-record save
+and presentation semantics are now implemented; device-hosted settings remain pending. The canonical root
 now composes inspected CA/hostname-authenticated weather/ICS APIs; actual TLS
 interoperability remains unverified. The initial GFX2 source pin is approved and imported;
 its local borrowing, scoped workspace and synthetic snapshot are implemented with isolated compile/link

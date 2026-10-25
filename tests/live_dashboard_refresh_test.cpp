@@ -6,6 +6,8 @@
 #include <WiFi.h>
 #include <WiFiClientSecure.h>
 #include <NetworkClientSecure.h>
+#include "device_settings_fixture.h"
+#include <nvs.h>
 #include <algorithm>
 #include <cassert>
 #include <vector>
@@ -19,18 +21,10 @@ struct InitializeHost {InitializeHost(){LiveSocket::state();ObservationHost::htt
 // the same config contract; it never creates/opens an ignored device_config.h.
 #define EE02_DEVICE_CONFIG_H
 namespace DeviceConfig {
-bool configured=true,weatherEnabled=true;
-const char wifiSsid[]="synthetic-network",wifiPassword[]="synthetic-password";
-char posixTimezone[]="CET-1CEST,M3.5.0,M10.5.0/3",ntpServer[]="ntp.example.invalid";
+bool configured=true;
 char caPem[]="synthetic-calendar-CA",weatherCaPem[]="synthetic-weather-CA";
-char weatherLocation[]="Example City,XX",weatherApiKey[]="synthetic-key";
-const char firstUrl[]="https://one.example.invalid/one.ics",lastUrl[]="https://two.example.invalid/two.ics";
-FiveDayCalendarRefresh::Source sources[]={
- {true,{"Personal",8},{reinterpret_cast<const uint8_t*>(firstUrl),sizeof(firstUrl)-1}},
- {false,{"Disabled",8},{nullptr,0}},
- {true,{"Shared",6},{reinterpret_cast<const uint8_t*>(lastUrl),sizeof(lastUrl)-1}}};
 size_t maxConfiguredSources=8,workspaceBytes=2097152,recordCapacity=128,textCapacity=32768;
-uint64_t wifiWaitMs=100,ntpWaitMs=100,refreshSeconds=42;
+uint64_t wifiWaitMs=100,ntpWaitMs=100;
 IcsHttpsSource::Limits calendarLimits={2048,253,2048,4096,512,{10000,15,10000},
  {1048576,983040,16384,64,2048,512,2048,32,2048,8192,8192,0,15000},
  {8192,64,64,128,16,256,8192,16384,512,4},{512,4096,524288,512,65536},
@@ -55,7 +49,25 @@ void sleptSafely(){
  assert(!esp_sntp_enabled() && !ObservationHost::boot().callback);
  for(const auto& a:allocations)assert(!a.live);
 }
-void invoke(){try{setup();}catch(const SleepTrace::Handoff&) {}}
+DeviceSettings::Values draft=SettingsFixture::complete();
+bool seed=true; int damaged=0;
+void invoke(){
+ auto& disk=NvsHost::state();
+ if(seed){uint8_t encoded[DeviceSettings::MaxEncoded];size_t n=0;
+  const auto r=DeviceSettings::encode(draft,encoded,sizeof(encoded),n);
+  if(r.status==DeviceSettings::Status::Ok)disk.durable.assign(encoded,encoded+n);
+  else { // Deliberately persist a semantically invalid but checksummed record.
+   auto base=SettingsFixture::complete();assert(DeviceSettings::encode(base,encoded,sizeof(encoded),n).status==DeviceSettings::Status::Ok);
+   DeviceSettings::codec::put(encoded+16,0,8);DeviceSettings::codec::put(encoded+12,DeviceSettings::checksum(encoded,n),4);
+   disk.durable.assign(encoded,encoded+n);
+  }
+  disk.exists=disk.key=true;
+ }
+ if(damaged==1)disk.durable[12]^=1;
+ if(damaged==2){disk.durable[4]=2;DeviceSettings::codec::put(disk.durable.data()+12,DeviceSettings::checksum(disk.durable.data(),disk.durable.size()),4);}
+ try{setup();}catch(const SleepTrace::Handoff&) {}
+ assert(!disk.sets && !disk.commits && !disk.erases && !disk.opened); // Every wake is read-only, including failures.
+}
 void weatherPhase(){assert(workspace.state()==Ee02PsramWorkspace::State::Scratch && !LiveSocket::state().live);}
 void calendarPhase(){assert(workspace.state()==Ee02PsramWorkspace::State::ScratchAccess);assert(ObservationHost::https().stops==ObservationHost::https().begins);}
 void tick(unsigned long ms){
@@ -78,7 +90,7 @@ void observed(const Seeed_GFX& gfx){
   assert(snapshot.occurrence(0)->range.timed.start==1792891800);
   assert(snapshot.occurrence(1)->range.timed.start==1792888200);
   assert(snapshot.occurrence(2)->range.civil.start==20750 && snapshot.occurrence(2)->range.civil.end==20753);
-  const auto label=snapshot.sourceLabel(0);assert(std::string(label.data,label.size)=="Personal");
+  const auto label=snapshot.sourceLabel(0);assert(std::string(label.data,label.size)==std::string(settings.internal()->sources[0].label.data));
  }
 }
 bool has(const std::string& wanted){for(const auto& g:glyphs){
@@ -102,12 +114,9 @@ void reset(){
  ObservationHost::delayHook()=tick;ObservationHost::actionCount=0;ObservationHost::adc=2040;
  ObservationHost::https().statuses={200,200,200};ObservationHost::https().payload=LiveDecoded::payload();
  ObservationHost::https().checkPhase=weatherPhase;LiveSocket::state().checkPhase=calendarPhase;
- DeviceConfig::configured=true;DeviceConfig::weatherEnabled=true;DeviceConfig::refreshSeconds=42;
- std::memcpy(DeviceConfig::posixTimezone,"CET-1CEST,M3.5.0,M10.5.0/3",sizeof(DeviceConfig::posixTimezone));DeviceConfig::maxConfiguredSources=8;
- DeviceConfig::sources[0].enabled=DeviceConfig::sources[2].enabled=true;
+ DeviceConfig::configured=true;draft=SettingsFixture::complete();seed=true;damaged=0;NvsHost::state()={};
+ DeviceConfig::maxConfiguredSources=8;
  DeviceConfig::caPem[0]='s';DeviceConfig::weatherCaPem[0]='s';
- std::memcpy(DeviceConfig::weatherApiKey,"synthetic-key",sizeof(DeviceConfig::weatherApiKey));
- std::memcpy(DeviceConfig::weatherLocation,"Example City,XX",sizeof(DeviceConfig::weatherLocation));
  std::memset(&weatherData,0,sizeof(weatherData));std::memset(forecastData,0,sizeof(forecastData));std::memset(dailyForecastData,0,sizeof(dailyForecastData));
  const std::string events=event("second","Second fold","DTSTART:20261025T013000Z\r\n")+
   event("first","First fold","DTSTART:20261025T003000Z\r\n")+
@@ -119,7 +128,7 @@ void reset(){
  recordedEvents=recordedComplete=recordedIncomplete=0;Seeed_GFX::observer()=observed;
 }
 void finished(bool drawn=true,bool sleeping=true){
- ++cases;assert(ObservationHost::boot().wifiBegins==1 && ObservationHost::boot().starts==1);
+ ++cases;if(ObservationHost::boot().wifiBegins!=1 || ObservationHost::boot().starts!=1)std::fprintf(stderr,"case=%zu settings=%u cycle=%u wifi=%u ntp=%u\n",cases,unsigned(settingsResult.status),unsigned(cycleStatus),ObservationHost::boot().wifiBegins,ObservationHost::boot().starts);assert(ObservationHost::boot().wifiBegins==1 && ObservationHost::boot().starts==1);
  assert(ObservationHost::https().stops==ObservationHost::https().begins && !LiveSocket::state().live);
  if(renderingAttempted!=drawn || refreshes!=size_t(drawn))std::fprintf(stderr,"case=%zu cycle=%u sleep=%u drew=%u refresh=%zu expected=%u\n",cases,unsigned(cycleStatus),unsigned(sleepStatus),unsigned(renderingAttempted),refreshes,unsigned(drawn));
  assert(renderingAttempted==drawn && refreshes==size_t(drawn));
@@ -191,12 +200,16 @@ int main(){
   assert(rendering.weatherUnavailable==(which==0) && rendering.shortDrawn==size_t(which!=1) && rendering.dailyDrawn==size_t(which!=2));}
  reset();LiveSocket::state().feeds[1].tls=false;invoke();finished();assert(recordedComplete==1 && recordedIncomplete==1 && has("Incomplete schedule") && weatherData.valid);
  reset();LiveSocket::state().feeds[0].dns=false;LiveSocket::state().feeds[1].tls=false;invoke();finished();assert(!recordedComplete && recordedIncomplete==2 && has("unavailable") && weatherData.valid);
- reset();DeviceConfig::sources[0].enabled=DeviceConfig::sources[2].enabled=false;DeviceConfig::caPem[0]='\0';invoke();finished();assert(!LiveSocket::state().resolves && has("No calendars selected") && weatherData.valid);
- reset();DeviceConfig::weatherEnabled=false;DeviceConfig::weatherApiKey[0]='\0';DeviceConfig::weatherLocation[0]='\0';DeviceConfig::weatherCaPem[0]='\0';invoke();finished();assert(!ObservationHost::https().begins && recordedComplete==2 && rendering.weatherUnavailable);
- for(int invalid=0;invalid<6;++invalid){reset();if(invalid==0)DeviceConfig::weatherApiKey[0]='&';if(invalid==1)DeviceConfig::weatherLocation[0]='\n';if(invalid==2)DeviceConfig::weatherCaPem[0]='\0';if(invalid==3)DeviceConfig::weatherApiKey[0]='\0';
-  if(invalid==4)memset(DeviceConfig::weatherApiKey,'k',sizeof(DeviceConfig::weatherApiKey));
-  if(invalid==5)memset(DeviceConfig::weatherLocation,'A',sizeof(DeviceConfig::weatherLocation));
-  invoke();finished();assert(!ObservationHost::https().begins && recordedComplete==2 && rendering.weatherUnavailable);}
+ reset();draft.sources[0].enabled=draft.sources[2].enabled=false;DeviceConfig::caPem[0]='\0';invoke();finished();assert(!LiveSocket::state().resolves && has("No calendars selected") && weatherData.valid);
+ reset();draft.weatherEnabled=false;draft.apiKey={};draft.location={};DeviceConfig::weatherCaPem[0]='\0';invoke();finished();assert(!ObservationHost::https().begins && recordedComplete==2 && rendering.weatherUnavailable);
+ // User-field errors are now rejected at NVS load, before any network.
+ for(int invalid=0;invalid<5;++invalid){reset();if(invalid==0)draft.apiKey.data[0]='&';
+  if(invalid==1)draft.location.data[0]='\n';
+  if(invalid==2)draft.apiKey.data[0]='\0';
+  if(invalid==3)draft.apiKey.data[draft.apiKey.size]='k';
+  if(invalid==4)draft.location.data[draft.location.size]='A';
+  invoke();++cases;assert(cycleStatus==CycleStatus::SettingsFailure && !ObservationHost::boot().wifiBegins && !renderingAttempted && !SleepTrace::state().handoffs);}
+ reset();DeviceConfig::weatherCaPem[0]='\0';invoke();finished();assert(!ObservationHost::https().begins && recordedComplete==2 && rendering.weatherUnavailable);
  reset();ObservationHost::adc=0;invoke();finished();assert(rendering.batteryUnavailable && !battery.valid);
  reset();DeviceConfig::configured=false;invoke();++cases;assert(!ObservationHost::boot().wifiBegins && !renderingAttempted);
  reset();ObservationHost::boot().notify=false;invoke();++cases;assert(!renderingAttempted && !ObservationHost::https().begins && !LiveSocket::state().resolves && !ObservationHost::actionCount && SleepTrace::state().handoffs==1 && cycleStatus==CycleStatus::TimeFailure);
@@ -204,12 +217,12 @@ int main(){
  reset();ObservationHost::boot().shutdownOk=false;invoke();finished(false,false);assert(cycleStatus==CycleStatus::NetworkShutdownFailure && sleepStatus==SleepStatus::UnsafeShutdown);
  reset();DeviceConfig::maxConfiguredSources=0;invoke();finished(false);assert(!LiveSocket::state().resolves && cycleStatus==CycleStatus::CalendarInterruption);
  reset();DeviceConfig::caPem[0]='\0';invoke();finished();assert(recordedIncomplete==2 && !recordedComplete && !LiveSocket::state().resolves);
- reset();DeviceConfig::posixTimezone[0]='\0';invoke();++cases;assert(cycleStatus==CycleStatus::InvalidTimezone && !ObservationHost::boot().wifiBegins && SleepTrace::state().handoffs==1);
+ reset();draft.timezone.data[0]='\0';invoke();++cases;assert(cycleStatus==CycleStatus::SettingsFailure && !ObservationHost::boot().wifiBegins && !SleepTrace::state().handoffs);
  reset();failAllocation=true;invoke();finished(false);assert(cycleStatus==CycleStatus::WorkspaceFailure && !ObservationHost::https().begins && !LiveSocket::state().resolves);
  reset();rendererFails=true;invoke();++cases;assert(cycleStatus==CycleStatus::RendererFailure && !refreshes && SleepTrace::state().handoffs==1 && workspace.state()==Ee02PsramWorkspace::State::Unallocated);
  for(uint64_t invalid:{uint64_t(0),UINT64_MAX/1000000+1,uint64_t(INT64_MAX)/1000000+1}){
-  reset();DeviceConfig::refreshSeconds=invalid;invoke();++cases;
-  assert(cycleStatus==CycleStatus::InvalidInterval && !ObservationHost::boot().wifiBegins && !SleepTrace::state().timerCalls);
+  reset();draft.refreshSeconds=invalid;invoke();++cases;
+  assert(cycleStatus==CycleStatus::SettingsFailure && !ObservationHost::boot().wifiBegins && !SleepTrace::state().timerCalls);
  }
  reset();SleepTrace::state().timerResult=ESP_ERR_INVALID_ARG;invoke();++cases;
  assert(cycleStatus==CycleStatus::Refreshed && sleepStatus==SleepStatus::TimerWakeFailure && SleepTrace::state().timerCalls==1 && !SleepTrace::state().handoffs);
@@ -217,6 +230,26 @@ int main(){
  // Prior plausible/fresh RAM evidence is not inherited by a subsequent wake.
  reset();freshSync.store(true);ObservationHost::boot().notify=false;invoke();++cases;
  assert(cycleStatus==CycleStatus::TimeFailure && !ObservationHost::https().begins && SleepTrace::state().handoffs==1);
+ // Missing/corrupt/future/storage failures do not acquire, guess dates or sleep.
+ reset();seed=false;invoke();++cases;assert(cycleStatus==CycleStatus::Unconfigured && !ObservationHost::boot().wifiBegins);
+ for(int bad=1;bad<=2;++bad){reset();damaged=bad;invoke();++cases;assert(cycleStatus==CycleStatus::SettingsFailure && !ObservationHost::boot().wifiBegins);}
+ reset();NvsHost::state().openError=77;invoke();++cases;assert(cycleStatus==CycleStatus::SettingsFailure && !ObservationHost::boot().wifiBegins);
+ reset();NvsHost::state().readError=77;invoke();++cases;assert(cycleStatus==CycleStatus::SettingsFailure && !ObservationHost::boot().wifiBegins);
+ // Reboot/reload the same persisted bytes; no defaults or user-field fallback.
+ reset();invoke();finished();auto saved=NvsHost::state().durable;
+ reset();seed=false;NvsHost::state().exists=NvsHost::state().key=true;NvsHost::state().durable=saved;invoke();finished();
+ // Changed persistent credentials/timezone/source views are used on later setup.
+ reset();SettingsFixture::set(draft.ssid,"updated-network");SettingsFixture::set(draft.password,"updated-password");
+ SettingsFixture::set(draft.ntp,"new-ntp.example.invalid");SettingsFixture::set(draft.timezone,"UTC0");
+ SettingsFixture::set(draft.sources[0].label,"Changed name");SettingsFixture::set(draft.sources[0].url,"https://new.example.invalid/feed?token=preserved");
+ invoke();finished();
+ assert(ObservationHost::boot().ssid=="updated-network" && ObservationHost::boot().password=="updated-password");
+ assert(ObservationHost::boot().ntp=="new-ntp.example.invalid");
+ assert(!strcmp(settings.internal()->timezone.data,"UTC0") && !strcmp(calendarSources[0].label.data,"Changed name"));
+ assert(LiveSocket::state().feeds[0].request.find("GET /feed?token=preserved HTTP/1.1")!=std::string::npos);
+ assert(LiveSocket::state().feeds[0].request.find("Host: new.example.invalid")!=std::string::npos && has("Changed name"));
+ reset();SettingsFixture::set(draft.ntp,"new-ntp.example.invalid");ObservationHost::boot().notify=false;invoke();++cases;
+ assert(ObservationHost::boot().ntp=="new-ntp.example.invalid");
  // Last: uncertain shutdown deliberately retains the borrowed allocation. No
  // release/free/reuse is attempted; the globally reachable owner keeps it alive.
  reset();shutdownFails=true;invoke();++cases;assert(refreshes<=1 && workspace.state()==Ee02PsramWorkspace::State::Retained);

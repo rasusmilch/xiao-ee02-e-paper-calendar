@@ -301,9 +301,9 @@ The remaining paths deliberately combine existing observation, graphics and secu
 adapter facades. Run timezone-mutating cases serially:
 
 ```
-g++ -std=c++11 -Wall -Wextra -Werror -pedantic -Itests/live_dashboard_host -Itests/observations_host -Itests/renderer_host -Itests/gfx2_host -Itests/https_arduino_host -Ithird_party/Seeed_GFX2/src tests/live_dashboard_refresh_test.cpp third_party/Seeed_GFX2/src/panel/Panel_EPaper.cpp third_party/Seeed_GFX2/src/runtime/DisplayInstance.cpp third_party/Seeed_GFX2/src/driver/epaper/SeeedEPaperProfiles.cpp -Wl,--wrap=free,--wrap=time -o /tmp/ee02-application-test
+g++ -std=c++11 -Wall -Wextra -Werror -pedantic -Itests/settings_host -Itests/live_dashboard_host -Itests/observations_host -Itests/renderer_host -Itests/gfx2_host -Itests/https_arduino_host -Ithird_party/Seeed_GFX2/src tests/live_dashboard_refresh_test.cpp third_party/Seeed_GFX2/src/panel/Panel_EPaper.cpp third_party/Seeed_GFX2/src/runtime/DisplayInstance.cpp third_party/Seeed_GFX2/src/driver/epaper/SeeedEPaperProfiles.cpp -Wl,--wrap=free,--wrap=time -o /tmp/ee02-application-test
 /tmp/ee02-application-test
-g++ -std=c++11 -Wall -Wextra -Werror -pedantic -fsanitize=address,undefined -fno-omit-frame-pointer -Itests/live_dashboard_host -Itests/observations_host -Itests/renderer_host -Itests/gfx2_host -Itests/https_arduino_host -Ithird_party/Seeed_GFX2/src tests/live_dashboard_refresh_test.cpp third_party/Seeed_GFX2/src/panel/Panel_EPaper.cpp third_party/Seeed_GFX2/src/runtime/DisplayInstance.cpp third_party/Seeed_GFX2/src/driver/epaper/SeeedEPaperProfiles.cpp -Wl,--wrap=free,--wrap=time -o /tmp/ee02-application-sanitized
+g++ -std=c++11 -Wall -Wextra -Werror -pedantic -fsanitize=address,undefined -fno-omit-frame-pointer -Itests/settings_host -Itests/live_dashboard_host -Itests/observations_host -Itests/renderer_host -Itests/gfx2_host -Itests/https_arduino_host -Ithird_party/Seeed_GFX2/src tests/live_dashboard_refresh_test.cpp third_party/Seeed_GFX2/src/panel/Panel_EPaper.cpp third_party/Seeed_GFX2/src/runtime/DisplayInstance.cpp third_party/Seeed_GFX2/src/driver/epaper/SeeedEPaperProfiles.cpp -Wl,--wrap=free,--wrap=time -o /tmp/ee02-application-sanitized
 /tmp/ee02-application-sanitized
 ```
 
@@ -313,14 +313,28 @@ for retired headers. Inspect linked symbols with `nm -C /tmp/ee02-application-te
 allow vendored Panel_EPaper, but reject legacy TFT_eSPI/EPaper global, calendar.h,
 weather.h, battery.h, constants.h, Apps Script and old month/sleep functions.
 The root is the canonical application; the retired live sketch must not become a
-parallel implementation. Private device_config.h is provisional, not a settings
-schema. Fresh NTP per wake and explicit positive sleep seconds are interim; unsafe
+parallel implementation. NVS V1 owns user settings; private device_config.h is
+build-only opt-in, CA material, capacities/limits and prerequisite wait ceilings. Fresh NTP per wake and explicit positive sleep seconds are interim; unsafe
 network/panel/Retained states must not enter sleep. Timer tests use host stand-ins,
 not actual wake hardware.
 
 Run weather HTTPS/request-input, observation, multi-calendar, dashboard and workspace
 regressions for the directly composed behavior. Target build, real weather/ICS/TLS,
 Newlib/SNTP/ADC, physical panel, headroom and power remain owner-deferred/unverified.
+
+The V1 settings regression exercises actual codec/service code against a narrow
+NVS API stand-in; no private configuration or real flash is used:
+
+```
+g++ -std=c++11 -Wall -Wextra -Werror -pedantic -Itests/settings_host -Itests/renderer_host -Itests/gfx2_host -Ithird_party/Seeed_GFX2/src tests/device_settings_test.cpp -o /tmp/ee02-settings-test
+/tmp/ee02-settings-test
+g++ -std=c++11 -Wall -Wextra -Werror -pedantic -fsanitize=address,undefined -fno-omit-frame-pointer -Itests/settings_host -Itests/renderer_host -Itests/gfx2_host -Ithird_party/Seeed_GFX2/src tests/device_settings_test.cpp -o /tmp/ee02-settings-sanitized
+/tmp/ee02-settings-sanitized
+```
+
+Normal root setup must only load; no implicit save, defaults, import or erase.
+Explicit changed saves/clear are the only settings writes. Fake NVS interruptions
+and host sizes do not establish actual partition fit or physical power-loss recovery.
 
 The integrated multi-calendar regression runs actual window construction, source
 selection, HTTPS/HTTP/ICS processing, snapshot transactions, scratch poisoning and

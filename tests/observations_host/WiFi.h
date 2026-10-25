@@ -3,9 +3,11 @@
 #include <Arduino.h>
 #include <sys/time.h>
 #include <vector>
+#include <string>
 enum { WL_CONNECTED=3, WIFI_OFF=0, WIFI_STA=1 };
 namespace ObservationHost {
 struct BootState {
+    std::string ssid,password,ntp;
     bool wifiReady=true,sntpEnabled=false,notify=true,staleTimeValid=true;
     unsigned wifiBegins=0,disconnects=0,off=0,starts=0,stops=0,registrations=0,unregistrations=0;
     bool shutdownOk=true; int wifiMode=WIFI_STA;
@@ -18,7 +20,7 @@ inline BootState& boot(){static BootState state;return state;}
 }
 class WiFiClass {
 public:
-    void begin(const char*,const char*){++ObservationHost::boot().wifiBegins;}
+    void begin(const char* ssid,const char* password){auto& b=ObservationHost::boot();++b.wifiBegins;b.ssid=ssid;b.password=password;}
     int status(){return ObservationHost::boot().wifiReady?WL_CONNECTED:0;}
     void persistent(bool enabled){if(enabled)std::abort();}
     void disconnect(bool,bool=false){++ObservationHost::boot().disconnects;}

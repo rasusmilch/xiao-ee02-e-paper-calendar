@@ -1,8 +1,11 @@
 #ifndef EE02_ROOT_TEST_SLEEP_H
 #define EE02_ROOT_TEST_SLEEP_H
 #include <cstdint>
+#ifndef EE02_HOST_ESP_ERRORS
+#define EE02_HOST_ESP_ERRORS
 using esp_err_t=int;
 static const esp_err_t ESP_OK=0,ESP_ERR_INVALID_ARG=0x102;
+#endif
 namespace SleepTrace {
 struct Handoff{};
 struct State {unsigned timerCalls=0,handoffs=0;uint64_t micros=0,maxMicros=UINT64_MAX;

@@ -1,10 +1,11 @@
 // Canonical EE02 application. Target/hardware behavior remains unverified.
-// Private provisional configuration; fresh SNTP on every wake until RTC policy is implemented.
+// Versioned NVS user settings; fresh SNTP on every wake until RTC policy is implemented.
 #include <WiFi.h>
 #include <esp_sntp.h>
 #include <atomic>
 #include <esp_sleep.h>
 #include "application/five_day_calendar_refresh.h"
+#include "application/device_settings_nvs.h"
 #include "application/five_day_posix_time.h"
 #include "application/ics_https_arduino.h"
 #include "application/weather_acquisition.h"
@@ -22,10 +23,13 @@
 #endif
 #endif
 
+static DeviceSettings::Service settings;
+static DeviceSettings::Result settingsResult=DeviceSettings::result(DeviceSettings::Status::Missing);
+static FiveDayCalendarRefresh::Source calendarSources[DeviceSettings::MaxSources];
 static FiveDaySnapshot snapshot;
 static Ee02PsramWorkspace workspace;
 static IcsHttpsArduino::Adapter secure;
-static FiveDayPosixTime::Context displayZone={DeviceConfig::posixTimezone};
+static FiveDayPosixTime::Context displayZone={nullptr};
 static std::atomic<bool> freshSync(false);
 static FiveDayDashboardRenderer::Report rendering;
 static FiveDayDashboardRenderer::Battery battery={false,0};
@@ -71,7 +75,7 @@ static GfxResult draw(Seeed_GFX& display,void*) {
   return GfxResult::success();
 }
 // Transient diagnostics only: no scheduler, retained counter or wake-state machine.
-enum class CycleStatus { NotStarted, MissingConfiguration, InvalidInterval, WifiFailure,
+enum class CycleStatus { NotStarted, MissingConfiguration, Unconfigured, SettingsFailure, InvalidInterval, WifiFailure,
   TimeFailure, InvalidTimezone, WorkspaceFailure, NetworkShutdownFailure, CalendarInterruption, ScratchFailure,
   RendererFailure, PanelOperationFailure, PanelShutdownFailure, Refreshed };
 enum class SleepStatus { NotAttempted, UnsafeShutdown, ReleaseFailure, TimerWakeFailure, Entering };
@@ -80,21 +84,8 @@ static SleepStatus sleepStatus=SleepStatus::NotAttempted;
 static esp_err_t timerWakeResult=ESP_OK;
 
 // Explicit declarations avoid Arduino auto-prototypes preceding local types.
-template<size_t N> static bool configString(const char (&text)[N],bool allowEmpty=false);
 static void finishCycle(CycleStatus status,uint64_t micros,bool networkSafe,bool panelSafe=true);
 static void abortCycle(CycleStatus status,uint64_t micros);
-
-template<size_t N> static bool configString(const char (&text)[N],bool allowEmpty) {
-  return (allowEmpty || N>1) && memchr(text,0,N)==text+N-1;
-}
-static bool sleepInterval(uint64_t seconds,uint64_t& micros) {
-  if(!seconds || seconds>UINT64_MAX/1000000) return false;
-  const uint64_t candidate=seconds*1000000;
-  // IDF's timer preparation uses a signed duration. The timer API separately
-  // checks its hardware-counter limit against the active slow-clock frequency.
-  if(candidate>uint64_t(INT64_MAX)) return false;
-  micros=candidate; return true;
-}
 static bool releaseHealthy() {
   const auto state=workspace.state();
   if(state!=Ee02PsramWorkspace::State::Scratch && state!=Ee02PsramWorkspace::State::Unallocated &&
@@ -143,23 +134,27 @@ void setup() {
     cycleStatus=CycleStatus::MissingConfiguration;
     Serial.println("Application configuration missing or opt-in disabled"); return;
   }
+  // Read-only NVS admission. Missing/corrupt/incompatible data never acquires,
+  // creates defaults, erases storage or takes an invented refresh interval.
+  settingsResult=settings.load();
+  if(settingsResult.status!=DeviceSettings::Status::Ok) {
+    cycleStatus=settingsResult.status==DeviceSettings::Status::Missing?CycleStatus::Unconfigured:CycleStatus::SettingsFailure;
+    Serial.printf("Settings admission status=%u\n",unsigned(settingsResult.status)); return;
+  }
+  const DeviceSettings::Values& config=*settings.internal();
   uint64_t sleepUs=0;
-  if(!sleepInterval(DeviceConfig::refreshSeconds,sleepUs)) {
-    cycleStatus=CycleStatus::InvalidInterval;
-    Serial.println("Application refresh interval invalid"); return;
+  if(!DeviceSettings::interval(config.refreshSeconds,sleepUs) || !DeviceConfig::wifiWaitMs || !DeviceConfig::ntpWaitMs) {
+    cycleStatus=CycleStatus::InvalidInterval; Serial.println("Application build limits invalid"); return;
   }
-  if(!configString(DeviceConfig::wifiSsid) || !configString(DeviceConfig::wifiPassword,true) ||
-     !configString(DeviceConfig::ntpServer) || !DeviceConfig::wifiWaitMs || !DeviceConfig::ntpWaitMs) {
-    cycleStatus=CycleStatus::MissingConfiguration;
-    Serial.println("Application configuration invalid"); return;
-  }
-  if(!configString(DeviceConfig::posixTimezone)) {
-    abortCycle(CycleStatus::InvalidTimezone,sleepUs); return;
+  displayZone.configuredTimezone=config.timezone.data;
+  for(size_t i=0;i<config.sourceCount;++i) {
+    const auto& c=config.sources[i];
+    calendarSources[i]={c.enabled,{c.label.data,c.label.size},{reinterpret_cast<const uint8_t*>(c.url.data),c.url.size}};
   }
   WiFi.persistent(false); // No routine configuration/event writes to NVS.
   WiFi.mode(WIFI_STA);
   uint64_t start=IcsHttpsArduino::Adapter::monotonicMs(nullptr);
-  WiFi.begin(DeviceConfig::wifiSsid,DeviceConfig::wifiPassword);
+  WiFi.begin(config.ssid.data,config.password.data);
   while(WiFi.status()!=WL_CONNECTED && waiting(start,DeviceConfig::wifiWaitMs)) delay(20);
   if(WiFi.status()!=WL_CONNECTED) { Serial.println("Wi-Fi prerequisite failed"); abortCycle(CycleStatus::WifiFailure,sleepUs); return; }
 
@@ -169,7 +164,7 @@ void setup() {
   esp_sntp_set_sync_mode(SNTP_SYNC_MODE_IMMED);
   esp_sntp_set_time_sync_notification_cb(synchronizedTime); // Before initiation.
   start=IcsHttpsArduino::Adapter::monotonicMs(nullptr);
-  configTime(0,0,DeviceConfig::ntpServer);
+  configTime(0,0,config.ntp.data);
   while(!freshSync.load(std::memory_order_acquire) && waiting(start,DeviceConfig::ntpWaitMs)) delay(20);
   const bool trusted=freshSync.load(std::memory_order_acquire);
   stopTimeSync(); // Freeze this session's time context before acquisition/display.
@@ -178,25 +173,22 @@ void setup() {
   if(!FiveDayLocalTime::fromStamp(time(nullptr),nowUtc)) {
     abortCycle(CycleStatus::TimeFailure,sleepUs); return;
   }
-  if(setenv("TZ",DeviceConfig::posixTimezone,1)!=0) {
+  if(setenv("TZ",config.timezone.data,1)!=0) {
     abortCycle(CycleStatus::InvalidTimezone,sleepUs); return;
   }
   tzset();
   // Validate context before allocating. The coordinator builds the same window
   // immediately before initializing its one independent snapshot.
   FiveDaySnapshot::Window checked={};
-  const auto built=FiveDayWindow::build(nowUtc,trusted,DeviceConfig::posixTimezone,checked);
+  const auto built=FiveDayWindow::build(nowUtc,trusted,config.timezone.data,checked);
   if(built!=FiveDayWindow::Status::Ok) { Serial.printf("Window failed=%u\n",unsigned(built)); abortCycle(CycleStatus::InvalidTimezone,sleepUs); return; }
   if(!workspace.allocate(DeviceConfig::workspaceBytes).ok()) {
     Serial.println("Workspace allocation failed"); abortCycle(CycleStatus::WorkspaceFailure,sleepUs); return;
   }
   observedUtc=nowUtc;
-  if(DeviceConfig::weatherEnabled) {
+  if(config.weatherEnabled) {
     const WeatherHttps::Trust trust={trusted,DeviceConfig::weatherCaPem,sizeof(DeviceConfig::weatherCaPem)};
-    const WeatherHttps::Request request={DeviceConfig::weatherLocation,
-      WeatherHttps::boundedLength(DeviceConfig::weatherLocation,sizeof(DeviceConfig::weatherLocation)),
-      DeviceConfig::weatherApiKey,
-      WeatherHttps::boundedLength(DeviceConfig::weatherApiKey,sizeof(DeviceConfig::weatherApiKey))};
+    const WeatherHttps::Request request={config.location.data,config.location.size,config.apiKey.data,config.apiKey.size};
     const bool current=fetchWeatherData(trust,request);
     const bool shortForecast=fetchForecastData(trust,request);
     const bool daily=fetchDailyForecastData(trust,request);
@@ -205,8 +197,8 @@ void setup() {
   const FiveDayCalendarRefresh::Limits limits={DeviceConfig::maxConfiguredSources,
     DeviceConfig::recordCapacity,DeviceConfig::textCapacity,DeviceConfig::calendarLimits};
   const auto transport=secure.transport();
-  const auto report=FiveDayCalendarRefresh::refresh(nowUtc,trusted,DeviceConfig::posixTimezone,workspace,snapshot,
-    DeviceConfig::sources,sizeof(DeviceConfig::sources)/sizeof(DeviceConfig::sources[0]),limits,
+  const auto report=FiveDayCalendarRefresh::refresh(nowUtc,trusted,config.timezone.data,workspace,snapshot,
+    calendarSources,config.sourceCount,limits,
     WiFi.status()==WL_CONNECTED,{reinterpret_cast<const uint8_t*>(DeviceConfig::caPem),sizeof(DeviceConfig::caPem)},
     transport,IcsHttpsArduino::Adapter::monotonicMs,nullptr,sourceResult);
   const int millivolts=readBatteryMillivolts(); // One sample; divider is disabled on return.

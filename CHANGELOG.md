@@ -15,8 +15,12 @@ is historical evidence, not current architecture or requirements authority.
   integrated path and retiring its duplicate live preview entry point/template.
   Use one Wi-Fi session/fresh SNTP observation per wake, independent weather and
   sequential authenticated ICS calendars, one battery sample, one independent
-  snapshot and one borrowed-framebuffer dashboard refresh. Add private opt-in
-  provisional device configuration and checked explicit timer deep sleep after
+  snapshot and one borrowed-framebuffer dashboard refresh. Load authoritative versioned
+  NVS user settings with whole-candidate validation, deterministic checked blob
+  replacement, unchanged-write avoidance, explicit settings-only clear and a secret-safe
+  presentation/Keep-Replace-Clear boundary (full calendar URLs remain visible). Keep
+  CA material/evaluation limits build-only; no automatic import, default settings,
+  web/AP onboarding or routine flash churn. Add checked explicit timer deep sleep after
   verified network/panel quiescence and legal storage release; refuse sleep for
   Retained/unsafe shutdown or timer rejection. Remove active Apps Script/TFT_eSPI,
   six-event/month-grid and legacy night-dead-zone execution without a fallback.
