@@ -13,7 +13,10 @@ struct State{
 };
 inline State& state(){static State value;return value;}
 }
+#ifndef EE02_TEST_IP_ADDRESS
+#define EE02_TEST_IP_ADDRESS
 struct IPAddress{unsigned value=0;};
+#endif
 struct TestNetwork{
     int hostByName(const char* host,IPAddress& ip){auto& s=LiveSocket::state();
         assert(host && *host && !s.live);if(s.checkPhase)s.checkPhase();

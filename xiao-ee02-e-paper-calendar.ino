@@ -1,11 +1,13 @@
 // Canonical EE02 application. Target/hardware behavior remains unverified.
-// Versioned NVS user settings; fresh SNTP on every wake until RTC policy is implemented.
+// Versioned NVS user settings; fresh SNTP per configured refresh until RTC policy is implemented.
 #include <WiFi.h>
 #include <esp_sntp.h>
 #include <atomic>
 #include <esp_sleep.h>
+#include <esp_system.h>
 #include "application/five_day_calendar_refresh.h"
 #include "application/device_settings_nvs.h"
+#include "application/settings_portal_arduino.h"
 #include "application/five_day_posix_time.h"
 #include "application/ics_https_arduino.h"
 #include "application/weather_acquisition.h"
@@ -24,6 +26,8 @@
 #endif
 
 static DeviceSettings::Service settings;
+static SettingsPortal::Work setupWork;
+static SettingsPortal::Report setupReport={};
 static DeviceSettings::Result settingsResult=DeviceSettings::result(DeviceSettings::Status::Missing);
 static FiveDayCalendarRefresh::Source calendarSources[DeviceSettings::MaxSources];
 static FiveDaySnapshot snapshot;
@@ -75,7 +79,7 @@ static GfxResult draw(Seeed_GFX& display,void*) {
   return GfxResult::success();
 }
 // Transient diagnostics only: no scheduler, retained counter or wake-state machine.
-enum class CycleStatus { NotStarted, MissingConfiguration, Unconfigured, SettingsFailure, InvalidInterval, WifiFailure,
+enum class CycleStatus { NotStarted, MissingConfiguration, Unconfigured, SetupFailure, SettingsFailure, InvalidInterval, WifiFailure,
   TimeFailure, InvalidTimezone, WorkspaceFailure, NetworkShutdownFailure, CalendarInterruption, ScratchFailure,
   RendererFailure, PanelOperationFailure, PanelShutdownFailure, Refreshed };
 enum class SleepStatus { NotAttempted, UnsafeShutdown, ReleaseFailure, TimerWakeFailure, Entering };
@@ -86,6 +90,7 @@ static esp_err_t timerWakeResult=ESP_OK;
 // Explicit declarations avoid Arduino auto-prototypes preceding local types.
 static void finishCycle(CycleStatus status,uint64_t micros,bool networkSafe,bool panelSafe=true);
 static void abortCycle(CycleStatus status,uint64_t micros);
+static void firstBootSetup();
 static bool releaseHealthy() {
   const auto state=workspace.state();
   if(state!=Ee02PsramWorkspace::State::Scratch && state!=Ee02PsramWorkspace::State::Unallocated &&
@@ -125,6 +130,35 @@ static void abortCycle(CycleStatus status,uint64_t micros) {
   const bool stopped=networkOff();
   finishCycle(status,micros,stopped);
 }
+// Only the Missing-NVS branch can call this. It never overlaps acquisition,
+// snapshot/parser use, panel operations or a configured refresh invocation.
+static void firstBootSetup() {
+  cycleStatus=CycleStatus::Unconfigured;
+  uint64_t retryUs=0;
+  if(!DeviceSettings::interval(DeviceConfig::unconfiguredWakeSeconds,retryUs)) {
+    cycleStatus=CycleStatus::InvalidInterval;
+    Serial.println("Setup retry interval invalid; AP and sleep refused"); return;
+  }
+  if(workspace.state()!=Ee02PsramWorkspace::State::Unallocated || snapshot.initialized()) {
+    cycleStatus=CycleStatus::SetupFailure;Serial.println("Setup refused: resources active");return;
+  }
+  stopTimeSync();
+  Serial.println("First boot: open EE02-Setup, browse http://192.168.4.1/settings");
+  setupReport=SettingsPortal::firstBoot(settings,setupWork);
+  Serial.printf("Setup status=%u shutdown=%u requests=%u saves=%u\n",unsigned(setupReport.status),
+    unsigned(setupReport.shutdownVerified),unsigned(setupReport.requests),unsigned(setupReport.saves));
+  const bool safe=setupReport.shutdownVerified && WiFi.getMode()==WIFI_OFF && !esp_sntp_enabled();
+  if(setupReport.status==SettingsPortal::Status::Finished && safe) {
+    if(!releaseHealthy()) {cycleStatus=CycleStatus::SetupFailure;return;}
+    Serial.println("Setup complete; restarting for independent settings reload");Serial.flush();
+    esp_restart();return;
+  }
+  // Timeout/failure never erases settings; next wake independently loads them.
+  // No guessed refresh interval is read from a partially completed form.
+  finishCycle(setupReport.status==SettingsPortal::Status::IdleExpired ||
+    setupReport.status==SettingsPortal::Status::AbsoluteExpired?CycleStatus::Unconfigured:CycleStatus::SetupFailure,
+    retryUs,safe);
+}
 void setup() {
   Serial.begin(115200);
   Serial.println("EE02 dashboard application - target unverified");
@@ -134,11 +168,12 @@ void setup() {
     cycleStatus=CycleStatus::MissingConfiguration;
     Serial.println("Application configuration missing or opt-in disabled"); return;
   }
-  // Read-only NVS admission. Missing/corrupt/incompatible data never acquires,
-  // creates defaults, erases storage or takes an invented refresh interval.
+  // Read-only NVS admission. Only genuinely Missing selects the setup AP.
+  // Other errors never erase/expose stored records or choose guessed dates.
   settingsResult=settings.load();
+  if(settingsResult.status==DeviceSettings::Status::Missing) {firstBootSetup();return;}
   if(settingsResult.status!=DeviceSettings::Status::Ok) {
-    cycleStatus=settingsResult.status==DeviceSettings::Status::Missing?CycleStatus::Unconfigured:CycleStatus::SettingsFailure;
+    cycleStatus=CycleStatus::SettingsFailure;
     Serial.printf("Settings admission status=%u\n",unsigned(settingsResult.status)); return;
   }
   const DeviceSettings::Values& config=*settings.internal();

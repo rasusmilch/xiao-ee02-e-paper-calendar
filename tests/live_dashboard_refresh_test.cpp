@@ -24,7 +24,7 @@ namespace DeviceConfig {
 bool configured=true;
 char caPem[]="synthetic-calendar-CA",weatherCaPem[]="synthetic-weather-CA";
 size_t maxConfiguredSources=8,workspaceBytes=2097152,recordCapacity=128,textCapacity=32768;
-uint64_t wifiWaitMs=100,ntpWaitMs=100;
+uint64_t wifiWaitMs=100,ntpWaitMs=100,unconfiguredWakeSeconds=60;
 IcsHttpsSource::Limits calendarLimits={2048,253,2048,4096,512,{10000,15,10000},
  {1048576,983040,16384,64,2048,512,2048,32,2048,8192,8192,0,15000},
  {8192,64,64,128,16,256,8192,16384,512,4},{512,4096,524288,512,65536},
@@ -51,7 +51,7 @@ void sleptSafely(){
 }
 DeviceSettings::Values draft=SettingsFixture::complete();
 bool seed=true; int damaged=0;
-void invoke(){
+void invoke(bool allowWrites=false){
  auto& disk=NvsHost::state();
  if(seed){uint8_t encoded[DeviceSettings::MaxEncoded];size_t n=0;
   const auto r=DeviceSettings::encode(draft,encoded,sizeof(encoded),n);
@@ -65,13 +65,13 @@ void invoke(){
  }
  if(damaged==1)disk.durable[12]^=1;
  if(damaged==2){disk.durable[4]=2;DeviceSettings::codec::put(disk.durable.data()+12,DeviceSettings::checksum(disk.durable.data(),disk.durable.size()),4);}
- try{setup();}catch(const SleepTrace::Handoff&) {}
- assert(!disk.sets && !disk.commits && !disk.erases && !disk.opened); // Every wake is read-only, including failures.
+ try{setup();}catch(const SleepTrace::Handoff&) {}catch(const RestartTrace::Handoff&) {}
+ assert((allowWrites || (!disk.sets && !disk.commits)) && !disk.erases && !disk.opened); // Every wake is read-only, including failures.
 }
 void weatherPhase(){assert(workspace.state()==Ee02PsramWorkspace::State::Scratch && !LiveSocket::state().live);}
 void calendarPhase(){assert(workspace.state()==Ee02PsramWorkspace::State::ScratchAccess);assert(ObservationHost::https().stops==ObservationHost::https().begins);}
 void tick(unsigned long ms){
- auto& b=ObservationHost::boot();testEspMicroseconds+=int64_t(ms)*1000;b.elapsedMs+=unsigned(ms);
+ auto& b=ObservationHost::boot();if(b.apActive && ms==5 && PortalHost::state().index>=PortalHost::state().exchanges.size())ms=1000;testEspMicroseconds+=int64_t(ms)*1000;b.elapsedMs+=unsigned(ms);
  if(ms==5)ObservationHost::action(2,0,5); // Exactly the measurement settling delay.
  if(b.notify && b.sntpEnabled && b.callback){b.notify=false;timeval stamp={};b.callback(&stamp);}
 }
@@ -114,7 +114,7 @@ void reset(){
  ObservationHost::delayHook()=tick;ObservationHost::actionCount=0;ObservationHost::adc=2040;
  ObservationHost::https().statuses={200,200,200};ObservationHost::https().payload=LiveDecoded::payload();
  ObservationHost::https().checkPhase=weatherPhase;LiveSocket::state().checkPhase=calendarPhase;
- DeviceConfig::configured=true;draft=SettingsFixture::complete();seed=true;damaged=0;NvsHost::state()={};
+ DeviceConfig::configured=true;DeviceConfig::unconfiguredWakeSeconds=60;draft=SettingsFixture::complete();seed=true;damaged=0;NvsHost::state()={};PortalHost::state()={};RestartTrace::count()=0;
  DeviceConfig::maxConfiguredSources=8;
  DeviceConfig::caPem[0]='s';DeviceConfig::weatherCaPem[0]='s';
  std::memset(&weatherData,0,sizeof(weatherData));std::memset(forecastData,0,sizeof(forecastData));std::memset(dailyForecastData,0,sizeof(dailyForecastData));
@@ -132,6 +132,7 @@ void finished(bool drawn=true,bool sleeping=true){
  assert(ObservationHost::https().stops==ObservationHost::https().begins && !LiveSocket::state().live);
  if(renderingAttempted!=drawn || refreshes!=size_t(drawn))std::fprintf(stderr,"case=%zu cycle=%u sleep=%u drew=%u refresh=%zu expected=%u\n",cases,unsigned(cycleStatus),unsigned(sleepStatus),unsigned(renderingAttempted),refreshes,unsigned(drawn));
  assert(renderingAttempted==drawn && refreshes==size_t(drawn));
+ assert(!ObservationHost::boot().apStarts && !PortalHost::state().starts);
  assert(!snapshot.initialized());
  if(drawn){assert(rendering.status==FiveDayDashboardRenderer::Status::Drawn && !has("DEVELOPMENT"));
   assert(ObservationHost::actionCount==5 && ObservationHost::actions[3].operation==3 && ObservationHost::actions[4].value==LOW);}
@@ -231,7 +232,7 @@ int main(){
  reset();freshSync.store(true);ObservationHost::boot().notify=false;invoke();++cases;
  assert(cycleStatus==CycleStatus::TimeFailure && !ObservationHost::https().begins && SleepTrace::state().handoffs==1);
  // Missing/corrupt/future/storage failures do not acquire, guess dates or sleep.
- reset();seed=false;invoke();++cases;assert(cycleStatus==CycleStatus::Unconfigured && !ObservationHost::boot().wifiBegins);
+ reset();seed=false;invoke();++cases;assert(cycleStatus==CycleStatus::Unconfigured && !ObservationHost::boot().wifiBegins && ObservationHost::boot().apStarts==1 && setupReport.shutdownVerified && SleepTrace::state().handoffs==1 && SleepTrace::state().micros==60000000);
  for(int bad=1;bad<=2;++bad){reset();damaged=bad;invoke();++cases;assert(cycleStatus==CycleStatus::SettingsFailure && !ObservationHost::boot().wifiBegins);}
  reset();NvsHost::state().openError=77;invoke();++cases;assert(cycleStatus==CycleStatus::SettingsFailure && !ObservationHost::boot().wifiBegins);
  reset();NvsHost::state().readError=77;invoke();++cases;assert(cycleStatus==CycleStatus::SettingsFailure && !ObservationHost::boot().wifiBegins);
@@ -250,6 +251,57 @@ int main(){
  assert(LiveSocket::state().feeds[0].request.find("Host: new.example.invalid")!=std::string::npos && has("Changed name"));
  reset();SettingsFixture::set(draft.ntp,"new-ntp.example.invalid");ObservationHost::boot().notify=false;invoke();++cases;
  assert(ObservationHost::boot().ntp=="new-ntp.example.invalid");
+ // First-boot setup owns the entire invocation, with no trusted clock/display.
+ reset();seed=false;DeviceConfig::configured=false;invoke();++cases;
+ assert(!ObservationHost::boot().apStarts && !PortalHost::state().starts && !NvsHost::state().opens && !SleepTrace::state().timerCalls);
+ reset();seed=false;DeviceConfig::unconfiguredWakeSeconds=0;invoke();++cases;
+ assert(cycleStatus==CycleStatus::InvalidInterval && !ObservationHost::boot().apStarts && !SleepTrace::state().timerCalls);
+ for(uint64_t invalid:{UINT64_MAX,uint64_t(INT64_MAX)/1000000+1}){reset();seed=false;DeviceConfig::unconfiguredWakeSeconds=invalid;invoke();++cases;
+  assert(cycleStatus==CycleStatus::InvalidInterval && !ObservationHost::boot().apStarts);}
+ reset();seed=false;SleepTrace::state().timerResult=ESP_ERR_INVALID_ARG;invoke();++cases;
+ assert(setupReport.shutdownVerified && sleepStatus==SleepStatus::TimerWakeFailure && !SleepTrace::state().handoffs);
+ for(int failure=0;failure<4;++failure){reset();seed=false;
+  if(failure==0)PortalHost::state().failStop=true;
+  if(failure==1)ObservationHost::boot().apStopOk=false;
+  if(failure==2)ObservationHost::boot().shutdownOk=false;
+  if(failure==3){PortalHost::state().exchanges.emplace_back("GET / HTTP/1.1\r\nHost: 192.168.4.1\r\n\r\n");PortalHost::state().failClientStop=true;}
+  invoke();++cases;assert(!setupReport.shutdownVerified && !SleepTrace::state().timerCalls && !SleepTrace::state().handoffs && !renderingAttempted);}
+ reset();seed=false;PortalHost::state().failStart=true;invoke();++cases;
+ assert(setupReport.status==SettingsPortal::Status::StartFailure && setupReport.shutdownVerified && SleepTrace::state().handoffs==1);
+ reset();seed=false;testEspMicroseconds=-1;invoke();++cases;
+ assert(setupReport.status==SettingsPortal::Status::ClockFailure && setupReport.shutdownVerified && SleepTrace::state().handoffs==1 && !ObservationHost::boot().starts);
+ reset();seed=false;assert(workspace.allocate(DeviceConfig::workspaceBytes).ok());invoke();++cases;
+ assert(cycleStatus==CycleStatus::SetupFailure && !ObservationHost::boot().apStarts && !SleepTrace::state().timerCalls);assert(workspace.release().ok());
+ // Actual root: GET obtains token, Save commits, Finish sends response and closes
+ // service/AP before restart. No temporary draft bypasses the next boot's load.
+ reset();seed=false;PortalHost::state().advance=[](PortalHost::State& p){
+  if(p.exchanges.empty()){p.exchanges.emplace_back("GET /settings HTTP/1.1\r\nHost: 192.168.4.1\r\n\r\n");return;}
+  if(p.index!=p.exchanges.size() || p.index>2)return;
+  const std::string marker="name=\"csrf\" value=\"";const auto pos=p.exchanges[0].response.find(marker);assert(pos!=std::string::npos);
+  const std::string csrf=p.exchanges[0].response.substr(pos+marker.size(),32);
+  const std::string body=p.index==1?"csrf="+csrf+"&ssid=synthetic-network&timezone=CET-1CEST%2CM3.5.0%2CM10.5.0%2F3&ntp=ntp.example.invalid&refresh=42&count=2&location=&password_action=replace&password=synthetic-password&key_action=keep&key=&calendar0e=1&calendar0n=Personal&calendar0u=https%3A%2F%2Fone.example.invalid%2Fone.ics&calendar1e=1&calendar1n=Shared&calendar1u=https%3A%2F%2Ftwo.example.invalid%2Ftwo.ics":"csrf="+csrf;
+  const std::string route=p.index==1?"/settings":"/session/finish";
+  p.exchanges.emplace_back("POST "+route+" HTTP/1.1\r\nHost: 192.168.4.1\r\nOrigin: http://192.168.4.1\r\nContent-Type: application/x-www-form-urlencoded\r\nContent-Length: "+std::to_string(body.size())+"\r\n\r\n"+body);
+ };
+ invoke(true);++cases;
+ assert(setupReport.status==SettingsPortal::Status::Finished && setupReport.shutdownVerified && RestartTrace::count()==1);
+ assert(ObservationHost::boot().apStarts==1 && !ObservationHost::boot().apActive && ObservationHost::boot().wifiMode==WIFI_OFF);
+ assert(!ObservationHost::boot().wifiBegins && !ObservationHost::boot().starts && !ObservationHost::https().begins && !LiveSocket::state().resolves && !ObservationHost::actionCount && !renderingAttempted && !SleepTrace::state().timerCalls);
+ assert(NvsHost::state().sets==1 && NvsHost::state().commits==1 && !PortalHost::state().listening);
+ for(const auto& exchange:PortalHost::state().exchanges){assert(exchange.closed && exchange.response.find("synthetic-password")==std::string::npos);}
+ assert(PortalHost::state().exchanges[2].response.find("Finish accepted")!=std::string::npos);
+ auto provisioned=NvsHost::state().durable;
+ static auto completeSetupScript=PortalHost::state().advance;
+ reset();seed=false;NvsHost::state().exists=NvsHost::state().key=true;NvsHost::state().durable=provisioned;
+ invoke();finished();assert(recordedComplete==2 && recordedEvents==5 && !ObservationHost::boot().apStarts && !ObservationHost::https().begins);
+ // Saving without Finish expires normally and sleeps with the build-only retry,
+ // preserving the saved record for an independent configured wake.
+ reset();seed=false;PortalHost::state().advance=[](PortalHost::State& p){if(p.index<2)completeSetupScript(p);};
+ invoke(true);++cases;assert(setupReport.status==SettingsPortal::Status::IdleExpired && setupReport.saves==1 && setupReport.shutdownVerified && !RestartTrace::count());
+ assert(SleepTrace::state().handoffs==1 && SleepTrace::state().micros==60000000);
+ auto savedWithoutFinish=NvsHost::state().durable;
+ reset();seed=false;NvsHost::state().exists=NvsHost::state().key=true;NvsHost::state().durable=savedWithoutFinish;
+ invoke();finished();assert(recordedComplete==2 && !ObservationHost::boot().apStarts);
  // Last: uncertain shutdown deliberately retains the borrowed allocation. No
  // release/free/reuse is attempted; the globally reachable owner keeps it alive.
  reset();shutdownFails=true;invoke();++cases;assert(refreshes<=1 && workspace.state()==Ee02PsramWorkspace::State::Retained);

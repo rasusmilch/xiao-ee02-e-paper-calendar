@@ -13,14 +13,19 @@ is historical evidence, not current architecture or requirements authority.
   geometry, agenda/grid and historical monthly-grid retention Open.
 - Make the root sketch the canonical GFX2 application by promoting the reviewed
   integrated path and retiring its duplicate live preview entry point/template.
-  Use one Wi-Fi session/fresh SNTP observation per wake, independent weather and
+  Use one Wi-Fi session/fresh SNTP observation per configured refresh, independent weather and
   sequential authenticated ICS calendars, one battery sample, one independent
   snapshot and one borrowed-framebuffer dashboard refresh. Load authoritative versioned
   NVS user settings with whole-candidate validation, deterministic checked blob
   replacement, unchanged-write avoidance, explicit settings-only clear and a secret-safe
   presentation/Keep-Replace-Clear boundary (full calendar URLs remain visible). Keep
-  CA material/evaluation limits build-only; no automatic import, default settings,
-  web/AP onboarding or routine flash churn. Add checked explicit timer deep sleep after
+  CA material/evaluation limits build-only, with no automatic import, default settings
+  or routine flash churn. Provide a bounded local settings page and Missing-only open
+  first-boot AP with secret-safe forms, complete URL presentation, CSRF/Host/Origin
+  checks, monotonic idle/absolute/request limits, verified Save/Finish/restart and
+  checked build-only setup-retry sleep; retain explicit LAN-session reuse without
+  taking ownership of the caller network. Keep physical recovery/reset and RTC
+  policies deferred. Add checked explicit timer deep sleep after
   verified network/panel quiescence and legal storage release; refuse sleep for
   Retained/unsafe shutdown or timer rejection. Remove active Apps Script/TFT_eSPI,
   six-event/month-grid and legacy night-dead-zone execution without a fallback.

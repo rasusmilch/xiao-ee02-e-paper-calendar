@@ -301,9 +301,9 @@ The remaining paths deliberately combine existing observation, graphics and secu
 adapter facades. Run timezone-mutating cases serially:
 
 ```
-g++ -std=c++11 -Wall -Wextra -Werror -pedantic -Itests/settings_host -Itests/live_dashboard_host -Itests/observations_host -Itests/renderer_host -Itests/gfx2_host -Itests/https_arduino_host -Ithird_party/Seeed_GFX2/src tests/live_dashboard_refresh_test.cpp third_party/Seeed_GFX2/src/panel/Panel_EPaper.cpp third_party/Seeed_GFX2/src/runtime/DisplayInstance.cpp third_party/Seeed_GFX2/src/driver/epaper/SeeedEPaperProfiles.cpp -Wl,--wrap=free,--wrap=time -o /tmp/ee02-application-test
+g++ -std=c++11 -Wall -Wextra -Werror -pedantic -Itests/portal_host -Itests/settings_host -Itests/live_dashboard_host -Itests/observations_host -Itests/renderer_host -Itests/gfx2_host -Itests/https_arduino_host -Ithird_party/Seeed_GFX2/src tests/live_dashboard_refresh_test.cpp third_party/Seeed_GFX2/src/panel/Panel_EPaper.cpp third_party/Seeed_GFX2/src/runtime/DisplayInstance.cpp third_party/Seeed_GFX2/src/driver/epaper/SeeedEPaperProfiles.cpp -Wl,--wrap=free,--wrap=time -o /tmp/ee02-application-test
 /tmp/ee02-application-test
-g++ -std=c++11 -Wall -Wextra -Werror -pedantic -fsanitize=address,undefined -fno-omit-frame-pointer -Itests/settings_host -Itests/live_dashboard_host -Itests/observations_host -Itests/renderer_host -Itests/gfx2_host -Itests/https_arduino_host -Ithird_party/Seeed_GFX2/src tests/live_dashboard_refresh_test.cpp third_party/Seeed_GFX2/src/panel/Panel_EPaper.cpp third_party/Seeed_GFX2/src/runtime/DisplayInstance.cpp third_party/Seeed_GFX2/src/driver/epaper/SeeedEPaperProfiles.cpp -Wl,--wrap=free,--wrap=time -o /tmp/ee02-application-sanitized
+g++ -std=c++11 -Wall -Wextra -Werror -pedantic -fsanitize=address,undefined -fno-omit-frame-pointer -Itests/portal_host -Itests/settings_host -Itests/live_dashboard_host -Itests/observations_host -Itests/renderer_host -Itests/gfx2_host -Itests/https_arduino_host -Ithird_party/Seeed_GFX2/src tests/live_dashboard_refresh_test.cpp third_party/Seeed_GFX2/src/panel/Panel_EPaper.cpp third_party/Seeed_GFX2/src/runtime/DisplayInstance.cpp third_party/Seeed_GFX2/src/driver/epaper/SeeedEPaperProfiles.cpp -Wl,--wrap=free,--wrap=time -o /tmp/ee02-application-sanitized
 /tmp/ee02-application-sanitized
 ```
 
@@ -314,7 +314,8 @@ allow vendored Panel_EPaper, but reject legacy TFT_eSPI/EPaper global, calendar.
 weather.h, battery.h, constants.h, Apps Script and old month/sleep functions.
 The root is the canonical application; the retired live sketch must not become a
 parallel implementation. NVS V1 owns user settings; private device_config.h is
-build-only opt-in, CA material, capacities/limits and prerequisite wait ceilings. Fresh NTP per wake and explicit positive sleep seconds are interim; unsafe
+build-only opt-in, CA material, capacities/limits, prerequisite wait ceilings and
+setup-only retry seconds. Fresh NTP per configured refresh and explicit positive sleep seconds are interim; unsafe
 network/panel/Retained states must not enter sleep. Timer tests use host stand-ins,
 not actual wake hardware.
 
@@ -332,9 +333,31 @@ g++ -std=c++11 -Wall -Wextra -Werror -pedantic -fsanitize=address,undefined -fno
 /tmp/ee02-settings-sanitized
 ```
 
-Normal root setup must only load; no implicit save, defaults, import or erase.
+Normal configured root setup must only load; no implicit save, defaults, import or erase.
+Only genuinely Missing NVS may enter first-boot setup, which writes only explicit
+changed Save submissions. Other storage errors must never start an AP.
 Explicit changed saves/clear are the only settings writes. Fake NVS interruptions
 and host sizes do not establish actual partition fit or physical power-loss recovery.
+
+The settings webpage/session tests use actual parser/page/service/session code and
+narrow NVS/byte/clock facades. The adapter test puts observations_host before gfx2_host
+so Arduino.h supplies the ADC/delay facade rather than the graphics-only facade:
+
+```
+g++ -std=c++11 -Wall -Wextra -Werror -pedantic -Itests/settings_host -Itests/renderer_host -Itests/gfx2_host -Ithird_party/Seeed_GFX2/src tests/settings_portal_test.cpp -o /tmp/ee02-settings-portal-test
+/tmp/ee02-settings-portal-test
+g++ -std=c++11 -Wall -Wextra -Werror -pedantic -fsanitize=address,undefined -fno-omit-frame-pointer -Itests/settings_host -Itests/renderer_host -Itests/gfx2_host -Ithird_party/Seeed_GFX2/src tests/settings_portal_test.cpp -o /tmp/ee02-settings-portal-sanitized
+/tmp/ee02-settings-portal-sanitized
+g++ -std=c++11 -Wall -Wextra -Werror -pedantic -Itests/portal_host -Itests/observations_host -Itests/https_arduino_host -Itests/settings_host -Itests/renderer_host -Itests/gfx2_host -Ithird_party/Seeed_GFX2/src tests/settings_portal_arduino_test.cpp -o /tmp/ee02-portal-arduino-test
+/tmp/ee02-portal-arduino-test
+g++ -std=c++11 -Wall -Wextra -Werror -pedantic -fsanitize=address,undefined -fno-omit-frame-pointer -Itests/portal_host -Itests/observations_host -Itests/https_arduino_host -Itests/settings_host -Itests/renderer_host -Itests/gfx2_host -Ithird_party/Seeed_GFX2/src tests/settings_portal_arduino_test.cpp -o /tmp/ee02-portal-arduino-sanitized
+/tmp/ee02-portal-arduino-sanitized
+```
+
+No host test may read ignored configuration, contact live services or claim physical
+AP/browser/flash/sleep validation. First-boot tests must exercise the actual root
+setup() path and independent post-restart NVS load. No service runs during acquisition
+or framebuffer borrowing. An explicit LAN session must preserve caller-owned STA.
 
 The integrated multi-calendar regression runs actual window construction, source
 selection, HTTPS/HTTP/ICS processing, snapshot transactions, scratch poisoning and

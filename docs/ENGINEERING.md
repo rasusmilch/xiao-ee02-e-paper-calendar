@@ -42,7 +42,7 @@ sketch now composes the reviewed calendar/weather/battery/dashboard components a
 checked timer sleep. It does not use TFT_eSPI, Apps Script, a six-event store or the
 legacy monthly grid. Retained legacy files are inactive reference material. Target
 compatibility and physical operation remain unverified; final UI/month retention,
-RTC validity/daily NTP, settings UI/future migration, provider expansion and recovery remain Open
+RTC validity/daily NTP, physical settings activation/future migration, provider expansion and recovery remain Open
 or unimplemented as specified below. The deterministic preview stays independent.
 
 ## Approved target architecture (partially implemented)
@@ -123,7 +123,7 @@ uses this ownership model for sequential authenticated HTTPS ICS acquisition and
 GFX2 dashboard composition, with authenticated weather and one battery sample. The
 former live demonstration was promoted, not kept as a parallel application. Contrary
 engineering evidence still requires review/adjudication rather than an alternative
-allocation model. General source semantics, final capacities, RTC/settings-UI/
+allocation model. General source semantics, final capacities, RTC/physical-setup/
 recovery/provider policy and target measurements remain incomplete/Open.
 
 #### Ownership and wake-cycle sequence
@@ -295,7 +295,8 @@ and explicit vendored-library selection establish the active path.
 | Component | Responsibility and dependencies |
 | --- | --- |
 | [Root sketch](../xiao-ee02-e-paper-calendar.ino) | One Wi-Fi/SNTP attempt, rolling window, explicit-input weather, multi-calendar coordinator, one battery sample, network/scratch/graphics handoff, checked resource release and timer deep sleep. |
-| [device_config.example.h](../device_config.example.h) | Inert build-only opt-in, CA material, evaluation capacities/limits and prerequisite waits; no user-setting fallback. |
+| [device_config.example.h](../device_config.example.h) | Inert build-only opt-in, CA material, evaluation capacities/limits, prerequisite waits and explicit setup retry seconds; no user-setting fallback. |
+| [settings_http.h](../application/settings_http.h), [portal](../application/settings_portal.h), [Arduino adapter](../application/settings_portal_arduino.h) | Bounded streaming form/page, synchronous monotonic session and IPv4-bound AP/explicit-LAN lifecycle, using the accepted settings service. |
 | [device_settings.h](../application/device_settings.h), [codec](../application/device_settings_codec.h), [NVS service](../application/device_settings_nvs.h) | Owned V1 user values, whole-candidate validation, safe presentation/secret edits and one namespace/key; read-only root loading, explicit changed saves/clear only. |
 | [five_day_calendar_refresh.h](../application/five_day_calendar_refresh.h) | Enabled-source compaction, one independent snapshot, sequential streaming acquisition and per-source transaction reconciliation. |
 | [weather_acquisition.h](../application/weather_acquisition.h) | Authenticated explicit-request current/short/daily weather and single observation store; unchanged JSON/grouping; no legacy configuration include. |
@@ -312,21 +313,22 @@ or ignored-user-config migration is performed.
 
 ### Canonical root wake cycle and sleep boundary
 
-After build-only opt-in, load the versioned NVS user record before networking. Missing,
-corrupt, incompatible or unreadable records do not acquire or choose a sleep interval.
+After build-only opt-in, load the versioned NVS user record before networking. Only
+Missing selects the first-boot AP path below; corrupt, incompatible or unreadable
+records do not acquire, start an AP, erase storage or choose a sleep interval.
 NVS owns Wi-Fi/time/calendar/weather/refresh values; no compile-time user-field fallback
 or private-file import exists. device_config.h supplies CA trust, evaluation capacities/
-limits and finite prerequisite wait ceilings only. Its tracked example is inert.
+limits, finite prerequisite wait ceilings and setup-only unconfiguredWakeSeconds. Its tracked example is inert.
 Construct transient source views into the stable owned settings outside PSRAM scratch;
 keep them alive through acquisition/rendering. The settings service is not reentrant.
 
 Check positive seconds, uint64 microsecond multiplication and signed IDF duration
 representability before networking. No shorter/default interval is substituted. One
-Wi-Fi connection and fresh immediate-mode SNTP notification serve each wake; register
+Wi-Fi connection and fresh immediate-mode SNTP notification serve each configured refresh; register
 before starting configTime, wait finitely, require this attempt's event, then stop/
 unregister and clear the bridge. Use its one UTC observation for CA verification,
 local window construction and weather/calendar prerequisites. Apply configured TZ
-and verify actual conversion/window invariants. This conservative fresh-NTP-per-wake
+and verify actual conversion/window invariants. This conservative fresh-NTP-per-configured-refresh
 gate is interim, with unmeasured energy cost, not the final approximately-daily RTC
 policy. Ordinary configured NTP is not cryptographically authenticated time.
 
@@ -349,7 +351,8 @@ month retention/layout/agenda-grid policy stays Open.
 CycleStatus and SleepStatus are transient scalar diagnostics, not persistent state
 or a scheduler. Refreshed means display completion, not all-source success. Log
 original source counts and independent operation/shutdown codes.
-Missing config or invalid interval admits no acquisition/sleep. Wi-Fi/time/window/
+Missing build opt-in or invalid interval admits no acquisition/sleep. A Missing NVS
+record uses only the separate setup path and its checked build-only retry interval. Wi-Fi/time/window/
 workspace/shared-calendar failures may take the explicitly configured retry sleep
 only after verified network shutdown and legal release. A renderer failure may sleep
 if panel end was checked/healthy and workspace is Scratch. Unconfirmed networking,
@@ -368,7 +371,7 @@ electrical panel quiescence, PSRAM retention risks and power still need measurem
 The adapted tests/live_dashboard_refresh_test.cpp compiles and invokes the actual
 root with public synthetic configuration and narrow network/SNTP/ADC/timer facades,
 real calendar framing/parser/stage/producer and actual panel borrow/end software.
-Current strict C++11 and ASan/UBSan runs pass 40 root boot/sleep cases, including
+Current strict C++11 and ASan/UBSan runs pass 56 root boot/sleep/setup cases, including
 missing/corrupt/future/I/O settings, read-only reboot/reload and changed runtime inputs.
 They cover normal/partial/all-failed/zero-selection, weather independence, missing CA,
 prerequisite/PSRAM/shared-coordinator/renderer errors, guard/lifetime checks, invalid/
@@ -376,7 +379,7 @@ overflowing intervals, timer rejection, fresh trust each invocation and Retained
 sleep refusal. Supplied decoded weather values are not real JSON parsing; fake TLS,
 SNTP, ADC and sleep are not hardware proof. Target builds/live services/flashing,
 actual RTC/timer wake, memory headroom, battery calibration and panel/energy checks
-remain owner-controlled/deferred. Settings webpage, recovery AP/three-failure screen,
+remain owner-controlled/deferred. Physical settings/recovery activation, three-failure screen,
 final RTC/provider/UI/capacity policies and release readiness are not implemented.
 
 ### Versioned NVS device settings
@@ -409,7 +412,8 @@ not another durable source registry. Actual target RAM/stack headroom is unmeasu
 
 Service uses exactly namespace ee02_settings and blob key config (both within NVS
 15-character limits). load opens NVS_READONLY, queries bounded blob length, reads,
-closes and decodes. Every wake is read-only. Missing, corrupt, future schema,
+closes and decodes. Normal configured wakes are read-only; setup writes only explicit
+changed Save submissions. Missing, corrupt, future schema,
 not-initialized/open/read, write/commit/verify/clear and insufficient-space outcomes
 are distinct pointer-free codes. No component initializes/formats/erases a partition.
 Arduino-ESP32 3.3.12 initializes NVS before setup; its existing esp32-hal-misc.c can
@@ -440,28 +444,152 @@ and interrupted-power recovery remain owner-unverified.
 
 presentation returns separate nonsecret fields and presence booleans; internal()
 is for trusted acquisition only and must not be used by future presentation code.
-Full calendar URLs remain visible, including query tokens, as selected; future
-open-AP/page exposure therefore remains a real privacy boundary. Explicit secret
+Full calendar URLs remain visible, including query tokens, as selected; the active
+open-AP/page exposure is therefore a real privacy boundary. Explicit secret
 Keep/Replace/Clear semantics reject payloads on Keep/Clear and reject the reserved
 ******** mask as Replace. Clear may empty Wi-Fi password for an open network; weather
 key clearing requires weather disabled. Complete candidate validation occurs before
 active/persistent replacement. clear erases only config, commits and verifies Missing;
-failed clear is not success. It is not wired to hardware, a webpage or recovery AP.
+failed clear is not success. Whole-settings clear is not wired to hardware or the
+webpage; the portal exposes only per-secret Clear, never factory reset.
 No raw blob, saved password or saved API key exists in the presentation type. NVS is
 not encrypted/authenticated by this service; flash-access confidentiality is unproven.
 
 Host evidence: tests/device_settings_test.cpp executes 539 codec, truncated-record,
 length/UTF-8/capacity, NVS/error/replacement, presentation/secret-edit and clear checks;
-tests/live_dashboard_refresh_test.cpp executes 40 actual-root cycles including read-only
+tests/live_dashboard_refresh_test.cpp executes 56 actual-root cycles including read-only
 loading, malformed/future/missing records, reboot and changed Wi-Fi/TZ/NTP/calendar
 views. Strict C++11 and ASan/UBSan pass. The NVS stand-in scripts buffered and immediate
 writes plus failed commit; partial bytes are rejected, never accepted as mixed values.
 It does not execute ESP32 flash/NVS or prove physical power-loss behavior. Weather
 success still uses decoded-value scripts, not real ArduinoJson. Relevant existing
 coordinator/weather/dashboard/workspace regressions pass. Target builds/services,
-actual TLS/ADC/panel/sleep, partition fit, memory and power remain deferred. Web/AP,
-first-boot provisioning, physical reset mapping, recovery and RTC lifecycle remain
-unimplemented; no automatic import of any ignored private file occurs.
+actual TLS/ADC/panel/sleep, partition fit, memory and power remain deferred. First-boot
+web/AP provisioning is implemented below; physical reset mapping, configured-device
+recovery and RTC lifecycle remain unimplemented. No private-file import occurs.
+
+### Device-hosted settings and first-boot AP
+
+The root selects exactly one path after build admission and read-only NVS load:
+Ok → the established acquisition/dashboard/sleep cycle; Missing → firstBootSetup();
+all other outcomes → existing fail-closed state, with no erasure/defaults/AP exposure.
+Setup checks workspace Unallocated and snapshot uninitialized, stops any SNTP gate,
+and never constructs dates, fetches weather/calendars, samples battery or borrows
+GFX2. A positive build-only unconfiguredWakeSeconds must pass the existing checked
+interval conversion before AP admission; the tracked zero refuses AP/sleep. No NVS
+V1 field or fallback duration is introduced. Update ignored build headers manually;
+no source config, credentials or legacy values are imported.
+
+settings_http.h implements only GET /, GET /settings, POST /settings, POST
+/session/extend and POST /session/finish. The page renders DeviceSettings::Presentation,
+with all V1 fields and eight calendar rows; count chooses the persisted prefix.
+Checkbox absence means disabled; label/URL inputs are still sent for disabled rows.
+Complete required fields and explicit Keep/Replace/Clear are checked before calling
+Service::saveEdit. Existing complete candidate validation is authoritative. Decoded
+TEXT (including valid UTF-8/TAB) is checked by the existing service; HTTP framing and
+field capacities are independent intake constraints, not a second URL/TZ validator.
+POSIX syntax/provider acceptance remains as limited as V1 validation/root conversion.
+No webpage calls Service::clear or returns internal()/raw records.
+
+Intake bounds: request line 128 bytes, URI 32, individual header line 1,024, total
+metadata 4,096, header count 24, Content-Length/body 24,576, decoded names 32, values
+at most 512 and 36 unique fields with their narrower V1 capacities. A 24 KiB body is
+sufficient for percent-encoded maximum V1 values plus names/control fields. A caller-
+owned Work object is 7,200 bytes on this host, outside task stack/acquisition PSRAM.
+It holds one incremental parser/draft, not another settings authority or full body.
+Reset uses in-place construction, avoiding a second large temporary request object.
+No untrusted size controls String/heap allocation. Response bytes stream through 256
+bytes, capped at 65,536. SDK client receive buffering remains separately bounded.
+Actual target heap/stack/network headroom still requires measurement.
+
+HTTP/1.1 origin-form admission requires one exact numeric Host (bound IP, optional
+:80), and absent or matching http Origin; cross-site Fetch Metadata is rejected.
+POST requires one positive decimal Content-Length and supported URL-encoded type;
+transfer/content encodings, Expect/Upgrade, malformed CRLF/header names, duplicate framing,
+unknown routes/methods/fields, duplicate fields, malformed percent escapes, embedded
+NUL, missing form members and observed surplus/pipelining fail closed. Decoding is
+incremental and single-pass. No parsing after terminal status, unbounded field scans,
+raw-request reflection or mutation through GET/query parameters occurs. Surplus bytes
+not received before legitimate framed close cannot be detected. Bad Host/Origin or
+malformed requests get static errors without configuration/token disclosure.
+
+All public values use context-safe HTML escaping, including quotes, ampersands,
+angle brackets and control references. Full calendar URLs remain intact after HTML
+decoding, deliberately including access tokens. Secret-presence booleans and empty
+new-value inputs replace saved secrets. No submitted secret is reflected on success
+or rejection, embedded in JS/hidden values, redirects or logs. Hidden values contain
+only a fresh session CSRF token (16 esp_fill_random bytes encoded as 32 hex digits,
+generated after radio startup). Token comparisons are fixed-length; all POST routes
+require it. Headers enforce no-store/no-referrer/nosniff, default-src 'none', self-only
+forms, no framing/base injection, and Connection: close. There is no CORS, JS, external
+asset, upload, websocket or raw-settings endpoint. CSRF is not authentication.
+Open Wi-Fi/HTTP offers no confidentiality: people with access can read URLs, attempt
+changes and observe new secret submissions. NVS physical-flash protection is unproven.
+
+settings_portal.h runs one exclusive synchronous session, no new task/scheduler.
+It samples a caller monotonic clock independently of UTC/TZ. Idle is 600,000 ms from
+start/last well-formed token-checked Save or Extend; even a semantically rejected
+complete Save is intentional activity. GET/reload/poll/probes, associations, invalid
+forms and unknown routes never reset idle. Absolute 1,800,000 ms from start cannot
+extend. Every accepted connection shares a 30,000 ms parsing/response deadline that
+progress cannot restart. Regressing/invalid clocks trigger teardown. Elapsed arithmetic
+uses checked comparisons/subtraction. Started synchronous save/commit is never
+interrupted; after it returns, expired session/request budgets stop further I/O.
+The page's remaining times are response-time observations, with no automatic polling.
+Extend opens a separate confirmation tab so the original form retains unsaved edits.
+
+Save success/Unchanged is reported only after the service confirms it. Failed write/
+commit/verify returns failure, reloads disk and shows the currently accepted record
+rather than assuming flash rollback. If reload is neither Ok nor Missing, further
+edits are refused and no Finish control appears. A valid Finish independently loads
+and validates persisted data again, writes its entire bounded completion response,
+then closes the client/listener/AP. Response failure does not authorize restart.
+The root restarts via esp_restart only after verified teardown and legal resource
+release; the next boot must load NVS normally. A save is not a live credential/CA test.
+If no Finish arrives, timeout still closes service; saved settings survive and the
+next timer wake uses normal NVS routing. No per-session state/token/counters are stored.
+
+settings_portal_arduino.h uses inspected Arduino-ESP32 3.3.12 NetworkServer(address,
+80,1), begin/accept/end, NetworkClient read/available/fd/stop, WiFi SoftAP and 64-bit
+esp_timer time. The first-boot SSID is fixed EE02-Setup, no password/login, with
+192.168.4.1 gateway/address and 255.255.255.0 mask. WiFi.persistent(false) precedes
+AP-only mode, softAPConfig and softAP(...,nullptr,1,0,1); source AP::create zeroes the
+configuration and leaves OPEN authentication when passphrase is null. There is no
+station begin, stored station credential use, wildcard listener or DNS interception.
+One HTTP client is active with backlog one; one AP station is the provisional bound.
+NetworkClient internally uses nonblocking receive. NetworkClient::write restarts its
+retry loop on progress, so this narrow adapter uses the public fd and one lwIP
+send(MSG_DONTWAIT) per bounded attempt; the outer whole-request deadline remains in
+control. Empty polls/writes yield. NetworkClient::flush is a no-op in this core;
+"response sent" means accepted by the socket, not proven browser delivery.
+
+Shutdown closes the active client, checks fd/connected, calls server.end and checks
+its listening state, then softAPdisconnect(true), mode(WIFI_OFF) and getMode. These
+are SDK-observable checks backed by inspected source, not electrical shutdown or
+physical TCP-delivery proof; NetworkServer end/NetworkClient stop return void and
+cannot report every kernel close fault. Failed observable teardown prevents sleep/
+restart. The root additionally checks no SNTP or workspace/snapshot users remain.
+On timeout or cleanly shut-down setup failure, it configures the checked build-only
+retry timer and sleeps only after ESP_OK; no invented refresh default, recovery
+counter or RTC policy is selected. Uncertain shutdown/Retained/resources/timer failure
+refuse sleep. Setup itself performs no display update.
+
+awakeLan(settings, work, localIPv4) is an explicit reusable entry for a connected
+STA-only caller with exclusive awake ownership. It binds to that station IPv4,
+shares all parser/page/service/session behavior, and closes only its HTTP listener/
+clients; station connection/persistence and later restart/sleep stay caller-owned.
+No normal root refresh starts it. Physical GPIO/wake integration, wrong-Wi-Fi recovery,
+factory-reset gesture, three-failure policy, AP-based configured recovery, RTC validity,
+certificate rotation and final battery-conscious setup retry remain deferred.
+
+Host evidence: 218 focused HTTP/session cases exercise framing, exact capacities,
+malformed/fragmented forms, escaping/non-disclosure, real V1 save/error/reload, explicit
+secret edits and idle/absolute/request deadlines. The narrow Arduino facade checks
+open AP/bind/clock/shutdown/LAN ownership; the actual root fixture exercises first-boot
+Save/Finish/restart/reload and normal calendar publication/render/sleep independently.
+Strict C++11 and ASan/UBSan pass. These fakes do not prove physical AP, browser behavior,
+flash persistence, radio power, actual timer wake or target compatibility. No packages
+were installed, no private configuration read and no live service/device requests made.
 
 ### Vendored GFX2 dependency baseline
 
@@ -1512,7 +1640,7 @@ no new physical evidence follows from these runs. Commands are in AGENTS.md.
 The final grid/agenda and waking-hour decisions remain Open. This example preview
 is a controlled intermediate display path, not a separate permanent application or
 the first live wall-calendar milestone. The former live sketch is now the canonical root. Broader ICS-to-snapshot support,
-recurrence/timezone normalization, final RTC/settings-UI/recovery and physical validation
+recurrence/timezone normalization, final RTC/physical-setup/recovery and physical validation
 remain separate independently authorized outcomes.
 
 ### Authenticated production weather HTTPS
@@ -3527,10 +3655,11 @@ complete temporal conformance, source acceptance or ESP32 runtime performance.
 The canonical root wake-cycle section above owns the active sequence and its error/
 sleep boundary. It replaces the legacy syncTime/updateWeather/month-grid/dead-zone
 sequence, which remains visible only in inactive reference headers and Git history.
-There is one configured Wi-Fi session, fresh NTP on every wake, independent weather
+There is one configured Wi-Fi session, fresh NTP on each configured refresh, independent weather
 attempts, sequential selected ICS sources, one battery read, verified network/parser
 shutdown, exclusive dashboard borrow, checked panel end, release and timer sleep.
-No error screen, retry loop or recovery AP is introduced. Software status checks
+The separate Missing-only setup AP is implemented; no error screen, active polling
+retry loop or configured-device recovery AP is introduced. Software status checks
 are not electrical shutdown or battery-life evidence.
 
 ### Service, data and storage boundaries
@@ -3541,7 +3670,7 @@ unchanged dt_txt grouping/time-label assumptions. The explicit request context
 chooses location/key without altering provider interpretation. Weather storage is
 the original single volatile arrays. Calendar URLs use the authenticated streaming
 ICS path and restricted producer, not Apps Script; source-owned titles and occurrence
-ranges reside only in the independent volatile snapshot. Data are rebuilt each wake.
+ranges reside only in the independent volatile snapshot. Data are rebuilt each configured refresh.
 
 The current supported nonrecurring UTC/DATE profile is not full provider/recurrence/
 TZID/revision acceptance. Unsupported source semantics stay Incomplete even outside
@@ -3746,7 +3875,8 @@ limits. Contrary engineering evidence requires explicit review and adjudication.
 immutable compatible pins for other dependencies, broader focused C++ host coverage, explicit
 production source-results/time normalization, future configuration migration and
 expanded provider access and certificate-update mechanisms. V1 NVS whole-record save
-and presentation semantics are now implemented; device-hosted settings remain pending. The canonical root
+and presentation semantics plus first-boot device-hosted setup are implemented;
+physical activation and future migration remain pending. The canonical root
 now composes inspected CA/hostname-authenticated weather/ICS APIs; actual TLS
 interoperability remains unverified. The initial GFX2 source pin is approved and imported;
 its local borrowing, scoped workspace and synthetic snapshot are implemented with isolated compile/link

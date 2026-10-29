@@ -5,6 +5,9 @@
 // No usable CA trust is supplied. Certificate rotation remains Open.
 namespace DeviceConfig {
 static const bool configured=false;
+// Positive build-only first-boot setup retry seconds required before AP starts.
+// Zero is inert: supply your own provisional interval, NOT a production default.
+static const uint64_t unconfiguredWakeSeconds=0;
 static const char caPem[]="";
 static const char weatherCaPem[]="";
 // Provisional DEVELOPMENT evaluation bounds, not approved operating capacities.
